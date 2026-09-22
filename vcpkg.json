@@ -3,7 +3,10 @@
   "version-string": "1",
   "description": "Warm-up manifest for shared qigao third-party vcpkg binary packages.",
   "dependencies": [
-    { "name": "pkgconf", "host": true },
+    {
+      "name": "pkgconf",
+      "host": true
+    },
     "simde",
     "zstd",
     "aklomp-base64",
@@ -14,7 +17,10 @@
     "miniaudio",
     "lua",
     "libyuv",
-    "libusb"
+    "libusb",
+    "llhttp",
+    "tree-sitter",
+    "tree-sitter-c"
   ],
   "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
 }
