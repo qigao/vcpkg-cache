@@ -65,6 +65,46 @@ jobs:
         run: |
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
 
+  windows-2022-cache-contract:
+    name: Windows 2022 cache contract
+    needs: windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP "empty-vcpkg-l1"
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_BINARY_CACHE=$cache" >> $env:GITHUB_ENV
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare host dependencies
+        shell: pwsh
+        run: choco install nasm ninja -y --no-progress
+      - name: Verify clean restore from GitHub Packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $log = Join-Path $env:RUNNER_TEMP "windows-2022-cache-contract.log"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --x-manifest-root=. `
+            --x-install-root=(Join-Path $env:RUNNER_TEMP "windows-2022-cache-contract-installed") `
+            --triplet x64-windows 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg restore failed" }
+          $text = Get-Content -LiteralPath $log -Raw
+          if ($text -match "(?m)^Building ") {
+            throw "Windows 2022 shared cache miss detected; a package rebuilt from source."
+          }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "Windows 2022 shared cache did not restore packages from NuGet."
+          }
+
   windows-latest:
     name: Windows latest x64
     runs-on: windows-latest
@@ -165,6 +205,7 @@ jobs:
 
   turbodb-postgresql-linux:
     name: TurboDB PostgreSQL Linux x64
+    needs: linux
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -225,6 +266,7 @@ jobs:
 
   turbodb-postgresql-windows:
     name: TurboDB PostgreSQL Windows 2022 x64
+    needs: windows
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
