@@ -30,7 +30,7 @@ target_link_libraries(my_app PRIVATE Praktor::Praktor)
 Android 应用另需部署 libc++_shared.so；设备运行、系统服务权限和应用沙箱
 约束需在目标应用中验证，不把交叉编译成功当作设备运行验收。
 
-Linux/macOS 执行启用脚本引擎的 CTest，然后从重新解包的 SDK 构建和运行
+Linux/macOS 执行启用脚本引擎的完整 CTest（包含 HTTP 回环服务、触发依赖单次执行和并发验证），然后从重新解包的 SDK 构建和运行
 外部消费端，验证命令工作流、脚本能力位和 `ctx.output("answer", 6 * 7)`。
 Android 验证 ELF 架构及外部消费端交叉链接。所有平台产物必须记录相同的
 Praktor 源码提交，全部通过后才合并打包，并从最终 NuGet 包独立还原、运行脚本工作流，成功后发布。
