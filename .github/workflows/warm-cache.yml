@@ -170,6 +170,39 @@ jobs:
             --x-install-root=build/vcpkg-turbodb-postgresql-linux \
             --triplet x64-linux
 
+      - name: Verify libpq_x64-linux publication
+        shell: python
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          import base64, json, os, time, urllib.parse, urllib.request
+          auth = base64.b64encode(f"qigao:{os.environ['GITHUB_TOKEN']}".encode()).decode()
+          headers = {"Authorization": f"Basic {auth}", "Accept": "application/json"}
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return json.load(response)
+
+          index = get_json("https://nuget.pkg.github.com/qigao/index.json")
+          search = next(
+              item["@id"] for item in index["resources"]
+              if "SearchQueryService" in item.get("@type", "")
+          )
+          expected = "libpq_x64-linux"
+          for attempt in range(18):
+              url = search + "?" + urllib.parse.urlencode(
+                  {"q": "libpq", "prerelease": "true", "take": "100"}
+              )
+              rows = get_json(url).get("data", [])
+              ids = {item.get("id") for item in rows}
+              if expected in ids:
+                  print(f"published: {expected}")
+                  break
+              if attempt == 17:
+                  raise SystemExit(f"GitHub Packages does not expose {expected}: {sorted(ids)}")
+              time.sleep(10)
+
   turbodb-postgresql-windows:
     name: TurboDB PostgreSQL Windows x64
     runs-on: windows-latest
@@ -192,3 +225,36 @@ jobs:
             --x-manifest-root=manifests/turbodb-postgresql `
             --x-install-root=build/vcpkg-turbodb-postgresql-windows `
             --triplet x64-windows
+
+      - name: Verify libpq_x64-windows publication
+        shell: python
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          import base64, json, os, time, urllib.parse, urllib.request
+          auth = base64.b64encode(f"qigao:{os.environ['GITHUB_TOKEN']}".encode()).decode()
+          headers = {"Authorization": f"Basic {auth}", "Accept": "application/json"}
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return json.load(response)
+
+          index = get_json("https://nuget.pkg.github.com/qigao/index.json")
+          search = next(
+              item["@id"] for item in index["resources"]
+              if "SearchQueryService" in item.get("@type", "")
+          )
+          expected = "libpq_x64-windows"
+          for attempt in range(18):
+              url = search + "?" + urllib.parse.urlencode(
+                  {"q": "libpq", "prerelease": "true", "take": "100"}
+              )
+              rows = get_json(url).get("data", [])
+              ids = {item.get("id") for item in rows}
+              if expected in ids:
+                  print(f"published: {expected}")
+                  break
+              if attempt == 17:
+                  raise SystemExit(f"GitHub Packages does not expose {expected}: {sorted(ids)}")
+              time.sleep(10)
