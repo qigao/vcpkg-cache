@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install ninja nasm
+          brew install ninja nasm autoconf automake autoconf-archive
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
           git -C vcpkg checkout "$VCPKG_BASELINE"
