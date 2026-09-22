@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(flowmq_package_smoke LANGUAGES C)
+find_package(FlowMQ CONFIG REQUIRED)
+add_executable(flowmq_package_smoke main.c)
+target_link_libraries(flowmq_package_smoke PRIVATE FlowMQ::FlowMQ)
+enable_testing()
+add_test(NAME flowmq_package_smoke COMMAND flowmq_package_smoke)
