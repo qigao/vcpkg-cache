@@ -142,7 +142,7 @@ jobs:
           dotnet-version: "8.0.x"
       - name: Pack
         run: >-
-          dotnet pack packaging/re2c/Qigao.Re2c.Tools.csproj
+          dotnet pack packaging/re2c/Qigao.VcpkgCache.Re2c.Tools.csproj
           --configuration Release --output dist
           -p:PackageVersion="$RE2C_PACKAGE_VERSION"
           -p:PackageRoot="$GITHUB_WORKSPACE/package"
@@ -150,7 +150,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          nupkg="dist/Qigao.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg"
+          nupkg="dist/Qigao.VcpkgCache.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg"
           unzip -Z1 "$nupkg" | sort | tee "$RUNNER_TEMP/re2c-nupkg.txt"
           grep -Fx "tools/linux-x64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"
           grep -Fx "tools/windows-x64/bin/re2c.exe" "$RUNNER_TEMP/re2c-nupkg.txt"
@@ -167,4 +167,4 @@ jobs:
         run: |
           set -euo pipefail
           dotnet nuget add source --username qigao --password "$GITHUB_TOKEN" --store-password-in-clear-text --name github https://nuget.pkg.github.com/qigao/index.json
-          dotnet nuget push "dist/Qigao.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github --skip-duplicate
+          dotnet nuget push "dist/Qigao.VcpkgCache.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github --skip-duplicate
