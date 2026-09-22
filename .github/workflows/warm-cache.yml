@@ -238,14 +238,6 @@ jobs:
       - name: Prepare PostgreSQL host dependencies
         shell: pwsh
         run: choco install nasm ninja -y --no-progress
-      - name: Warm shared Windows 2022 dependencies
-        shell: pwsh
-        run: |
-          & "$env:VCPKG_ROOT\vcpkg.exe" install `
-            --x-manifest-root=. `
-            --x-install-root=build/vcpkg-windows-2022 `
-            --triplet x64-windows
-
       - name: Warm TurboDB PostgreSQL dependencies
         shell: pwsh
         run: |
