@@ -34,7 +34,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm libudev-dev
       - name: Warm x64-linux
-        run: "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet x64-linux
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet x64-linux
 
   windows:
     name: Windows x64
@@ -53,7 +54,8 @@ jobs:
         run: choco install nasm ninja -y --no-progress
       - name: Warm x64-windows
         shell: pwsh
-        run: '& "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows'
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
 
   macos:
     name: macOS host
@@ -78,7 +80,8 @@ jobs:
             *) echo "unsupported macOS arch: $RUNNER_ARCH" >&2; exit 1 ;;
           esac
       - name: Warm macOS
-        run: "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
 
   android:
     name: Android arm64
@@ -100,4 +103,5 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
           test -n "${ANDROID_NDK_HOME:-}"
       - name: Warm arm64-android
-        run: "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet arm64-android
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet arm64-android
