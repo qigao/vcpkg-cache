@@ -56,24 +56,7 @@ runs:
 
         feed="https://nuget.pkg.github.com/qigao/index.json"
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
-        revision="$(python3 - "$action_root" <<'PY'
-import hashlib
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-files = [p for p in (root / "ports").rglob("*") if p.is_file()]
-files.append(root / ".github/actions/setup-vcpkg-cache/action.yml")
-h = hashlib.sha256()
-for path in sorted(files, key=lambda p: p.relative_to(root).as_posix()):
-    rel = path.relative_to(root).as_posix().encode()
-    h.update(rel)
-    h.update(b"\\0")
-    h.update(path.read_bytes())
-    h.update(b"\\0")
-print(h.hexdigest())
-PY
-)"
+        revision="$(python3 -c 'import hashlib,pathlib,sys;root=pathlib.Path(sys.argv[1]);files=[p for p in (root/"ports").rglob("*") if p.is_file()]+[root/".github/actions/setup-vcpkg-cache/action.yml"];h=hashlib.sha256();[(h.update(p.relative_to(root).as_posix().encode()+b"\\0"),h.update(p.read_bytes()),h.update(b"\\0")) for p in sorted(files,key=lambda p:p.relative_to(root).as_posix())];print(h.hexdigest())' "$action_root")"
         config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
 
         cat > "$config" <<EOF
