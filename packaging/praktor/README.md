@@ -1,37 +1,42 @@
 # Praktor.Native
 
-Praktor's native C SDK is built from `qigao/praktor@master` and published by
-`qigao/vcpkg-cache` to the qigao GitHub Packages NuGet feed.
+Praktor 从 `qigao/praktor@master` 构建，由 `qigao/vcpkg-cache` 发布到
+qigao GitHub Packages NuGet feed。
 
-The initial package contains **Linux x64, Release, Ubuntu 24.04, core-only**
-(`ENABLE_SCRIPT_ENGINE=OFF`). Windows, macOS, Android and TurboScript-enabled
-builds are not included. Package versions use the Praktor CMake version plus
-`-ci.<run_number>.<run_attempt>` so a moving master never overwrites a release.
-The installed manifest records the actual source commit and dependency versions.
+本包为 **Release、启用 TurboScript 的 SDK**，包含：
 
-Restore `Praktor.Native` and its exact transitive native SDK dependencies using
-NuGet from `https://nuget.pkg.github.com/qigao/index.json`. GitHub Packages
-requires a token with package read access. NuGet restores files; it does not
-automatically configure native CMake projects.
+- `sdk/linux-x64`
+- `sdk/macos-arm64`
+- `sdk/android-arm64-v8a`（NDK API 26、c++_shared）
 
-Set `CMAKE_PREFIX_PATH` to the four restored packages' `sdk/linux-x64`
-directories, and set `SALTS_ROOT`, `SALTS_UTILS_ROOT`, and `CHTTP_ROOT` to the
-corresponding directories. Supply the shared vcpkg toolchain for third-party
-dependencies. Then consume the exported target:
+依赖 Salts.Native 1.2.0、SaltsUtils.Native 2.0.2、CHttp.Native 1.0.0，以及
+TurboScript.Native 3.0.0-ci.8.1。TurboScript 使用嵌入式
+解释器/JIT SDK，包含 os/net 等原生扩展模块，不附带 CLI。Windows 尚未纳入本次矩阵。
+
+从 `https://nuget.pkg.github.com/qigao/index.json` 还原 Praktor.Native，
+NuGet 会一同还原上述依赖。GitHub Packages 需要具有包读取权限的 token。
+NuGet 负责文件还原，CMake 消费端需另行配置：
+
+1. 将各 SDK 对应平台目录加入 `CMAKE_PREFIX_PATH`。
+2. 设置 `SALTS_ROOT`、`SALTS_UTILS_ROOT`、`CHTTP_ROOT`、`TURBOSCRIPT_ROOT`。
+3. 使用共享 vcpkg 工具链满足第三方依赖，链接公开 target：
 
 ```cmake
 find_package(Praktor CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE Praktor::Praktor)
 ```
 
-At runtime, include the SDK `lib` directories and any shared third-party
-dependency directories in the loader search path. This is a native SDK with
-external dependencies, not a standalone executable bundle. The publication
-workflow restores the finished NuGet package into a separate directory, hides
-the original install prefix, then builds and runs `smoke/` against that package.
+运行时把 SDK 和第三方共享库目录加入系统动态库搜索路径。
+Android 应用另需部署 libc++_shared.so；设备运行、系统服务权限和应用沙箱
+约束需在目标应用中验证，不把交叉编译成功当作设备运行验收。
 
-The `Praktor native SDK package` workflow builds and validates on pull requests
-without publishing. On master it publishes only after package restore and the
-C ABI workflow execution smoke pass. `workflow_dispatch` also rebuilds current
-Praktor master, allowing publication after product changes without changing
-this repository. Compilation, packing, restore, or smoke failures block publish.
+Linux/macOS 执行启用脚本引擎的完整 CTest（包含 HTTP 回环服务、触发依赖单次执行和并发验证），然后从重新解包的 SDK 构建和运行
+外部消费端，验证命令工作流、脚本能力位和 `ctx.output("answer", 6 * 7)`。
+Android 验证 ELF 架构及外部消费端交叉链接。所有平台产物必须记录相同的
+Praktor 源码提交，全部通过后才合并打包，并从最终 NuGet 包独立还原、运行脚本工作流，成功后发布。
+
+版本从产品版本派生为唯一 `-script.<run>.<attempt>` 预发布版本；每个平台
+manifest 记录源码提交、依赖版本和构建配置。PR 仅构建验证，master 发布。
+手动 dispatch 可在 Praktor master 更新后启动新版本发布。
+
+旧 `0.3.0-ci.2.1` 仅包含 Linux x64 core-only，仍是独立的历史版本。

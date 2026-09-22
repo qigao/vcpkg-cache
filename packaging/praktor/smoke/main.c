@@ -41,9 +41,9 @@ int main(int argc, char **argv) {
   if (argc != 3) return 2;
   if (!api) return 3;
   if ((api->capabilities & PRAKTOR_CAPABILITY_JSON_WORKFLOW) == 0) return 4;
-  if ((api->capabilities & PRAKTOR_CAPABILITY_SCRIPT_ENGINE) != 0) return 5;
+  if ((api->capabilities & PRAKTOR_CAPABILITY_SCRIPT_ENGINE) == 0) return 5;
   if (run_one(argv[1], 1, "success") != 0) return 6;
-  if (run_one(argv[2], 0, "ENABLE_SCRIPT_ENGINE=OFF") != 0) return 7;
-  puts("PRAKTOR_CORE_ONLY_REAL_ABI_OK");
+  if (run_one(argv[2], 1, "42") != 0) return 7;
+  puts("PRAKTOR_SCRIPT_ENABLED_REAL_ABI_OK");
   return 0;
 }

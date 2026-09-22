@@ -7,7 +7,7 @@ This repository is the source of truth for two reusable build inputs:
 1. **vcpkg overlay ports and binary cache** — custom ports live in `ports/` and compatible binaries are published to the qigao GitHub Packages NuGet feed.
 2. **re2c host binaries** — `Qigao.Re2c.Binary` contains prebuilt re2c executables and stdlib data for CI hosts.
 
-Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and versioned by their product repositories. `Praktor.Native` and `FlowMQ.Native` are built from their product default branches and published centrally here; their initial supported profile is Linux x64 Release. See [Praktor SDK packaging and consumption](packaging/praktor/README.md) and [FlowMQ SDK packaging and consumption](packaging/flowmq/README.md).
+Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and versioned by their product repositories. `Praktor.Native` and `FlowMQ.Native` are built from their product default branches and published centrally here; Praktor supports Linux x64, macOS arm64 and Android arm64-v8a Release with TurboScript enabled, while FlowMQ's initial profile is Linux x64 Release. See [Praktor SDK packaging and consumption](packaging/praktor/README.md) and [FlowMQ SDK packaging and consumption](packaging/flowmq/README.md).
 
 ## Shared vcpkg baseline
 

@@ -1,4 +1,4 @@
 tasks:
-  - name: script_rejected
+  - name: script_result
     script: |
-      ctx.output("unexpected", true);
+      ctx.output("answer", 6 * 7);
