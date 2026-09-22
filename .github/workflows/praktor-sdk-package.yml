@@ -291,4 +291,4 @@ jobs:
           --username qigao --password "$GITHUB_TOKEN" --store-password-in-clear-text
         dotnet nuget push "dist/Praktor.Native.$SDK_VERSION.nupkg" --source github --api-key "$GITHUB_TOKEN"
 env:
-  TURBOSCRIPT_SDK_VERSION: 3.0.0-ci.5.1
+  TURBOSCRIPT_SDK_VERSION: 3.0.0-ci.8.1

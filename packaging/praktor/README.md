@@ -10,8 +10,8 @@ qigao GitHub Packages NuGet feed。
 - `sdk/android-arm64-v8a`（NDK API 26、c++_shared）
 
 依赖 Salts.Native 1.2.0、SaltsUtils.Native 2.0.2、CHttp.Native 1.0.0，以及
-TurboScript.Native 3.0.0-ci.5.1。TurboScript 使用嵌入式
-解释器/JIT SDK，不附带其 CLI 和原生扩展模块。Windows 尚未纳入本次矩阵。
+TurboScript.Native 3.0.0-ci.8.1。TurboScript 使用嵌入式
+解释器/JIT SDK，包含 os/net 等原生扩展模块，不附带 CLI。Windows 尚未纳入本次矩阵。
 
 从 `https://nuget.pkg.github.com/qigao/index.json` 还原 Praktor.Native，
 NuGet 会一同还原上述依赖。GitHub Packages 需要具有包读取权限的 token。
