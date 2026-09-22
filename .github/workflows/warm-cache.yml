@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm libudev-dev
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
           git -C vcpkg checkout "$VCPKG_BASELINE"
@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install ninja nasm autoconf automake autoconf-archive
+          brew install ninja nasm autoconf automake autoconf-archive libtool
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
           git -C vcpkg checkout "$VCPKG_BASELINE"
