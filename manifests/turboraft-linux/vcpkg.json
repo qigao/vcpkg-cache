@@ -1,0 +1,12 @@
+{
+  "name": "qigao-turboraft-linux-cache",
+  "version-string": "1",
+  "description": "Linux-only dependency warm-up for TurboRaft full-stack acceptance.",
+  "dependencies": [
+    {
+      "name": "zeromq",
+      "default-features": false
+    }
+  ],
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}
