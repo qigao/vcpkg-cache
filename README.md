@@ -15,7 +15,7 @@ Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and ver
 b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 ```
 
-The root warm-cache manifest includes the common dependency set used across the core native repositories. Repository- or stack-specific ABI combinations live under `manifests/` (for example TurboRaft and STUN Linux dependency sets).
+The root warm-cache manifest includes the common dependency set used across the core native repositories. Repository- or stack-specific ABI combinations live under `manifests/`, including TurboRaft, STUN Linux, and TurboDB PostgreSQL. The TurboDB manifest warms the exact `libpq[zstd]` contract used by the PostgreSQL driver on Linux and Windows.
 
 ## Central overlay ports
 
@@ -23,6 +23,7 @@ The root warm-cache manifest includes the common dependency set used across the 
 
 - `aklomp-base64`
 - `c-ares`
+- `libpq` — PostgreSQL 16.9 client port using BoringSSL
 - `zstd`
 
 Consumers should not keep private copies of these ports. In GitHub Actions, use:
