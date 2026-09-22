@@ -52,14 +52,14 @@ runs:
 
         if [ ! -x "$root/vcpkg" ]; then
           rm -rf "$root"
-          mkdir -p "$root"
-          git -C "$root" init -q
-          git -C "$root" remote add origin https://github.com/microsoft/vcpkg.git
-          git -C "$root" fetch --depth 1 origin "$baseline"
-          git -C "$root" checkout --detach FETCH_HEAD
+          git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git "$root"
+          git -C "$root" checkout --detach "$baseline"
           "$root/bootstrap-vcpkg.sh" -disableMetrics
         fi
 
+        if [ "$(git -C "$root" rev-parse --is-shallow-repository)" = "true" ]; then
+          git -C "$root" fetch --unshallow --filter=blob:none origin
+        fi
         test "$(git -C "$root" rev-parse HEAD)" = "$baseline"
         "$root/vcpkg" version
         echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
@@ -79,17 +79,19 @@ runs:
 
         if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
           if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-          git -C $root init -q
-          git -C $root remote add origin https://github.com/microsoft/vcpkg.git
-          git -C $root fetch --depth 1 origin $baseline
-          if ($LASTEXITCODE -ne 0) { throw "failed to fetch vcpkg $baseline" }
-          git -C $root checkout --detach FETCH_HEAD
+          git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git $root
+          if ($LASTEXITCODE -ne 0) { throw "failed to clone vcpkg" }
+          git -C $root checkout --detach $baseline
           if ($LASTEXITCODE -ne 0) { throw "failed to checkout vcpkg $baseline" }
           & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
           if ($LASTEXITCODE -ne 0) { throw "failed to bootstrap vcpkg $baseline" }
         }
 
+        $isShallow = (git -C $root rev-parse --is-shallow-repository).Trim()
+        if ($isShallow -eq "true") {
+          git -C $root fetch --unshallow --filter=blob:none origin
+          if ($LASTEXITCODE -ne 0) { throw "failed to unshallow vcpkg" }
+        }
         $actual = (git -C $root rev-parse HEAD).Trim()
         if ($actual -ne $baseline) { throw "vcpkg revision mismatch: $actual != $baseline" }
         & $exe version
