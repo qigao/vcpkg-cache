@@ -81,6 +81,10 @@ jobs:
     - uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
+    - uses: actions/setup-python@v5
+      if: matrix.rid != 'android-arm64-v8a'
+      with:
+        python-version: '3.12'
     - name: Prepare tools
       shell: bash
       run: |
@@ -108,6 +112,35 @@ jobs:
         echo "SALTS_UTILS_ROOT=$packages/saltsutils.native/2.0.2/sdk/$RID" >> "$GITHUB_ENV"
         echo "CHTTP_ROOT=$packages/chttp.native/1.0.0/sdk/$RID" >> "$GITHUB_ENV"
         echo "TURBOSCRIPT_ROOT=$packages/turboscript.native/$TURBOSCRIPT_SDK_VERSION/sdk/$RID" >> "$GITHUB_ENV"
+    - name: Verify HTTP fixture interpreter startup
+      if: matrix.rid != 'android-arm64-v8a'
+      shell: bash
+      run: |-
+        set -euo pipefail
+        export LD_LIBRARY_PATH="$TURBOSCRIPT_ROOT/lib:$CHTTP_ROOT/lib:$SALTS_UTILS_ROOT/lib:$SALTS_ROOT/lib:$GITHUB_WORKSPACE/vcpkg_installed/$TRIPLET/lib"
+        export DYLD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+        python - <<'PYTHON'
+        import pathlib, subprocess, sys, tempfile, time
+        source = pathlib.Path("upstream/praktor/praktor/test/script_engine_test.cpp").read_text()
+        fixture = source.split('writeFile(script_path, R"py(', 1)[1].split(')py");', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            script, ready = root / "server.py", root / "ready.txt"
+            script.write_text("import faulthandler\nfaulthandler.dump_traceback_later(10, repeat=True)\n" + fixture)
+            process = subprocess.Popen([sys.executable, str(script), str(ready)])
+            try:
+                deadline = time.monotonic() + 35
+                while not ready.exists():
+                    if process.poll() is not None:
+                        raise RuntimeError(f"HTTP fixture exited: {process.returncode}")
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("HTTP fixture startup timed out; see Python stack above")
+                    time.sleep(0.05)
+                print(f"HTTP fixture ready: Python={sys.executable}, port={ready.read_text()}")
+            finally:
+                process.terminate()
+                process.wait(timeout=5)
+        PYTHON
     - name: Build script-enabled Praktor SDK
       shell: bash
       run: |
@@ -123,6 +156,7 @@ jobs:
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_shared
             "-DPRAKTOR_HOST_LEMON_EXECUTABLE=$GITHUB_WORKSPACE/build/host/lemon" )
         fi
+        if [[ "$tests" == ON ]]; then args+=( "-DPython3_EXECUTABLE=$(command -v python)" ); fi
         cmake -S upstream/praktor -B build/sdk -G Ninja -DCMAKE_BUILD_TYPE=Release \
           "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
           "-DVCPKG_TARGET_TRIPLET=$TRIPLET" "-DVCPKG_INSTALLED_DIR=$GITHUB_WORKSPACE/vcpkg_installed" \
