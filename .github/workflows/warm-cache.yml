@@ -6,6 +6,7 @@ on:
     paths:
       - "ports/**"
       - "vcpkg.json"
+      - "manifests/**"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
   workflow_dispatch:
@@ -36,6 +37,13 @@ jobs:
       - name: Warm x64-linux
         run: |
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet x64-linux
+
+      - name: Warm TurboRaft Linux-only dependencies
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=manifests/turboraft-linux \
+            --x-install-root=build/vcpkg-turboraft-linux \
+            --triplet x64-linux
 
   windows:
     name: Windows x64
