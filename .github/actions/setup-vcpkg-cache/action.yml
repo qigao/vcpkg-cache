@@ -56,7 +56,24 @@ runs:
 
         feed="https://nuget.pkg.github.com/qigao/index.json"
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
-        revision="$(git -C "$action_root" rev-parse HEAD)"
+        revision="$(python3 - "$action_root" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+files = [p for p in (root / "ports").rglob("*") if p.is_file()]
+files.append(root / ".github/actions/setup-vcpkg-cache/action.yml")
+h = hashlib.sha256()
+for path in sorted(files, key=lambda p: p.relative_to(root).as_posix()):
+    rel = path.relative_to(root).as_posix().encode()
+    h.update(rel)
+    h.update(b"\\0")
+    h.update(path.read_bytes())
+    h.update(b"\\0")
+print(h.hexdigest())
+PY
+)"
         config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
 
         cat > "$config" <<EOF
@@ -108,8 +125,18 @@ runs:
 
         $feed = "https://nuget.pkg.github.com/qigao/index.json"
         $actionRoot = (Resolve-Path (Join-Path "${{ github.action_path }}" "..\..\..")).Path
-        $revision = (& git -C $actionRoot rev-parse HEAD).Trim()
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($revision)) { throw "failed to resolve vcpkg-cache revision" }
+        $revisionFiles = @(
+          Get-ChildItem -LiteralPath (Join-Path $actionRoot "ports") -Recurse -File |
+            Sort-Object FullName
+        )
+        $revisionFiles += Get-Item -LiteralPath (Join-Path $actionRoot ".github\actions\setup-vcpkg-cache\action.yml")
+        $revisionMaterial = foreach ($file in $revisionFiles) {
+          $relative = [IO.Path]::GetRelativePath($actionRoot, $file.FullName).Replace("\", "/")
+          $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$relative$([char]0)$hash"
+        }
+        $revisionBytes = [Text.Encoding]::UTF8.GetBytes(($revisionMaterial -join [Environment]::NewLine))
+        $revision = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($revisionBytes)).ToLowerInvariant()
         $config = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-nuget.config"
 
         @"
