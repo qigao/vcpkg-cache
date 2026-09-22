@@ -65,6 +65,26 @@ jobs:
         run: |
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
 
+  windows-latest:
+    name: Windows latest x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare host dependencies
+        shell: pwsh
+        run: choco install nasm ninja -y --no-progress
+      - name: Warm x64-windows
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
+
   macos:
     name: macOS host
     runs-on: macos-15
