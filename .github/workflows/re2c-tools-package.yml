@@ -1,14 +1,16 @@
-name: re2c tools package
+name: re2c binary package
 
 on:
   pull_request:
     paths:
       - "packaging/re2c/**"
+      - ".github/actions/setup-re2c-tools/**"
       - ".github/workflows/re2c-tools-package.yml"
   push:
     branches: [master]
     paths:
       - "packaging/re2c/**"
+      - ".github/actions/setup-re2c-tools/**"
       - ".github/workflows/re2c-tools-package.yml"
   workflow_dispatch:
 
@@ -44,7 +46,7 @@ jobs:
           cp -a upstream/re2c/include/. stage/package-tools/linux-x64/share/re2c/stdlib/
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-tools-linux-x64
+          name: re2c-binary-linux-x64
           path: stage/package-tools
           if-no-files-found: error
 
@@ -79,7 +81,7 @@ jobs:
           cp -a upstream/re2c/include/. "stage/package-tools/$rid/share/re2c/stdlib/"
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-tools-macos
+          name: re2c-binary-macos
           path: stage/package-tools
           if-no-files-found: error
 
@@ -110,7 +112,7 @@ jobs:
           Copy-Item ".\upstream\re2c\include\*" ".\stage\package-tools\windows-x64\share\re2c\stdlib" -Recurse
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-tools-windows-x64
+          name: re2c-binary-windows-x64
           path: stage/package-tools
           if-no-files-found: error
 
@@ -125,7 +127,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: re2c-tools-*
+          pattern: re2c-binary-*
           path: package/tools
           merge-multiple: true
       - name: Verify payload
@@ -137,13 +139,12 @@ jobs:
           test -f package/tools/linux-x64/share/re2c/stdlib/unicode_categories.re
           test -f package/tools/linux-x64/share/re2c/stdlib/unicode_properties.re
           test -f package/tools/windows-x64/share/re2c/stdlib/unicode_categories.re
-          find package/tools -maxdepth 5 -type f -print
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
       - name: Pack
         run: >-
-          dotnet pack packaging/re2c/Qigao.Re2c.Tools.csproj
+          dotnet pack packaging/re2c/Qigao.Re2c.Binary.csproj
           --configuration Release --output dist
           -p:PackageVersion="$RE2C_PACKAGE_VERSION"
           -p:PackageRoot="$GITHUB_WORKSPACE/package"
@@ -151,7 +152,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          nupkg="dist/Qigao.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg"
+          nupkg="dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg"
           unzip -Z1 "$nupkg" | sort | tee "$RUNNER_TEMP/re2c-nupkg.txt"
           grep -Fx "tools/linux-x64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"
           grep -Fx "tools/windows-x64/bin/re2c.exe" "$RUNNER_TEMP/re2c-nupkg.txt"
@@ -165,7 +166,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-tools-nuget
+          name: re2c-binary-nuget
           path: dist/*.nupkg
           if-no-files-found: error
       - name: Publish to GitHub Packages
@@ -176,4 +177,4 @@ jobs:
         run: |
           set -euo pipefail
           dotnet nuget add source --username qigao --password "$GITHUB_TOKEN" --store-password-in-clear-text --name github https://nuget.pkg.github.com/qigao/index.json
-          dotnet nuget push "dist/Qigao.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github --skip-duplicate
+          dotnet nuget push "dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github --skip-duplicate

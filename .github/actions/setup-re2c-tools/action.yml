@@ -1,11 +1,15 @@
-name: Set up re2c tools
-description: Restore the versioned Qigao.Re2c.Tools host SDK from GitHub Packages.
+name: Set up re2c binary
+description: Restore the versioned Qigao.Re2c.Binary host package from GitHub Packages.
 
 inputs:
   version:
-    description: Qigao.Re2c.Tools package version
+    description: Qigao.Re2c.Binary package version
     required: false
     default: "4.6.3"
+  token:
+    description: GitHub Packages token. Defaults to the workflow GITHUB_TOKEN.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -15,15 +19,20 @@ runs:
       with:
         dotnet-version: "8.0.x"
 
-    - name: Restore re2c tools on Unix
+    - name: Restore re2c binary on Unix
       if: runner.os != 'Windows'
       shell: bash
       env:
+        INPUT_TOKEN: ${{ inputs.token }}
         GITHUB_TOKEN: ${{ github.token }}
-        RE2C_TOOLS_VERSION: ${{ inputs.version }}
+        RE2C_BINARY_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        packages="${RUNNER_TEMP}/qigao-re2c-tools"
+        token="$INPUT_TOKEN"
+        if [ -z "$token" ]; then token="$GITHUB_TOKEN"; fi
+        test -n "$token"
+
+        packages="${RUNNER_TEMP}/qigao-re2c-binary"
         config="${RUNNER_TEMP}/qigao-re2c.config"
         project="${RUNNER_TEMP}/qigao-re2c.csproj"
 
@@ -33,14 +42,14 @@ runs:
         EOF
 
         dotnet nuget add source https://nuget.pkg.github.com/qigao/index.json \
-          --name github --username qigao --password "$GITHUB_TOKEN" \
+          --name github --username qigao --password "$token" \
           --store-password-in-clear-text --configfile "$config"
 
         cat > "$project" <<EOF
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
           <ItemGroup>
-            <PackageReference Include="Qigao.Re2c.Tools" Version="[$RE2C_TOOLS_VERSION]" />
+            <PackageReference Include="Qigao.Re2c.Binary" Version="[$RE2C_BINARY_VERSION]" />
           </ItemGroup>
         </Project>
         EOF
@@ -54,7 +63,7 @@ runs:
           *) echo "unsupported re2c host: $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
         esac
 
-        root="$packages/qigao.re2c.tools/$RE2C_TOOLS_VERSION/tools/$rid"
+        root="$packages/qigao.re2c.binary/$RE2C_BINARY_VERSION/tools/$rid"
         test -f "$root/bin/re2c"
         test -f "$root/share/re2c/stdlib/unicode_categories.re"
         test -f "$root/share/re2c/stdlib/unicode_properties.re"
@@ -64,17 +73,21 @@ runs:
         echo "RE2C_ROOT=$root" >> "$GITHUB_ENV"
         echo "$root/bin" >> "$GITHUB_PATH"
 
-    - name: Restore re2c tools on Windows
+    - name: Restore re2c binary on Windows
       if: runner.os == 'Windows'
       shell: pwsh
       env:
+        INPUT_TOKEN: ${{ inputs.token }}
         GITHUB_TOKEN: ${{ github.token }}
-        RE2C_TOOLS_VERSION: ${{ inputs.version }}
+        RE2C_BINARY_VERSION: ${{ inputs.version }}
       run: |
         $ErrorActionPreference = "Stop"
         if ($env:RUNNER_ARCH -ne "X64") { throw "unsupported re2c host: Windows/$env:RUNNER_ARCH" }
+        $token = $env:INPUT_TOKEN
+        if ([string]::IsNullOrWhiteSpace($token)) { $token = $env:GITHUB_TOKEN }
+        if ([string]::IsNullOrWhiteSpace($token)) { throw "GitHub Packages token is unavailable" }
 
-        $packages = Join-Path $env:RUNNER_TEMP "qigao-re2c-tools"
+        $packages = Join-Path $env:RUNNER_TEMP "qigao-re2c-binary"
         $config = Join-Path $env:RUNNER_TEMP "qigao-re2c.config"
         $project = Join-Path $env:RUNNER_TEMP "qigao-re2c.csproj"
 
@@ -83,22 +96,22 @@ runs:
         <configuration><packageSources><clear /></packageSources></configuration>
         '@ | Set-Content -LiteralPath $config
 
-        dotnet nuget add source https://nuget.pkg.github.com/qigao/index.json --name github --username qigao --password $env:GITHUB_TOKEN --store-password-in-clear-text --configfile $config
+        dotnet nuget add source https://nuget.pkg.github.com/qigao/index.json --name github --username qigao --password $token --store-password-in-clear-text --configfile $config
         if ($LASTEXITCODE -ne 0) { throw "failed to configure GitHub Packages source" }
 
         @"
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
           <ItemGroup>
-            <PackageReference Include="Qigao.Re2c.Tools" Version="[$env:RE2C_TOOLS_VERSION]" />
+            <PackageReference Include="Qigao.Re2c.Binary" Version="[$env:RE2C_BINARY_VERSION]" />
           </ItemGroup>
         </Project>
         "@ | Set-Content -LiteralPath $project
 
         dotnet restore $project --packages $packages --configfile $config --no-cache
-        if ($LASTEXITCODE -ne 0) { throw "failed to restore Qigao.Re2c.Tools" }
+        if ($LASTEXITCODE -ne 0) { throw "failed to restore Qigao.Re2c.Binary" }
 
-        $root = Join-Path $packages "qigao.re2c.tools\$env:RE2C_TOOLS_VERSION\tools\windows-x64"
+        $root = Join-Path $packages "qigao.re2c.binary\$env:RE2C_BINARY_VERSION\tools\windows-x64"
         $exe = Join-Path $root "bin\re2c.exe"
         $categories = Join-Path $root "share\re2c\stdlib\unicode_categories.re"
         $properties = Join-Path $root "share\re2c\stdlib\unicode_properties.re"
