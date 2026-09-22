@@ -79,7 +79,8 @@ Repository-specific `actions/cache` entries may still be used as an optional L1 
 
 The root manifest stays focused on broadly shared dependencies. Larger or feature-specific ABI sets are warmed separately:
 
-- `manifests/turboraft-linux` — FlowMQ/TurboRaft Linux-only dependencies such as ZeroMQ.
+- `manifests/flowmq` — exact BoringSSL + ZeroMQ dependency set for FlowMQ SDK packaging on Linux, Windows, macOS, and Android arm64.
+- `manifests/turboraft-linux` — TurboRaft Linux-only dependency warm-up.
 - `manifests/stun-linux` — STUN/FlexUI/gCanvas Linux graphics and UI dependency union.
 - `manifests/turbodb-postgresql` — TurboDB PostgreSQL contract using centralized `libpq[zstd]` with BoringSSL.
 
