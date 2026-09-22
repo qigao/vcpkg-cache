@@ -142,7 +142,7 @@ runs:
         EOF
         chmod 600 "$config"
 
-        sources="clear;files,$binary_cache,readwrite;nugetconfig,$config,$CACHE_MODE"
+        sources="clear;files,$binary_cache,readwrite;nugettimeout,600;nugetconfig,$config,$CACHE_MODE"
 
         echo "VCPKG_BINARY_CACHE=$binary_cache" >> "$GITHUB_ENV"
         echo "VCPKG_CACHE_REVISION=$revision" >> "$GITHUB_ENV"
@@ -207,7 +207,7 @@ runs:
         </configuration>
         "@ | Set-Content -LiteralPath $config
 
-        $sources = "clear;files,$binaryCache,readwrite;nugetconfig,$config,$env:CACHE_MODE"
+        $sources = "clear;files,$binaryCache,readwrite;nugettimeout,600;nugetconfig,$config,$env:CACHE_MODE"
 
         "VCPKG_BINARY_CACHE=$binaryCache" >> $env:GITHUB_ENV
         "VCPKG_CACHE_REVISION=$revision" >> $env:GITHUB_ENV
