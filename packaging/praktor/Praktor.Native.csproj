@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <PackageId>Praktor.Native</PackageId>
+    <Authors>qigao</Authors>
+    <Description>Praktor core-only native C SDK for Linux x64 (Release, Ubuntu 24.04). TurboScript is disabled.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/qigao/vcpkg-cache</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/qigao/praktor</PackageProjectUrl>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Salts.Native" Version="[1.2.0]" />
+    <PackageReference Include="SaltsUtils.Native" Version="[2.0.2]" />
+    <PackageReference Include="CHttp.Native" Version="[1.0.0]" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="$(PackageRoot)/sdk/**/*" Pack="true" PackagePath="sdk/" />
+  </ItemGroup>
+</Project>
