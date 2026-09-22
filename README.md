@@ -1,82 +1,101 @@
 # vcpkg-cache
 
-Shared vcpkg binary-cache infrastructure for the qigao C/C++ repositories.
+Shared native dependency infrastructure for the qigao C/C++ repositories.
 
-## Purpose
+This repository is the **single source of truth** for:
 
-This repository owns the shared **third-party vcpkg binary cache** used by projects such as
-`salts`, `salts-utils`, `chttp`, `praktor`, `turbo-flow`, and `turbodb`.
+- shared vcpkg overlay ports;
+- vcpkg binary packages published to GitHub Packages;
+- shared host build tools such as re2c.
 
-It does **not** publish Salts or SaltsUtils SDKs. Those remain versioned product packages
-(`Salts.Native`, `SaltsUtils.Native`, etc.).
+Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and versioned by
+their product repositories.
 
-The cache backend is GitHub Packages' NuGet feed:
+## vcpkg baseline
 
-```text
-https://nuget.pkg.github.com/qigao/index.json
-```
-
-vcpkg remains responsible for ABI compatibility. Consumers must not invent cache keys based
-only on a repository commit or `vcpkg.json`; binary reuse is accepted only when vcpkg's ABI
-hash matches the requested port, triplet, features, toolchain, compiler flags, and overlays.
-
-## Baseline
-
-The initial shared baseline is:
+The shared baseline is:
 
 ```text
 b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 ```
 
-This currently matches `qigao/salts` and `qigao/salts-utils`.
+Consumers should use the same baseline when they expect binary-cache hits.
 
-## Cache layers
+## Central overlay ports
 
-Recommended consumer layout:
+The authoritative overlays live under `ports/`.
 
-```text
-L1: local / GitHub Actions filesystem cache
-             |
-             v miss
-L2: qigao GitHub Packages NuGet feed
-             |
-             v miss
-       build from source
-```
+Current centralized ports:
 
-L1 is optional. GitHub Packages is the cross-repository cache.
+- `aklomp-base64`
+- `c-ares`
+- `zstd`
 
-## Consumer configuration
+Do not copy these ports into consumer repositories. Changes to their build contract must be made
+here first and then warmed into GitHub Packages.
 
-Authenticate the qigao GitHub Packages NuGet source and point vcpkg at it.
+## Shared binary cache
 
-```bash
-VCPKG_BINARY_SOURCES="clear;nuget,https://nuget.pkg.github.com/qigao/index.json,read"
-```
+`.github/workflows/warm-cache.yml` warms the manifest for the supported CI targets:
 
-Repositories that are explicitly allowed to publish compatible binaries may use `readwrite`
-instead of `read`.
+- Linux x64
+- Windows x64
+- native macOS
+- Android arm64
 
-GitHub Actions jobs need at least:
+vcpkg itself decides whether a cached binary is compatible by its ABI hash. The cache must not
+be keyed only by a repository SHA or by `vcpkg.json`.
+
+### GitHub Actions consumer
+
+A consumer can configure both the centralized overlays and the GitHub Packages binary source
+with:
 
 ```yaml
 permissions:
   contents: read
   packages: read
+
+steps:
+  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
+    with:
+      mode: read
 ```
 
-A publisher needs `packages: write`.
+The action exports `VCPKG_OVERLAY_PORTS`, `VCPKG_BINARY_SOURCES`, and
+`VCPKG_NUGET_REPOSITORY`.
 
-## Overlay ports
+Normal consumers should use `mode: read`. The central warm-cache workflow is the normal writer.
 
-Some repositories currently carry overlay ports. A binary produced from an overlay port is only
-reusable when the consumer uses an ABI-compatible copy of that port. The initial warm-cache
-workflow therefore warms standard shared dependencies only.
+## re2c host tools
 
-Overlay ports should be centralized here only as a deliberate follow-up migration; copying them
-here without changing consumers would not improve cache hits.
+re2c is centralized here because it is a host code generator rather than a Salts product
+dependency. Android cross-builds still consume a Linux/macOS/Windows host re2c executable.
 
-## Warm cache
+The package owned by this repository is:
 
-`.github/workflows/warm-cache.yml` builds the shared manifest on the supported CI triplets and
-publishes resulting vcpkg binary packages to GitHub Packages.
+```text
+Qigao.VcpkgCache.Re2c.Tools 4.6.3
+```
+
+Consumers can restore it with:
+
+```yaml
+permissions:
+  contents: read
+  packages: read
+
+steps:
+  - uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@master
+```
+
+The action exports `RE2C_ROOT` and adds the matching host executable to `PATH`.
+
+## Ownership rules
+
+1. Third-party overlay ports belong here, not in `salts`, `salts-utils`, or downstream repos.
+2. Shared third-party binaries are published by the warm-cache workflow.
+3. Host build tools that are reused across repositories belong here.
+4. Product libraries and their SDK packages remain in their product repositories.
+5. Consumers use `master` for this infrastructure repository and let vcpkg's ABI hash decide
+   whether a binary can be reused.
