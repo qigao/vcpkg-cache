@@ -153,11 +153,16 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $log = Join-Path $env:RUNNER_TEMP "windows-2022-cache-contract.log"
+          $installRoot = Join-Path $env:RUNNER_TEMP "windows-2022-cache-contract-installed"
+          if (Test-Path -LiteralPath $installRoot) {
+            Remove-Item -LiteralPath $installRoot -Recurse -Force
+          }
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
-            --x-manifest-root=. `
-            --x-install-root=(Join-Path $env:RUNNER_TEMP "windows-2022-cache-contract-installed") `
-            --triplet x64-windows 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg restore failed" }
+            "--x-manifest-root=$env:GITHUB_WORKSPACE" `
+            "--x-install-root=$installRoot" `
+            "--triplet=x64-windows" `
+            --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg cache-only restore failed" }
           $text = Get-Content -LiteralPath $log -Raw
           $misses = [regex]::Matches($text, "(?m)^Building ([^:]+):x64-windows") |
             ForEach-Object { $_.Groups[1].Value } |
