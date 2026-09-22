@@ -36,11 +36,11 @@ runs:
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
 
         dotnet nuget remove source qigao-vcpkg >/dev/null 2>&1 || true
-        dotnet nuget add source "$feed"           --name qigao-vcpkg           --username qigao           --password "$GITHUB_TOKEN"           --store-password-in-clear-text
-
-        if [ "$CACHE_MODE" != "read" ]; then
-          dotnet nuget setapikey "$GITHUB_TOKEN" --source "$feed"
-        fi
+        dotnet nuget add source "$feed" \
+          --name qigao-vcpkg \
+          --username qigao \
+          --password "$GITHUB_TOKEN" \
+          --store-password-in-clear-text
 
         echo "VCPKG_OVERLAY_PORTS=$action_root/ports" >> "$GITHUB_ENV"
         echo "VCPKG_BINARY_SOURCES=clear;nuget,$feed,$CACHE_MODE" >> "$GITHUB_ENV"
