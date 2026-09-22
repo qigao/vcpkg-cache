@@ -1,4 +1,4 @@
-# Qigao.Re2c.Tools
+# Qigao.VcpkgCache.Re2c.Tools
 
 Prebuilt host executables and stdlib data for upstream re2c 4.6.
 
