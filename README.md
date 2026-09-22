@@ -7,7 +7,7 @@ This repository is the source of truth for two reusable build inputs:
 1. **vcpkg overlay ports and binary cache** — custom ports live in `ports/` and compatible binaries are published to the qigao GitHub Packages NuGet feed.
 2. **re2c host binaries** — `Qigao.Re2c.Binary` contains prebuilt re2c executables and stdlib data for CI hosts.
 
-Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and versioned by their product repositories.
+Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and versioned by their product repositories. `Praktor.Native` is built from Praktor master and published centrally here; its initial supported profile is Linux x64 Release, core-only. See [Praktor SDK packaging and consumption](packaging/praktor/README.md).
 
 ## Shared vcpkg baseline
 
@@ -69,6 +69,7 @@ Both shared setup actions accept an optional `token` input so consumers can use 
 
 - `warm-cache.yml` warms and publishes ABI-compatible vcpkg binary packages for Linux, Windows, macOS and Android, plus stack-specific manifests under `manifests/`.
 - `re2c-tools-package.yml` builds and publishes `Qigao.Re2c.Binary`.
+- `praktor-sdk-package.yml` builds Praktor master using released dependency SDKs, tests a restored `Praktor.Native` package, and publishes qualified CI versions on master.
 
 Repository-specific `actions/cache` entries may still be used as an optional L1 cache; GitHub Packages is the cross-repository L2/source of truth.
 

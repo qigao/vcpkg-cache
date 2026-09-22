@@ -1,0 +1,4 @@
+tasks:
+  - name: script_rejected
+    script: |
+      ctx.output("unexpected", true);
