@@ -15,7 +15,7 @@ Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and ver
 b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 ```
 
-The warm-cache manifest includes the common dependency set used by Salts and SaltsUtils.
+The root warm-cache manifest includes the common dependency set used across the core native repositories. Repository- or stack-specific ABI combinations live under `manifests/` (for example TurboRaft and STUN Linux dependency sets).
 
 ## Central overlay ports
 
@@ -36,22 +36,13 @@ steps:
   - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
 ```
 
-The action exports `VCPKG_OVERLAY_PORTS` and configures vcpkg with a credentialed NuGet config for the qigao GitHub Packages feed. An explicit `token` input may be supplied for cross-repository package access.
+The action owns the canonical vcpkg tool revision, exports `VCPKG_ROOT` and `VCPKG_OVERLAY_PORTS`, and configures a credentialed NuGet source for the qigao GitHub Packages feed. The canonical vcpkg checkout keeps complete git history (with blob filtering) because vcpkg version resolution needs historical port trees. An explicit `token` input may be supplied for cross-repository package access.
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain and build configuration are ABI-compatible.
 
-Publishers opt into write access:
+Downstream repositories are consumers and should use `mode: read`. They may keep a repository-scoped filesystem cache as L1; cache misses may populate that L1, while GitHub Packages remains the shared read-only L2.
 
-```yaml
-permissions:
-  contents: read
-  packages: write
-
-steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
-    with:
-      mode: readwrite
-```
+Only workflows in this repository publish shared binaries. The central warm workflows use `mode: readwrite` with `packages: write`, keeping package ownership and publication policy in one place.
 
 ## re2c binary
 
@@ -75,7 +66,7 @@ Both shared setup actions accept an optional `token` input so consumers can use 
 
 ## Workflows
 
-- `warm-cache.yml` warms and publishes ABI-compatible vcpkg binary packages for Linux, Windows, macOS and Android.
+- `warm-cache.yml` warms and publishes ABI-compatible vcpkg binary packages for Linux, Windows, macOS and Android, plus stack-specific manifests under `manifests/`.
 - `re2c-tools-package.yml` builds and publishes `Qigao.Re2c.Binary`.
 
 Repository-specific `actions/cache` entries may still be used as an optional L1 cache; GitHub Packages is the cross-repository L2/source of truth.
