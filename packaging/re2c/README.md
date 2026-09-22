@@ -1,8 +1,9 @@
-# Qigao.VcpkgCache.Re2c.Tools
+# Qigao.Re2c.Tools
 
 Prebuilt host executables and stdlib data for upstream re2c 4.6.
 
-This package removes repeated re2c bootstrap work from the qigao C/C++ repositories.
+This package is intended to remove repeated re2c bootstrap work from Salts and
+other C/C++ CI pipelines.
 
 ## Layout
 
@@ -14,8 +15,8 @@ Use the executable matching the build host. NuGet/Actions ZIP extraction may not
 Unix executable bits, so Linux/macOS consumers should run `chmod +x` on the restored
 `bin/re2c` file before invoking it.
 
-Android is intentionally not included: re2c runs on the host and generates source code before
-the Android cross-build.
+Android is intentionally not included:
+re2c runs on the host and generates source code before the Android cross-build.
 
 Upstream project: https://github.com/skvadrik/re2c
 Package version: 4.6.3 (upstream re2c 4.6; packaging revision 3)

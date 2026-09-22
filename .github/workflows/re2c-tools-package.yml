@@ -15,10 +15,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: re2c-tools-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   RE2C_UPSTREAM_TAG: "4.6"
   RE2C_PACKAGE_VERSION: "4.6.3"
@@ -141,12 +137,13 @@ jobs:
           test -f package/tools/linux-x64/share/re2c/stdlib/unicode_categories.re
           test -f package/tools/linux-x64/share/re2c/stdlib/unicode_properties.re
           test -f package/tools/windows-x64/share/re2c/stdlib/unicode_categories.re
+          find package/tools -maxdepth 5 -type f -print
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
       - name: Pack
         run: >-
-          dotnet pack packaging/re2c/Qigao.VcpkgCache.Re2c.Tools.csproj
+          dotnet pack packaging/re2c/Qigao.Re2c.Tools.csproj
           --configuration Release --output dist
           -p:PackageVersion="$RE2C_PACKAGE_VERSION"
           -p:PackageRoot="$GITHUB_WORKSPACE/package"
@@ -154,10 +151,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          nupkg="dist/Qigao.VcpkgCache.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg"
+          nupkg="dist/Qigao.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg"
           unzip -Z1 "$nupkg" | sort | tee "$RUNNER_TEMP/re2c-nupkg.txt"
           grep -Fx "tools/linux-x64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"
           grep -Fx "tools/windows-x64/bin/re2c.exe" "$RUNNER_TEMP/re2c-nupkg.txt"
+          grep -Fx "tools/linux-x64/share/re2c/stdlib/unicode_categories.re" "$RUNNER_TEMP/re2c-nupkg.txt"
+          grep -Fx "tools/linux-x64/share/re2c/stdlib/syntax/c" "$RUNNER_TEMP/re2c-nupkg.txt"
+          if grep -Fxq "tools/macos-arm64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"; then
+            grep -Fx "tools/macos-arm64/share/re2c/stdlib/syntax/c" "$RUNNER_TEMP/re2c-nupkg.txt"
+          else
+            grep -Fx "tools/macos-x64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"
+            grep -Fx "tools/macos-x64/share/re2c/stdlib/syntax/c" "$RUNNER_TEMP/re2c-nupkg.txt"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: re2c-tools-nuget
@@ -171,4 +176,4 @@ jobs:
         run: |
           set -euo pipefail
           dotnet nuget add source --username qigao --password "$GITHUB_TOKEN" --store-password-in-clear-text --name github https://nuget.pkg.github.com/qigao/index.json
-          dotnet nuget push "dist/Qigao.VcpkgCache.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github --skip-duplicate
+          dotnet nuget push "dist/Qigao.Re2c.Tools.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github --skip-duplicate

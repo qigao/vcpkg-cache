@@ -1,17 +1,11 @@
-name: Warm shared vcpkg cache
+name: Warm vcpkg binary cache
 
 on:
-  pull_request:
-    paths:
-      - "vcpkg.json"
-      - "ports/**"
-      - ".github/actions/setup-vcpkg-cache/**"
-      - ".github/workflows/warm-cache.yml"
   push:
     branches: [master]
     paths:
-      - "vcpkg.json"
       - "ports/**"
+      - "vcpkg.json"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
   workflow_dispatch:
@@ -19,10 +13,6 @@ on:
 permissions:
   contents: read
   packages: write
-
-concurrency:
-  group: vcpkg-cache-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   VCPKG_BASELINE: b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
@@ -33,125 +23,101 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
         with:
-          repository: microsoft/vcpkg
-          ref: ${{ env.VCPKG_BASELINE }}
-          path: vcpkg
-          persist-credentials: false
+          mode: readwrite
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24.x"
           cache: false
-      - name: Prepare toolchain
+      - name: Prepare vcpkg
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends autoconf automake autoconf-archive nasm ninja-build pkg-config
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
+          git -C vcpkg checkout "$VCPKG_BASELINE"
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
       - name: Warm x64-linux
-        shell: bash
-        run: |
-          set -euxo pipefail
-          ./vcpkg/vcpkg install             --triplet x64-linux             --overlay-ports="$VCPKG_OVERLAY_PORTS"             --x-manifest-root="$GITHUB_WORKSPACE"
-
-  android:
-    name: Android arm64
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: microsoft/vcpkg
-          ref: ${{ env.VCPKG_BASELINE }}
-          path: vcpkg
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
-      - name: Prepare toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${ANDROID_NDK_HOME:-}"
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends autoconf automake autoconf-archive nasm ninja-build pkg-config
-          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
-      - name: Warm arm64-android
-        shell: bash
-        run: |
-          set -euxo pipefail
-          ./vcpkg/vcpkg install             --triplet arm64-android             --overlay-ports="$VCPKG_OVERLAY_PORTS"             --x-manifest-root="$GITHUB_WORKSPACE"
-
-  macos:
-    name: macOS native
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: microsoft/vcpkg
-          ref: ${{ env.VCPKG_BASELINE }}
-          path: vcpkg
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
-      - name: Prepare toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          brew install autoconf automake autoconf-archive nasm ninja
-          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
-      - name: Warm native macOS triplet
-        shell: bash
-        run: |
-          set -euxo pipefail
-          case "$RUNNER_ARCH" in
-            X64) triplet=x64-osx ;;
-            ARM64) triplet=arm64-osx ;;
-            *) echo "unsupported macOS architecture: $RUNNER_ARCH" >&2; exit 1 ;;
-          esac
-          ./vcpkg/vcpkg install             --triplet "$triplet"             --overlay-ports="$VCPKG_OVERLAY_PORTS"             --x-manifest-root="$GITHUB_WORKSPACE"
+        run: ./vcpkg/vcpkg install --x-manifest-root=. --triplet x64-linux
 
   windows:
     name: Windows x64
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
         with:
-          repository: microsoft/vcpkg
-          ref: ${{ env.VCPKG_BASELINE }}
-          path: vcpkg
-          persist-credentials: false
+          mode: readwrite
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24.x"
           cache: false
-      - name: Prepare toolchain
+      - name: Prepare vcpkg
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
           choco install nasm ninja -y --no-progress
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          git -C vcpkg fetch --depth 1 origin $env:VCPKG_BASELINE
+          git -C vcpkg checkout $env:VCPKG_BASELINE
           .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+      - name: Warm x64-windows
+        shell: pwsh
+        run: .\vcpkg\vcpkg.exe install --x-manifest-root=. --triplet x64-windows
+
+  macos:
+    name: macOS host
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
-      - name: Warm x64-windows
-        shell: pwsh
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare vcpkg
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          .\vcpkg\vcpkg.exe install --triplet x64-windows --overlay-ports="$env:VCPKG_OVERLAY_PORTS" --x-manifest-root="$env:GITHUB_WORKSPACE"
+          set -euo pipefail
+          brew install ninja nasm
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
+          git -C vcpkg checkout "$VCPKG_BASELINE"
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          case "$RUNNER_ARCH" in
+            X64) echo "VCPKG_WARM_TRIPLET=x64-osx" >> "$GITHUB_ENV" ;;
+            ARM64) echo "VCPKG_WARM_TRIPLET=arm64-osx" >> "$GITHUB_ENV" ;;
+            *) echo "unsupported macOS arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+      - name: Warm macOS
+        run: ./vcpkg/vcpkg install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
+
+  android:
+    name: Android arm64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare vcpkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+          test -n "${ANDROID_NDK_HOME:-}"
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
+          git -C vcpkg checkout "$VCPKG_BASELINE"
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+      - name: Warm arm64-android
+        run: ./vcpkg/vcpkg install --x-manifest-root=. --triplet arm64-android

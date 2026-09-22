@@ -1,9 +1,9 @@
 name: Set up shared vcpkg cache
-description: Configure the qigao centralized overlay ports and GitHub Packages vcpkg binary cache.
+description: Configure qigao shared overlay ports and GitHub Packages binary cache.
 
 inputs:
   mode:
-    description: Binary cache access mode (read or readwrite)
+    description: Binary cache access mode (read, write, or readwrite)
     required: false
     default: read
 
@@ -12,101 +12,36 @@ runs:
   steps:
     - name: Validate cache mode
       shell: bash
+      env:
+        CACHE_MODE: ${{ inputs.mode }}
       run: |
-        case "${{ inputs.mode }}" in
-          read|readwrite) ;;
-          *) echo "unsupported vcpkg cache mode: ${{ inputs.mode }}" >&2; exit 1 ;;
+        case "$CACHE_MODE" in
+          read|write|readwrite) ;;
+          *) echo "invalid vcpkg cache mode: $CACHE_MODE" >&2; exit 1 ;;
         esac
 
-    - name: Ensure NuGet runtime on Unix
-      if: runner.os != 'Windows'
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: "8.0.x"
+
+    - name: Configure shared vcpkg cache
       shell: bash
+      env:
+        CACHE_MODE: ${{ inputs.mode }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        if command -v mono >/dev/null 2>&1; then
-          exit 0
+        feed="https://nuget.pkg.github.com/qigao/index.json"
+        action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
+
+        dotnet nuget remove source qigao-vcpkg >/dev/null 2>&1 || true
+        dotnet nuget add source "$feed"           --name qigao-vcpkg           --username qigao           --password "$GITHUB_TOKEN"           --store-password-in-clear-text
+
+        if [ "$CACHE_MODE" != "read" ]; then
+          dotnet nuget setapikey "$GITHUB_TOKEN" --source "$feed"
         fi
-        case "$RUNNER_OS" in
-          Linux)
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends mono-complete
-            ;;
-          macOS)
-            brew install mono
-            ;;
-          *)
-            echo "unsupported host for NuGet binary cache: $RUNNER_OS" >&2
-            exit 1
-            ;;
-        esac
 
-    - name: Configure shared cache on Unix
-      if: runner.os != 'Windows'
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-        CACHE_MODE: ${{ inputs.mode }}
-      run: |
-        set -euo pipefail
-        root="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
-        test -f "$root/ports/zstd/portfile.cmake"
-        test -f "$root/ports/c-ares/portfile.cmake"
-        test -f "$root/ports/aklomp-base64/portfile.cmake"
-        config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
-        cat > "$config" <<EOF
-        <?xml version="1.0" encoding="utf-8"?>
-        <configuration>
-          <packageSources>
-            <clear />
-            <add key="github" value="https://nuget.pkg.github.com/qigao/index.json" />
-          </packageSources>
-          <packageSourceCredentials>
-            <github>
-              <add key="Username" value="qigao" />
-              <add key="ClearTextPassword" value="$GITHUB_TOKEN" />
-            </github>
-          </packageSourceCredentials>
-          <config>
-            <add key="defaultPushSource" value="https://nuget.pkg.github.com/qigao/index.json" />
-          </config>
-        </configuration>
-        EOF
-        {
-          echo "VCPKG_CACHE_ROOT=$root"
-          echo "VCPKG_OVERLAY_PORTS=$root/ports"
-          echo "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache"
-          echo "VCPKG_BINARY_SOURCES=clear;nugetconfig,$config,$CACHE_MODE"
-        } >> "$GITHUB_ENV"
-
-    - name: Configure shared cache on Windows
-      if: runner.os == 'Windows'
-      shell: pwsh
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-        CACHE_MODE: ${{ inputs.mode }}
-      run: |
-        $ErrorActionPreference = "Stop"
-        $root = (Resolve-Path (Join-Path $env:GITHUB_ACTION_PATH "..\..\..")).Path
-        $config = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-nuget.config"
-        @"
-        <?xml version="1.0" encoding="utf-8"?>
-        <configuration>
-          <packageSources>
-            <clear />
-            <add key="github" value="https://nuget.pkg.github.com/qigao/index.json" />
-          </packageSources>
-          <packageSourceCredentials>
-            <github>
-              <add key="Username" value="qigao" />
-              <add key="ClearTextPassword" value="$env:GITHUB_TOKEN" />
-            </github>
-          </packageSourceCredentials>
-          <config>
-            <add key="defaultPushSource" value="https://nuget.pkg.github.com/qigao/index.json" />
-          </config>
-        </configuration>
-        "@ | Set-Content -LiteralPath $config
-        "VCPKG_CACHE_ROOT=$root" >> $env:GITHUB_ENV
-        "VCPKG_OVERLAY_PORTS=$(Join-Path $root 'ports')" >> $env:GITHUB_ENV
-        "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> $env:GITHUB_ENV
-        "VCPKG_BINARY_SOURCES=clear;nugetconfig,$config,$env:CACHE_MODE" >> $env:GITHUB_ENV
+        echo "VCPKG_OVERLAY_PORTS=$action_root/ports" >> "$GITHUB_ENV"
+        echo "VCPKG_BINARY_SOURCES=clear;nuget,$feed,$CACHE_MODE" >> "$GITHUB_ENV"
+        echo "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> "$GITHUB_ENV"

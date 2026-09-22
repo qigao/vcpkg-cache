@@ -4,7 +4,7 @@
     <IsPackable>true</IsPackable>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
-    <PackageId>Qigao.VcpkgCache.Re2c.Tools</PackageId>
+    <PackageId>Qigao.Re2c.Tools</PackageId>
     <PackageVersion Condition="'$(PackageVersion)' == ''">4.6.3</PackageVersion>
     <Authors>qigao</Authors>
     <Description>Prebuilt re2c 4.6 host tools and stdlib for Linux, macOS, and Windows CI.</Description>

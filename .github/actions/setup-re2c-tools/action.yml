@@ -1,9 +1,9 @@
 name: Set up re2c tools
-description: Restore the versioned Qigao.VcpkgCache.Re2c.Tools host SDK from GitHub Packages.
+description: Restore the versioned Qigao.Re2c.Tools host SDK from GitHub Packages.
 
 inputs:
   version:
-    description: Qigao.VcpkgCache.Re2c.Tools package version
+    description: Qigao.Re2c.Tools package version
     required: false
     default: "4.6.3"
 
@@ -40,7 +40,7 @@ runs:
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
           <ItemGroup>
-            <PackageReference Include="Qigao.VcpkgCache.Re2c.Tools" Version="[$RE2C_TOOLS_VERSION]" />
+            <PackageReference Include="Qigao.Re2c.Tools" Version="[$RE2C_TOOLS_VERSION]" />
           </ItemGroup>
         </Project>
         EOF
@@ -54,7 +54,7 @@ runs:
           *) echo "unsupported re2c host: $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
         esac
 
-        root="$packages/qigao.vcpkgcache.re2c.tools/$RE2C_TOOLS_VERSION/tools/$rid"
+        root="$packages/qigao.re2c.tools/$RE2C_TOOLS_VERSION/tools/$rid"
         test -f "$root/bin/re2c"
         test -f "$root/share/re2c/stdlib/unicode_categories.re"
         test -f "$root/share/re2c/stdlib/unicode_properties.re"
@@ -90,15 +90,15 @@ runs:
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
           <ItemGroup>
-            <PackageReference Include="Qigao.VcpkgCache.Re2c.Tools" Version="[$env:RE2C_TOOLS_VERSION]" />
+            <PackageReference Include="Qigao.Re2c.Tools" Version="[$env:RE2C_TOOLS_VERSION]" />
           </ItemGroup>
         </Project>
         "@ | Set-Content -LiteralPath $project
 
         dotnet restore $project --packages $packages --configfile $config --no-cache
-        if ($LASTEXITCODE -ne 0) { throw "failed to restore Qigao.VcpkgCache.Re2c.Tools" }
+        if ($LASTEXITCODE -ne 0) { throw "failed to restore Qigao.Re2c.Tools" }
 
-        $root = Join-Path $packages "qigao.vcpkgcache.re2c.tools\$env:RE2C_TOOLS_VERSION\tools\windows-x64"
+        $root = Join-Path $packages "qigao.re2c.tools\$env:RE2C_TOOLS_VERSION\tools\windows-x64"
         $exe = Join-Path $root "bin\re2c.exe"
         $categories = Join-Path $root "share\re2c\stdlib\unicode_categories.re"
         $properties = Join-Path $root "share\re2c\stdlib\unicode_properties.re"
