@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends nasm ninja-build pkg-config
+          sudo apt-get install -y --no-install-recommends autoconf automake autoconf-archive nasm ninja-build pkg-config
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
@@ -80,7 +80,7 @@ jobs:
           set -euo pipefail
           test -n "${ANDROID_NDK_HOME:-}"
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends nasm ninja-build pkg-config
+          sudo apt-get install -y --no-install-recommends autoconf automake autoconf-archive nasm ninja-build pkg-config
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
@@ -110,7 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install nasm ninja
+          brew install autoconf automake autoconf-archive nasm ninja
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
