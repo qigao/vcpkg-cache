@@ -71,3 +71,14 @@ Both shared setup actions accept an optional `token` input so consumers can use 
 - `re2c-tools-package.yml` builds and publishes `Qigao.Re2c.Binary`.
 
 Repository-specific `actions/cache` entries may still be used as an optional L1 cache; GitHub Packages is the cross-repository L2/source of truth.
+
+
+## Stack-specific warm manifests
+
+The root manifest stays focused on broadly shared dependencies. Larger or feature-specific ABI sets are warmed separately:
+
+- `manifests/turboraft-linux` — FlowMQ/TurboRaft Linux-only dependencies such as ZeroMQ.
+- `manifests/stun-linux` — STUN/FlexUI/gCanvas Linux graphics and UI dependency union.
+- `manifests/turbodb-postgresql` — TurboDB PostgreSQL contract using centralized `libpq[zstd]` with BoringSSL.
+
+This keeps specialized dependency graphs out of unrelated platform jobs while still publishing their binaries into the same GitHub Packages L2 cache.
