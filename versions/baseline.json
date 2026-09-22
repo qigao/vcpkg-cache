@@ -11,6 +11,10 @@
     "zstd": {
       "baseline": "1.6.0-dev.20260701",
       "port-version": 0
+    },
+    "libpq": {
+      "baseline": "16.9",
+      "port-version": 0
     }
   }
 }

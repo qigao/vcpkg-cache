@@ -142,3 +142,53 @@ jobs:
             --x-manifest-root=manifests/stun-linux \
             --x-install-root=build/vcpkg-stun-linux \
             --triplet x64-linux
+
+  turbodb-postgresql-linux:
+    name: TurboDB PostgreSQL Linux x64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare PostgreSQL host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config nasm autoconf automake libtool
+      - name: Warm TurboDB PostgreSQL dependencies
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=manifests/turbodb-postgresql \
+            --x-install-root=build/vcpkg-turbodb-postgresql-linux \
+            --triplet x64-linux
+
+  turbodb-postgresql-windows:
+    name: TurboDB PostgreSQL Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare PostgreSQL host dependencies
+        shell: pwsh
+        run: choco install nasm ninja -y --no-progress
+      - name: Warm TurboDB PostgreSQL dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --x-manifest-root=manifests/turbodb-postgresql `
+            --x-install-root=build/vcpkg-turbodb-postgresql-windows `
+            --triplet x64-windows
