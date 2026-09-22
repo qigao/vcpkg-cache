@@ -65,6 +65,67 @@ jobs:
         run: |
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
 
+      - name: Verify Windows 2022 root packages are published
+        shell: python
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          import base64, json, os, time, urllib.parse, urllib.request
+
+          expected = {
+              "aklomp-base64_x64-windows",
+              "boringssl_x64-windows",
+              "c-ares_x64-windows",
+              "catch2_x64-windows",
+              "cxxopts_x64-windows",
+              "kcp_x64-windows",
+              "libusb_x64-windows",
+              "libuv_x64-windows",
+              "libyuv_x64-windows",
+              "llhttp_x64-windows",
+              "lua_x64-windows",
+              "miniaudio_x64-windows",
+              "simde_x64-windows",
+              "sqlite3_x64-windows",
+              "tree-sitter_x64-windows",
+              "tree-sitter-c_x64-windows",
+              "xxhash_x64-windows",
+              "zstd_x64-windows",
+          }
+
+          token = os.environ["GITHUB_TOKEN"]
+          auth = base64.b64encode(f"qigao:{token}".encode()).decode()
+          headers = {"Authorization": f"Basic {auth}", "Accept": "application/json"}
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return json.load(response)
+
+          index = get_json("https://nuget.pkg.github.com/qigao/index.json")
+          search = next(
+              item["@id"] for item in index["resources"]
+              if "SearchQueryService" in item.get("@type", "")
+          )
+
+          visible = set()
+          for attempt in range(18):
+              visible.clear()
+              for query in ("aklomp", "boringssl", "c-ares", "catch2", "cxxopts",
+                            "kcp", "libusb", "libuv", "libyuv", "llhttp", "lua",
+                            "miniaudio", "simde", "sqlite3", "tree-sitter", "xxhash", "zstd"):
+                  url = search + "?" + urllib.parse.urlencode(
+                      {"q": query, "prerelease": "true", "take": "100"}
+                  )
+                  visible.update(item.get("id") for item in get_json(url).get("data", []))
+              missing = sorted(expected - visible)
+              if not missing:
+                  print("all Windows 2022 root packages are visible")
+                  break
+              if attempt == 17:
+                  raise SystemExit("missing GitHub Packages: " + ", ".join(missing))
+              time.sleep(10)
+
   windows-2022-cache-contract:
     name: Windows 2022 cache contract
     needs: windows
@@ -98,8 +159,12 @@ jobs:
             --triplet x64-windows 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { throw "vcpkg restore failed" }
           $text = Get-Content -LiteralPath $log -Raw
-          if ($text -match "(?m)^Building ") {
-            throw "Windows 2022 shared cache miss detected; a package rebuilt from source."
+          $misses = [regex]::Matches($text, "(?m)^Building ([^:]+):x64-windows") |
+            ForEach-Object { $_.Groups[1].Value } |
+            Sort-Object -Unique
+          if ($misses.Count -gt 0) {
+            Write-Host "Windows 2022 cache misses: $($misses -join ', ')"
+            throw "Windows 2022 shared cache miss detected."
           }
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
             throw "Windows 2022 shared cache did not restore packages from NuGet."
