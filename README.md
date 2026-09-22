@@ -37,13 +37,13 @@ steps:
   - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
 ```
 
-The action owns the canonical vcpkg tool revision, exports `VCPKG_ROOT` and `VCPKG_OVERLAY_PORTS`, and configures a credentialed NuGet source for the qigao GitHub Packages feed. The canonical vcpkg checkout keeps complete git history (with blob filtering) because vcpkg version resolution needs historical port trees. An explicit `token` input may be supplied for cross-repository package access.
+The action owns the canonical vcpkg tool revision, exports `VCPKG_ROOT` and `VCPKG_OVERLAY_PORTS`, and configures a credentialed NuGet source for the qigao GitHub Packages feed. NuGet network operations use a 600-second timeout because large native packages such as Linux `libpq` can exceed NuGet/vcpkg's 100-second default upload timeout. The canonical vcpkg checkout keeps complete git history (with blob filtering) because vcpkg version resolution needs historical port trees. An explicit `token` input may be supplied for cross-repository package access.
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain and build configuration are ABI-compatible.
 
 Downstream repositories are consumers and should use `mode: read`. They may keep a repository-scoped filesystem cache as L1; cache misses may populate that L1, while GitHub Packages remains the shared read-only L2.
 
-Only workflows in this repository publish shared binaries. The central warm workflows use `mode: readwrite` with `packages: write`, keeping package ownership and publication policy in one place.
+Only workflows in this repository publish shared binaries. The central warm workflows use `mode: readwrite` with `packages: write`, keeping package ownership and publication policy in one place. Large stack-specific publishers also verify that their expected package IDs are visible in the GitHub Packages feed after upload; a compile-success/upload-failure must fail the warm workflow rather than silently degrade to a consumer rebuild.
 
 ## re2c binary
 
