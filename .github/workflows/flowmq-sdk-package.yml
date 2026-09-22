@@ -1,0 +1,179 @@
+name: FlowMQ native SDK package
+
+on:
+  pull_request:
+    paths: ["packaging/flowmq/**", ".github/workflows/flowmq-sdk-package.yml"]
+  push:
+    branches: [master]
+    paths: ["packaging/flowmq/**", ".github/workflows/flowmq-sdk-package.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: flowmq-sdk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout FlowMQ main
+        uses: actions/checkout@v4
+        with:
+          repository: qigao/flowmq
+          ref: main
+          path: upstream/flowmq
+          persist-credentials: false
+      - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
+        with:
+          mode: read
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Prepare build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+      - name: Restore released native SDK dependencies
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/flowmq-nuget.config"
+          printf '<configuration><packageSources><clear /></packageSources></configuration>\n' > "$config"
+          dotnet nuget add source https://nuget.pkg.github.com/qigao/index.json \
+            --name github --username qigao --password "$GITHUB_TOKEN" \
+            --store-password-in-clear-text --configfile "$config"
+          packages="$RUNNER_TEMP/flowmq-dependencies"
+          dotnet restore packaging/flowmq/FlowMQ.Native.csproj \
+            --configfile "$config" --packages "$packages"
+          echo "NUGET_CONFIG=$config" >> "$GITHUB_ENV"
+          echo "SALTS_ROOT=$packages/salts.native/1.2.0/sdk/linux-x64" >> "$GITHUB_ENV"
+          echo "SALTS_UTILS_ROOT=$packages/saltsutils.native/2.0.2/sdk/linux-x64" >> "$GITHUB_ENV"
+      - name: Configure Release SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/flowmq -B build/flowmq -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_MANIFEST_DIR="$GITHUB_WORKSPACE/packaging/flowmq" \
+            -DVCPKG_INSTALLED_DIR="$GITHUB_WORKSPACE/vcpkg_installed" \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/package/sdk/linux-x64" \
+            -DBUILD_TESTS=ON -DBUILD_EXAMPLES=OFF
+      - name: Read product version and record provenance
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_version="$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' build/flowmq/CMakeCache.txt)"
+          [[ "$source_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="$source_version-ci.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+          mkdir -p package/sdk/linux-x64
+          cat > package/sdk/linux-x64/flowmq-sdk-manifest.txt <<EOF
+          version=$version
+          source_version=$source_version
+          repository=https://github.com/qigao/flowmq
+          source_ref=main
+          commit=$(git -C upstream/flowmq rev-parse HEAD)
+          salts=1.2.0
+          salts_utils=2.0.2
+          rid=linux-x64
+          build_type=Release
+          EOF
+      - name: Build, test and install
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$SALTS_UTILS_ROOT/lib:$SALTS_ROOT/lib:$GITHUB_WORKSPACE/vcpkg_installed/x64-linux/lib"
+          cmake --build build/flowmq --parallel 2
+          ctest --test-dir build/flowmq --no-tests=error --output-on-failure
+          cmake --install build/flowmq
+          cp -aL package package-dereferenced
+          mv package package-original
+          mv package-dereferenced package
+      - name: Pack FlowMQ.Native
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet pack packaging/flowmq/FlowMQ.Native.csproj --no-restore \
+            --configuration Release --output dist \
+            -p:PackageVersion="$PACKAGE_VERSION" -p:PackageRoot="$GITHUB_WORKSPACE/package"
+          unzip -Z1 "dist/FlowMQ.Native.$PACKAGE_VERSION.nupkg" > "$RUNNER_TEMP/flowmq-files.txt"
+          for file in include/flowmq.h include/flowmq_socket.h lib/libflowmq.so lib/cmake/FlowMQ/FlowMQConfig.cmake flowmq-sdk-manifest.txt; do
+            grep -Fx "sdk/linux-x64/$file" "$RUNNER_TEMP/flowmq-files.txt"
+          done
+      - name: Restore packed SDK and verify external consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          restored="$RUNNER_TEMP/flowmq-package-restore"
+          project="$RUNNER_TEMP/flowmq-restore.csproj"
+          cat > "$project" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+            <ItemGroup><PackageReference Include="FlowMQ.Native" Version="[$PACKAGE_VERSION]" /></ItemGroup>
+          </Project>
+          EOF
+          dotnet nuget add source "$GITHUB_WORKSPACE/dist" --name local --configfile "$NUGET_CONFIG"
+          dotnet restore "$project" --configfile "$NUGET_CONFIG" --packages "$restored"
+          export SALTS_ROOT="$restored/salts.native/1.2.0/sdk/linux-x64"
+          export SALTS_UTILS_ROOT="$restored/saltsutils.native/2.0.2/sdk/linux-x64"
+          prefix="$restored/flowmq.native/$PACKAGE_VERSION/sdk/linux-x64"
+          mv package package-hidden
+          export LD_LIBRARY_PATH="$prefix/lib:$SALTS_UTILS_ROOT/lib:$SALTS_ROOT/lib:$GITHUB_WORKSPACE/vcpkg_installed/x64-linux/lib"
+          cmake -S packaging/flowmq/smoke -B build/package-smoke -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$prefix;$SALTS_UTILS_ROOT;$SALTS_ROOT" \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux -DVCPKG_MANIFEST_MODE=OFF \
+            -DVCPKG_INSTALLED_DIR="$GITHUB_WORKSPACE/vcpkg_installed"
+          cmake --build build/package-smoke --parallel 2
+          ctest --test-dir build/package-smoke --no-tests=error --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowmq-native-nuget
+          path: dist/*.nupkg
+          if-no-files-found: error
+
+  publish:
+    needs: package
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: flowmq-native-nuget
+          path: dist
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Publish qualified package
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_VERSION: ${{ needs.package.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet nuget add source https://nuget.pkg.github.com/qigao/index.json \
+            --name github --username qigao --password "$GITHUB_TOKEN" --store-password-in-clear-text
+          dotnet nuget push "dist/FlowMQ.Native.$PACKAGE_VERSION.nupkg" \
+            --api-key "$GITHUB_TOKEN" --source github
