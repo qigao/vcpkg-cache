@@ -5,7 +5,7 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <PackageId>Praktor.Native</PackageId>
     <Authors>qigao</Authors>
-    <Description>Praktor core-only native C SDK for Linux x64 (Release, Ubuntu 24.04). TurboScript is disabled.</Description>
+    <Description>Praktor script-enabled native SDK for Linux x64, macOS arm64 and Android arm64-v8a (Release).</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/qigao/vcpkg-cache</RepositoryUrl>
@@ -17,6 +17,7 @@
     <PackageReference Include="Salts.Native" Version="[1.2.0]" />
     <PackageReference Include="SaltsUtils.Native" Version="[2.0.2]" />
     <PackageReference Include="CHttp.Native" Version="[1.0.0]" />
+    <PackageReference Include="TurboScript.Native" Version="[$(TurboScriptSdkVersion)]" />
     <None Include="README.md" Pack="true" PackagePath="\" />
     <None Include="$(PackageRoot)/sdk/**/*" Pack="true" PackagePath="sdk/" />
   </ItemGroup>
