@@ -49,6 +49,9 @@ runs:
       run: |
         set -euo pipefail
         root="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
+        test -f "$root/ports/zstd/portfile.cmake"
+        test -f "$root/ports/c-ares/portfile.cmake"
+        test -f "$root/ports/aklomp-base64/portfile.cmake"
         config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
         cat > "$config" <<EOF
         <?xml version="1.0" encoding="utf-8"?>
