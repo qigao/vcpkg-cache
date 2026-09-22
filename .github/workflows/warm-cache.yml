@@ -16,6 +16,7 @@ permissions:
 
 env:
   VCPKG_BASELINE: b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
+  VCPKG_FEED_URL: https://nuget.pkg.github.com/qigao/index.json
 
 jobs:
   linux:
@@ -32,14 +33,19 @@ jobs:
           cache: false
       - name: Prepare vcpkg
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+          command -v mono >/dev/null || sudo apt-get install -y --no-install-recommends mono-runtime
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
           git -C vcpkg checkout "$VCPKG_BASELINE"
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          nuget="$(./vcpkg/vcpkg fetch nuget | tail -n 1)"
+          mono "$nuget" setapikey "$GITHUB_TOKEN" -Source "$VCPKG_FEED_URL"
       - name: Warm x64-linux
         run: ./vcpkg/vcpkg install --x-manifest-root=. --triplet x64-linux
 
@@ -57,12 +63,17 @@ jobs:
           cache: false
       - name: Prepare vcpkg
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           choco install nasm ninja -y --no-progress
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           git -C vcpkg fetch --depth 1 origin $env:VCPKG_BASELINE
           git -C vcpkg checkout $env:VCPKG_BASELINE
           .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          $nuget = (& .\vcpkg\vcpkg.exe fetch nuget | Select-Object -Last 1).Trim()
+          & $nuget setapikey $env:GITHUB_TOKEN -Source $env:VCPKG_FEED_URL
+          if ($LASTEXITCODE -ne 0) { throw "failed to configure NuGet API key" }
       - name: Warm x64-windows
         shell: pwsh
         run: .\vcpkg\vcpkg.exe install --x-manifest-root=. --triplet x64-windows
@@ -81,13 +92,18 @@ jobs:
           cache: false
       - name: Prepare vcpkg
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           brew install ninja nasm
+          command -v mono >/dev/null || brew install mono
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
           git -C vcpkg checkout "$VCPKG_BASELINE"
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          nuget="$(./vcpkg/vcpkg fetch nuget | tail -n 1)"
+          mono "$nuget" setapikey "$GITHUB_TOKEN" -Source "$VCPKG_FEED_URL"
           case "$RUNNER_ARCH" in
             X64) echo "VCPKG_WARM_TRIPLET=x64-osx" >> "$GITHUB_ENV" ;;
             ARM64) echo "VCPKG_WARM_TRIPLET=arm64-osx" >> "$GITHUB_ENV" ;;
@@ -110,14 +126,19 @@ jobs:
           cache: false
       - name: Prepare vcpkg
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+          command -v mono >/dev/null || sudo apt-get install -y --no-install-recommends mono-runtime
           test -n "${ANDROID_NDK_HOME:-}"
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           git -C vcpkg fetch --depth 1 origin "$VCPKG_BASELINE"
           git -C vcpkg checkout "$VCPKG_BASELINE"
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          nuget="$(./vcpkg/vcpkg fetch nuget | tail -n 1)"
+          mono "$nuget" setapikey "$GITHUB_TOKEN" -Source "$VCPKG_FEED_URL"
       - name: Warm arm64-android
         run: ./vcpkg/vcpkg install --x-manifest-root=. --triplet arm64-android
