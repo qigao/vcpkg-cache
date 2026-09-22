@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: re2c-tools-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   RE2C_UPSTREAM_TAG: "4.6"
   RE2C_PACKAGE_VERSION: "4.6.3"
