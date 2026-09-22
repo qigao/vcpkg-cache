@@ -1,0 +1,20 @@
+{
+  "name": "qigao-vcpkg-cache",
+  "version-string": "1",
+  "description": "Warm-up manifest for shared third-party vcpkg binary packages.",
+  "dependencies": [
+    {
+      "name": "pkgconf",
+      "host": true
+    },
+    "simde",
+    "boringssl",
+    "miniaudio",
+    "lua",
+    "libuv",
+    "kcp",
+    "libyuv",
+    "libusb"
+  ],
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}
