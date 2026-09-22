@@ -1,172 +1,28 @@
 {
   "name": "qigao-stun-linux-cache",
   "version-string": "1",
-  "description": "Linux dependency warm-up for STUN/FlexUI/gCanvas CI.",
+  "description": "Linux classic dependency union used by STUN Mesa, Desktop, and Unicode CI.",
   "dependencies": [
+    "freetype",
+    "stb",
+    "box2d",
+    "nlohmann-json",
+    "pugixml",
+    "lexbor",
+    "tree-sitter",
+    "tree-sitter-c",
+    "catch2",
     {
-      "name": "range-v3",
-      "version>=": "0.12.0"
+      "name": "pkgconf",
+      "host": true
     },
-    {
-      "name": "ctre",
-      "version>=": "3.9.0"
-    },
-    {
-      "name": "stringzilla",
-      "version>=": "3.12.5"
-    },
-    {
-      "name": "effolkronium-random",
-      "version>=": "1.5.0"
-    },
-    {
-      "name": "yaml-cpp",
-      "version>=": "0.8.0#3"
-    },
-    {
-      "name": "zlib",
-      "version>=": "1.3.1"
-    },
-    {
-      "name": "nlohmann-json",
-      "version>=": "3.12.0"
-    },
-    {
-      "name": "pegtl",
-      "version>=": "3.2.8"
-    },
-    {
-      "name": "magic-enum",
-      "version>=": "0.9.7"
-    },
-    {
-      "name": "catch2",
-      "version>=": "3.7.1"
-    },
-    {
-      "name": "nanobench",
-      "version>=": "4.3.11"
-    },
-    {
-      "name": "xxhash",
-      "version>=": "0.8.3"
-    },
-    {
-      "name": "quickjs-ng",
-      "version>=": "0.10.1"
-    },
-    {
-      "name": "nu-book-zxing-cpp",
-      "version>=": "2.3.0"
-    },
-    {
-      "name": "glfw3",
-      "version>=": "3.4#1"
-    },
-    {
-      "name": "glad",
-      "version>=": "0.1.36"
-    },
-    {
-      "name": "robin-map",
-      "version>=": "1.4.0"
-    },
-    {
-      "name": "plutosvg",
-      "version>=": "0.0.8"
-    },
-    {
-      "name": "libdatachannel"
-    },
-    {
-      "name": "curl"
-    },
-    {
-      "name": "sdl2"
-    },
-    {
-      "name": "zstd"
-    },
-    {
-      "name": "pkgconf"
-    },
-    {
-      "name": "rlottie"
-    },
-    {
-      "name": "libpng"
-    },
-    {
-      "name": "box2d"
-    },
-    {
-      "name": "libass",
-      "version>=": "0.17.4"
-    },
-    {
-      "name": "libmupdf",
-      "version>=": "1.25.4"
-    },
-    {
-      "name": "libharu",
-      "version>=": "2.4.4"
-    },
-    {
-      "name": "pugixml",
-      "version>=": "1.14"
-    },
-    {
-      "name": "lexbor",
-      "version>=": "2.3.0"
-    },
-    {
-      "name": "stb"
-    },
-    {
-      "name": "clipper2"
-    },
-    {
-      "name": "cxxopts"
-    },
-    {
-      "name": "libuv",
-      "version>=": "1.48.0"
-    },
-    {
-      "name": "openssl",
-      "version>=": "3.2.0"
-    },
-    {
-      "name": "c-ares",
-      "version>=": "1.34.1"
-    },
-    {
-      "name": "aklomp-base64",
-      "version>=": "0.5.2"
-    },
-    {
-      "name": "tree-sitter"
-    },
-    {
-      "name": "tree-sitter-c"
-    },
-    {
-      "name": "vulkan-headers"
-    },
-    {
-      "name": "vulkan-loader"
-    },
-    {
-      "name": "vulkan-memory-allocator"
-    },
-    {
-      "name": "vulkan-tools",
-      "platform": "!osx"
-    },
-    {
-      "name": "vulkan-validationlayers",
-      "platform": "!osx"
-    }
+    "zstd",
+    "glfw3",
+    "glad",
+    "plutosvg",
+    "vulkan-headers",
+    "vulkan-loader",
+    "vulkan-memory-allocator"
   ],
   "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
 }
