@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - "packaging/flowmq/**"
+      - "manifests/flowmq/**"
+      - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/flowmq-sdk-package.yml"
   push:
     branches: [master]
     paths:
       - "packaging/flowmq/**"
+      - "manifests/flowmq/**"
+      - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/flowmq-sdk-package.yml"
   workflow_dispatch:
 
