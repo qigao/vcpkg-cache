@@ -132,8 +132,15 @@ runs:
           throw "runner-provided vcpkg executable is unavailable"
         }
 
-        $versionLine = (& $runnerTool version | Select-Object -First 1)
-        if ($LASTEXITCODE -ne 0) { throw "runner-provided vcpkg version failed" }
+        $versionOutput = @(& $runnerTool version 2>&1)
+        $versionExitCode = $LASTEXITCODE
+        if ($versionExitCode -ne 0) {
+          throw "runner-provided vcpkg version failed with exit code $versionExitCode"
+        }
+        if ($versionOutput.Count -lt 1) {
+          throw "runner-provided vcpkg version produced no output"
+        }
+        $versionLine = [string]$versionOutput[0]
         $actualToolVersion = ($versionLine -replace '^vcpkg package management program version\s+', '').Trim()
         if ($actualToolVersion -ne $expectedToolVersion) {
           throw "runner vcpkg tool version mismatch: $actualToolVersion != $expectedToolVersion"
