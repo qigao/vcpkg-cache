@@ -70,7 +70,7 @@ Both shared setup actions accept an optional `token` input so consumers can use 
 - `warm-cache.yml` warms and publishes ABI-compatible vcpkg binary packages for Linux, Windows, macOS and Android, plus stack-specific manifests under `manifests/`.
 - `re2c-tools-package.yml` builds and publishes `Qigao.Re2c.Binary`.
 - `praktor-sdk-package.yml` builds Praktor master using released dependency SDKs, tests a restored `Praktor.Native` package, and publishes qualified CI versions on master.
-- `flowmq-sdk-package.yml` builds FlowMQ main using released Salts/SaltsUtils SDKs and the shared vcpkg cache, tests a restored `FlowMQ.Native` package through an external CMake consumer, and publishes qualified CI versions on master.
+- `flowmq-sdk-package.yml` pins one FlowMQ main commit, builds Linux/Windows/macOS/Android SDK profiles using released Salts/SaltsUtils packages and cache-only vcpkg restores, packs one multi-platform `FlowMQ.Native`, qualifies clean-restored external consumers on every RID, and publishes only after all gates pass.
 
 Repository-specific `actions/cache` entries may still be used as an optional L1 cache; GitHub Packages is the cross-repository L2/source of truth.
 
