@@ -1,0 +1,18 @@
+{
+  "name": "qigao-salts-utils-cache",
+  "version-string": "1",
+  "description": "Cross-platform third-party dependency warm-up for SaltsUtils SDK and plugin CI.",
+  "dependencies": [
+    {
+      "name": "pkgconf",
+      "host": true
+    },
+    "simde",
+    "boringssl",
+    "miniaudio",
+    "zstd",
+    "lua",
+    "libyuv"
+  ],
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}
