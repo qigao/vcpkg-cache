@@ -47,6 +47,58 @@ jobs:
             --x-install-root=build/vcpkg-salts-utils-linux \
             --triplet x64-linux
 
+      - name: Verify SaltsUtils Linux root packages are published
+        shell: python
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          import base64, json, os, time, urllib.parse, urllib.request
+
+          expected = {
+              "pkgconf_x64-linux",
+              "simde_x64-linux",
+              "boringssl_x64-linux",
+              "miniaudio_x64-linux",
+              "zstd_x64-linux",
+              "lua_x64-linux",
+              "libyuv_x64-linux",
+          }
+
+          token = os.environ["GITHUB_TOKEN"]
+          auth = base64.b64encode(f"qigao:{token}".encode()).decode()
+          headers = {"Authorization": f"Basic {auth}", "Accept": "application/json"}
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return json.load(response)
+
+          index = get_json("https://nuget.pkg.github.com/qigao/index.json")
+          search = next(
+              item["@id"] for item in index["resources"]
+              if "SearchQueryService" in item.get("@type", "")
+          )
+
+          for attempt in range(18):
+              visible = set()
+              for query in ("pkgconf", "simde", "boringssl", "miniaudio",
+                            "zstd", "lua", "libyuv"):
+                  url = search + "?" + urllib.parse.urlencode(
+                      {"q": query, "prerelease": "true", "take": "100"}
+                  )
+                  visible.update(
+                      item.get("id") for item in get_json(url).get("data", [])
+                  )
+              missing = sorted(expected - visible)
+              if not missing:
+                  print("all SaltsUtils Linux root packages are visible")
+                  break
+              if attempt == 17:
+                  raise SystemExit(
+                      "missing Linux GitHub Packages: " + ", ".join(missing)
+                  )
+              time.sleep(10)
+
       - name: Warm FlowMQ x64-linux dependencies
         run: |
           "$VCPKG_ROOT/vcpkg" install \
@@ -60,6 +112,64 @@ jobs:
             --x-manifest-root=manifests/turboraft-linux \
             --x-install-root=build/vcpkg-turboraft-linux \
             --triplet x64-linux
+
+  linux-cache-contract:
+    name: Linux x64 cache contract
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-vcpkg-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+      - name: Verify SaltsUtils clean restore from GitHub Packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$VCPKG_BINARY_CACHE"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          log="$RUNNER_TEMP/linux-salts-utils-cache-contract.log"
+          install_root="$RUNNER_TEMP/linux-salts-utils-installed"
+          rm -rf "$install_root"
+
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=manifests/salts-utils \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "SaltsUtils Linux cache-only restore failed" >&2
+            exit "$status"
+          fi
+
+          if grep -Eq '^Building [^:]+:x64-linux' "$log"; then
+            echo "SaltsUtils Linux shared cache miss detected:" >&2
+            grep -E '^Building [^:]+:x64-linux' "$log" >&2
+            exit 1
+          fi
+
+          if ! grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"; then
+            echo "SaltsUtils Linux shared cache did not restore packages from NuGet" >&2
+            exit 1
+          fi
 
   windows:
     name: Windows x64
