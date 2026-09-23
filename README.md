@@ -37,7 +37,7 @@ steps:
   - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
 ```
 
-The action does not download or bootstrap a vcpkg executable. It takes only the executable from the runner/toolchain (preferring `VCPKG_ROOT`, then `VCPKG_INSTALLATION_ROOT`, then `vcpkg` on `PATH`), requires it to match `vcpkg-tool-version.txt`, and combines it with the exact canonical vcpkg scripts revision declared by `vcpkg-scripts-revision.txt`. This prevents hosted-runner image rollouts from changing the scripts root and therefore changing binary-cache ABI keys between otherwise identical jobs. Manifest `builtin-baseline` values remain independent and continue to select dependency port versions. If no usable runner executable is present, setup fails immediately; there is no `bootstrap-vcpkg` or release-asset curl fallback. NuGet network operations use a 600-second timeout because large native packages such as Linux `libpq` can exceed NuGet/vcpkg's 100-second default upload timeout. An explicit `token` input may be supplied for cross-repository package access.
+The action exports `VCPKG_CACHE_REPOSITORY_ROOT` so downstream jobs can consume canonical manifests directly without copying them into product repositories. The action does not download or bootstrap a vcpkg executable. It takes only the executable from the runner/toolchain (preferring `VCPKG_ROOT`, then `VCPKG_INSTALLATION_ROOT`, then `vcpkg` on `PATH`), requires it to match `vcpkg-tool-version.txt`, and combines it with the exact canonical vcpkg scripts revision declared by `vcpkg-scripts-revision.txt`. This prevents hosted-runner image rollouts from changing the scripts root and therefore changing binary-cache ABI keys between otherwise identical jobs. Manifest `builtin-baseline` values remain independent and continue to select dependency port versions. If no usable runner executable is present, setup fails immediately; there is no `bootstrap-vcpkg` or release-asset curl fallback. NuGet network operations use a 600-second timeout because large native packages such as Linux `libpq` can exceed NuGet/vcpkg's 100-second default upload timeout. An explicit `token` input may be supplied for cross-repository package access.
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain and build configuration are ABI-compatible.
 
@@ -82,6 +82,7 @@ The root manifest stays focused on broadly shared dependencies. Larger or featur
 - `manifests/flowmq` — exact BoringSSL + ZeroMQ dependency set for FlowMQ SDK packaging on Linux, Windows, macOS, and Android arm64.
 - `manifests/turboraft-linux` — TurboRaft Linux-only dependency warm-up.
 - `manifests/stun-linux` — STUN/FlexUI/gCanvas Linux graphics and UI dependency union.
+- `manifests/gcanvas-shader-tools` — host-only shader compilation/reflection profile (`shaderc`, `glslang`, `spirv-cross`); Android runtime consumes generated assets and does not link these tools.
 - `manifests/turbodb-postgresql` — TurboDB PostgreSQL contract using centralized `libpq[zstd]` with BoringSSL.
 
 This keeps specialized dependency graphs out of unrelated platform jobs while still publishing their binaries into the same GitHub Packages L2 cache.
