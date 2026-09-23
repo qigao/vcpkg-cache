@@ -77,10 +77,13 @@ runs:
         fi
 
         root="$RUNNER_TEMP/qigao-vcpkg-$scripts_revision"
-        if [ ! -d "$root/.git" ] || [ "$(git -C "$root" rev-parse HEAD 2>/dev/null || true)" != "$scripts_revision" ]; then
+        promisor="$(git -C "$root" config --bool remote.origin.promisor 2>/dev/null || true)"
+        if [ ! -d "$root/.git" ] ||
+           [ "$(git -C "$root" rev-parse HEAD 2>/dev/null || true)" != "$scripts_revision" ] ||
+           [ "$promisor" = "true" ]; then
           rm -rf "$root"
           for attempt in 1 2 3; do
-            if git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git "$root"; then
+            if git clone --no-checkout https://github.com/microsoft/vcpkg.git "$root"; then
               break
             fi
             rm -rf "$root"
@@ -147,15 +150,20 @@ runs:
 
         $root = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-$scriptsRevision"
         $head = $null
+        $promisor = $null
         if (Test-Path -LiteralPath (Join-Path $root ".git")) {
           $head = (& git -C $root rev-parse HEAD 2>$null)
           if ($LASTEXITCODE -ne 0) { $head = $null }
+          $promisor = (& git -C $root config --bool remote.origin.promisor 2>$null)
+          if ($LASTEXITCODE -ne 0) { $promisor = $null }
         }
-        if ([string]::IsNullOrWhiteSpace($head) -or $head.Trim() -ne $scriptsRevision) {
+        if ([string]::IsNullOrWhiteSpace($head) -or
+            $head.Trim() -ne $scriptsRevision -or
+            $promisor -eq "true") {
           if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
           $cloned = $false
           foreach ($attempt in 1..3) {
-            git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git $root
+            git clone --no-checkout https://github.com/microsoft/vcpkg.git $root
             if ($LASTEXITCODE -eq 0) {
               $cloned = $true
               break
