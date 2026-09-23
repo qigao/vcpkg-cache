@@ -80,7 +80,7 @@ runs:
         if [ ! -d "$root/.git" ] || [ "$(git -C "$root" rev-parse HEAD 2>/dev/null || true)" != "$scripts_revision" ]; then
           rm -rf "$root"
           for attempt in 1 2 3; do
-            if git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git "$root"; then
+            if git clone --no-checkout https://github.com/microsoft/vcpkg.git "$root"; then
               break
             fi
             rm -rf "$root"
@@ -155,7 +155,7 @@ runs:
           if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
           $cloned = $false
           foreach ($attempt in 1..3) {
-            git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git $root
+            git clone --no-checkout https://github.com/microsoft/vcpkg.git $root
             if ($LASTEXITCODE -eq 0) {
               $cloned = $true
               break
