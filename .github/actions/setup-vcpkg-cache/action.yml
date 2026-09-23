@@ -227,6 +227,7 @@ runs:
 
         echo "VCPKG_BINARY_CACHE=$binary_cache" >> "$GITHUB_ENV"
         echo "VCPKG_CACHE_REVISION=$revision" >> "$GITHUB_ENV"
+        echo "VCPKG_CACHE_REPOSITORY_ROOT=$action_root" >> "$GITHUB_ENV"
         echo "VCPKG_OVERLAY_PORTS=$action_root/ports" >> "$GITHUB_ENV"
         echo "VCPKG_BINARY_SOURCES=$sources" >> "$GITHUB_ENV"
         echo "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> "$GITHUB_ENV"
@@ -294,6 +295,7 @@ runs:
 
         "VCPKG_BINARY_CACHE=$binaryCache" >> $env:GITHUB_ENV
         "VCPKG_CACHE_REVISION=$revision" >> $env:GITHUB_ENV
+        "VCPKG_CACHE_REPOSITORY_ROOT=$actionRoot" >> $env:GITHUB_ENV
         "VCPKG_OVERLAY_PORTS=$(Join-Path $actionRoot 'ports')" >> $env:GITHUB_ENV
         "VCPKG_BINARY_SOURCES=$sources" >> $env:GITHUB_ENV
         "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> $env:GITHUB_ENV
