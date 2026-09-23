@@ -6,6 +6,7 @@ on:
     paths:
       - "ports/**"
       - "vcpkg.json"
+      - "vcpkg-tool-version.txt"
       - "manifests/**"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
