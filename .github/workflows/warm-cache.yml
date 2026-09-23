@@ -319,6 +319,28 @@ jobs:
             throw "Windows 2022 shared cache did not restore packages from NuGet."
           }
 
+  windows-2022-salts-utils-cache-contract:
+    name: Windows 2022 SaltsUtils cache contract
+    needs: windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP "empty-vcpkg-salts-utils-l1"
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_BINARY_CACHE=$cache" >> $env:GITHUB_ENV
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare host dependencies
+        shell: pwsh
+        run: choco install nasm ninja -y --no-progress
       - name: Verify SaltsUtils clean restore from GitHub Packages
         shell: pwsh
         run: |
@@ -349,6 +371,7 @@ jobs:
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
             throw "SaltsUtils Windows shared cache did not restore packages from NuGet."
           }
+
 
   windows-latest:
     name: Windows latest x64
