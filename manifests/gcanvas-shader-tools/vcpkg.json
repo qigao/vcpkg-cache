@@ -1,0 +1,11 @@
+{
+  "name": "qigao-gcanvas-shader-tools-cache",
+  "version-string": "1",
+  "description": "Host shader compilation and reflection dependencies for gCanvas ShaderSystem.",
+  "dependencies": [
+    { "name": "shaderc", "host": true },
+    { "name": "glslang", "host": true },
+    { "name": "spirv-cross", "host": true }
+  ],
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}
