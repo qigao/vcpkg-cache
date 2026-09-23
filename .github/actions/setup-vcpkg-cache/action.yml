@@ -145,7 +145,7 @@ runs:
           throw "runner vcpkg tool version mismatch: $actualToolVersion != $expectedToolVersion"
         }
 
-        $root = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-$scripts_revision"
+        $root = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-$scriptsRevision"
         $head = $null
         if (Test-Path -LiteralPath (Join-Path $root ".git")) {
           $head = (& git -C $root rev-parse HEAD 2>$null)
