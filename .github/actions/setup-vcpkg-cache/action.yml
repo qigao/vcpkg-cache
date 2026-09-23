@@ -1,5 +1,5 @@
 name: Set up shared vcpkg cache
-description: Configure the canonical vcpkg tool, overlay ports, local L1 cache, and GitHub Packages L2 cache.
+description: Configure runner-provided vcpkg, overlay ports, local L1 cache, and GitHub Packages L2 cache.
 
 inputs:
   mode:
@@ -41,63 +41,96 @@ runs:
         set -euo pipefail
         command -v mono >/dev/null 2>&1 || brew install mono
 
-    - name: Prepare canonical vcpkg tool on Unix
+    - name: Use runner-provided vcpkg on Unix
       if: runner.os != 'Windows'
       shell: bash
       run: |
         set -euo pipefail
-        action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
-        baseline="$(python3 -c 'import json,pathlib,sys; print(json.loads((pathlib.Path(sys.argv[1])/"vcpkg.json").read_text())["builtin-baseline"])' "$action_root")"
-        root="$RUNNER_TEMP/qigao-vcpkg-$baseline"
 
-        if [ ! -x "$root/vcpkg" ]; then
-          rm -rf "$root"
-          git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git "$root"
-          git -C "$root" checkout --detach "$baseline"
-          "$root/bootstrap-vcpkg.sh" -disableMetrics
+        root=""
+        for candidate in "${VCPKG_ROOT:-}" "${VCPKG_INSTALLATION_ROOT:-}"; do
+          if [ -n "$candidate" ] &&
+             [ -x "$candidate/vcpkg" ] &&
+             [ -f "$candidate/scripts/buildsystems/vcpkg.cmake" ]; then
+            root="$candidate"
+            break
+          fi
+        done
+
+        if [ -z "$root" ]; then
+          vcpkg_bin="$(command -v vcpkg || true)"
+          if [ -n "$vcpkg_bin" ]; then
+            vcpkg_bin="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$vcpkg_bin")"
+            candidate="$(dirname "$vcpkg_bin")"
+            if [ -f "$candidate/scripts/buildsystems/vcpkg.cmake" ]; then
+              root="$candidate"
+            fi
+          fi
         fi
 
-        if [ "$(git -C "$root" rev-parse --is-shallow-repository)" = "true" ]; then
-          git -C "$root" fetch --unshallow --filter=blob:none origin
+        if [ -z "$root" ]; then
+          echo "runner-provided vcpkg is unavailable; provision vcpkg before setup-vcpkg-cache" >&2
+          exit 1
         fi
-        test "$(git -C "$root" rev-parse HEAD)" = "$baseline"
+
         "$root/vcpkg" version
-        echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
-        echo "VCPKG_TOOL_REVISION=$baseline" >> "$GITHUB_ENV"
+        revision="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
+        if [ -z "$revision" ]; then
+          revision="runner-provided"
+        fi
 
-    - name: Prepare canonical vcpkg tool on Windows
+        echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
+        echo "VCPKG_TOOL_REVISION=$revision" >> "$GITHUB_ENV"
+
+    - name: Use runner-provided vcpkg on Windows
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
         $ErrorActionPreference = "Stop"
-        $actionRoot = (Resolve-Path (Join-Path "${{ github.action_path }}" "..\..\..")).Path
-        $manifest = Get-Content -LiteralPath (Join-Path $actionRoot "vcpkg.json") -Raw | ConvertFrom-Json
-        $baseline = $manifest.'builtin-baseline'
-        if ([string]::IsNullOrWhiteSpace($baseline)) { throw "central vcpkg baseline is unavailable" }
-        $root = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-$baseline"
+
+        $root = $null
+        foreach ($candidate in @($env:VCPKG_ROOT, $env:VCPKG_INSTALLATION_ROOT)) {
+          if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+          $exe = Join-Path $candidate "vcpkg.exe"
+          $toolchain = Join-Path $candidate "scripts\buildsystems\vcpkg.cmake"
+          if ((Test-Path -LiteralPath $exe -PathType Leaf) -and
+              (Test-Path -LiteralPath $toolchain -PathType Leaf)) {
+            $root = $candidate
+            break
+          }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($root)) {
+          $command = Get-Command vcpkg.exe -ErrorAction SilentlyContinue
+          if ($null -eq $command) {
+            $command = Get-Command vcpkg -ErrorAction SilentlyContinue
+          }
+          if ($null -ne $command) {
+            $candidate = Split-Path -Parent $command.Source
+            $toolchain = Join-Path $candidate "scripts\buildsystems\vcpkg.cmake"
+            if (Test-Path -LiteralPath $toolchain -PathType Leaf) {
+              $root = $candidate
+            }
+          }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($root)) {
+          throw "runner-provided vcpkg is unavailable; provision vcpkg before setup-vcpkg-cache"
+        }
+
         $exe = Join-Path $root "vcpkg.exe"
-
-        if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-          if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-          git clone --filter=blob:none --no-checkout https://github.com/microsoft/vcpkg.git $root
-          if ($LASTEXITCODE -ne 0) { throw "failed to clone vcpkg" }
-          git -C $root checkout --detach $baseline
-          if ($LASTEXITCODE -ne 0) { throw "failed to checkout vcpkg $baseline" }
-          & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
-          if ($LASTEXITCODE -ne 0) { throw "failed to bootstrap vcpkg $baseline" }
-        }
-
-        $isShallow = (git -C $root rev-parse --is-shallow-repository).Trim()
-        if ($isShallow -eq "true") {
-          git -C $root fetch --unshallow --filter=blob:none origin
-          if ($LASTEXITCODE -ne 0) { throw "failed to unshallow vcpkg" }
-        }
-        $actual = (git -C $root rev-parse HEAD).Trim()
-        if ($actual -ne $baseline) { throw "vcpkg revision mismatch: $actual != $baseline" }
         & $exe version
-        if ($LASTEXITCODE -ne 0) { throw "vcpkg version failed" }
+        if ($LASTEXITCODE -ne 0) { throw "runner-provided vcpkg version failed" }
+
+        $revision = (& git -C $root rev-parse HEAD 2>$null)
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($revision)) {
+          $revision = "runner-provided"
+        } else {
+          $revision = $revision.Trim()
+        }
+
         "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
-        "VCPKG_TOOL_REVISION=$baseline" >> $env:GITHUB_ENV
+        "VCPKG_TOOL_REVISION=$revision" >> $env:GITHUB_ENV
 
     - name: Configure shared vcpkg cache on Unix
       if: runner.os != 'Windows'
