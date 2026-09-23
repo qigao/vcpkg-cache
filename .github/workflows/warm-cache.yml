@@ -7,6 +7,7 @@ on:
       - "ports/**"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
+      - "vcpkg-scripts-revision.txt"
       - "manifests/**"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
