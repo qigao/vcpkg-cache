@@ -13,40 +13,48 @@ on:
 
 permissions:
   contents: read
-  packages: read
+  packages: write
 
 jobs:
-  linux:
-    name: STUN Linux x64 profile
+  warm:
+    name: Warm canonical STUN Linux profile
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
-          mode: read
+          mode: readwrite
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24.x"
           cache: false
-      - name: Prepare STUN host dependencies
+      - name: Prepare STUN Linux host dependencies
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build pkg-config nasm libudev-dev \
+            autoconf autoconf-archive automake libtool \
             xorg-dev libwayland-dev libxkbcommon-dev \
             libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev
-      - name: Resolve canonical STUN profile
+      - name: Warm and verify exact manifest
         shell: bash
         run: |
           set -euo pipefail
-          install_root="$RUNNER_TEMP/validate-stun-linux"
+          manifest="$GITHUB_WORKSPACE/manifests/stun-linux"
+          install_root="$RUNNER_TEMP/stun-linux-warm"
+          test -f "$manifest/vcpkg.json"
+          ! grep -Eq '"vulkan-(loader|headers)"' "$manifest/vcpkg.json"
+          rm -rf "$install_root"
           "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/stun-linux" \
+            --x-manifest-root="$manifest" \
             --x-install-root="$install_root" \
             --triplet x64-linux
           status="$install_root/vcpkg/status"
+          test -f "$status"
+          ! grep -Fqx 'Package: vulkan-loader' "$status"
+          ! grep -Fqx 'Package: vulkan-headers' "$status"
           awk '
             $0 == "Package: lexbor" { found=1; next }
             found && /^Version: / {
@@ -58,3 +66,82 @@ jobs:
             }
             END { if (!ok) exit 1 }
           ' "$status"
+
+  cache-only:
+    name: Empty-L1 cache-only restore
+    needs: warm
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty STUN L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-stun-vcpkg-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare STUN cache consumer host environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config nasm libudev-dev \
+            autoconf autoconf-archive automake libtool \
+            xorg-dev libwayland-dev libxkbcommon-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev
+      - name: Restore exact manifest from GitHub Packages only
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$GITHUB_WORKSPACE/manifests/stun-linux"
+          log="$RUNNER_TEMP/stun-linux-cache-only.log"
+          install_root="$RUNNER_TEMP/stun-linux-cache-only"
+          test -f "$manifest/vcpkg.json"
+          ! grep -Eq '"vulkan-(loader|headers)"' "$manifest/vcpkg.json"
+          rm -rf "$VCPKG_BINARY_CACHE" "$install_root"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status_code=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status_code" -ne 0 ]; then
+            echo "STUN Linux cache-only restore failed" >&2
+            exit "$status_code"
+          fi
+          if grep -Eq '^Building [^:]+:x64-linux' "$log"; then
+            echo "STUN Linux shared cache miss detected:" >&2
+            grep -E '^Building [^:]+:x64-linux' "$log" >&2
+            exit 1
+          fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+
+          installed_status="$install_root/vcpkg/status"
+          test -f "$installed_status"
+          ! grep -Fqx 'Package: vulkan-loader' "$installed_status"
+          ! grep -Fqx 'Package: vulkan-headers' "$installed_status"
+          awk '
+            $0 == "Package: lexbor" { found=1; next }
+            found && /^Version: / {
+              version=$2
+              if (version !~ /^3\./) exit 2
+              print "Lexbor=" version
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$installed_status"
