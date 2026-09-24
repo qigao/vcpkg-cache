@@ -3,7 +3,7 @@ name: Validate TurboWasm MIR profile
 on:
   pull_request:
     paths:
-      - "ports/mir/**"
+      - "ports/mir-jit/**"
       - "manifests/turbowasm-mir/**"
       - "tests/mir-consumer/**"
       - ".github/actions/setup-vcpkg-cache/**"
