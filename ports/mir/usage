@@ -1,0 +1,6 @@
+MIR provides the lightweight MIR core and JIT generator:
+
+  find_package(MIR CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE MIR::MIR)
+
+This centralized port intentionally excludes C2MIR, mir-run, and utility tools.
