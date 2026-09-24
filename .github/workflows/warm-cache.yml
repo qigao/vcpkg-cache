@@ -40,6 +40,13 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet x64-linux
 
+      - name: Warm TurboWasm MIR x64-linux dependencies
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=manifests/turbowasm-mir \
+            --x-install-root=build/vcpkg-turbowasm-mir-linux \
+            --triplet x64-linux
+
       - name: Warm SaltsUtils x64-linux dependencies
         run: |
           "$VCPKG_ROOT/vcpkg" install \
@@ -277,6 +284,14 @@ jobs:
         run: |
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
 
+      - name: Warm TurboWasm MIR x64-windows dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --x-manifest-root=manifests/turbowasm-mir `
+            --x-install-root=build/vcpkg-turbowasm-mir-windows-2022 `
+            --triplet x64-windows
+
       - name: Warm SaltsUtils x64-windows dependencies
         shell: pwsh
         run: |
@@ -497,6 +512,13 @@ jobs:
       - name: Warm macOS
         run: |
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
+
+      - name: Warm TurboWasm MIR macOS dependencies
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=manifests/turbowasm-mir \
+            --x-install-root=build/vcpkg-turbowasm-mir-macos \
+            --triplet "$VCPKG_WARM_TRIPLET"
 
       - name: Warm SaltsUtils macOS dependencies
         run: |
