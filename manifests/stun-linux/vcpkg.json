@@ -1,7 +1,7 @@
 {
   "name": "qigao-stun-linux-cache",
-  "version-string": "1",
-  "description": "Linux classic dependency union used by STUN Mesa, Desktop, and Unicode CI.",
+  "version-string": "2",
+  "description": "Canonical Linux dependency profile for STUN Desktop and Unicode CI; Vulkan loader/headers remain system-owned.",
   "dependencies": [
     "freetype",
     "stb",
@@ -23,8 +23,6 @@
     "glfw3",
     "glad",
     "plutosvg",
-    "vulkan-headers",
-    "vulkan-loader",
     "vulkan-memory-allocator"
   ],
   "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"

@@ -568,15 +568,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build pkg-config nasm libudev-dev \
+            autoconf autoconf-archive automake libtool \
             xorg-dev libwayland-dev libxkbcommon-dev \
             libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev
       - name: Warm STUN Linux dependencies
         shell: bash
         run: |
+          set -euo pipefail
+          manifest="$GITHUB_WORKSPACE/manifests/stun-linux"
+          install_root="$GITHUB_WORKSPACE/build/vcpkg-stun-linux"
+          test -f "$manifest/vcpkg.json"
+          ! grep -Eq '"vulkan-(loader|headers)"' "$manifest/vcpkg.json"
           "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root=manifests/stun-linux \
-            --x-install-root=build/vcpkg-stun-linux \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
             --triplet x64-linux
+          status="$install_root/vcpkg/status"
+          test -f "$status"
+          ! grep -Fqx 'Package: vulkan-loader' "$status"
+          ! grep -Fqx 'Package: vulkan-headers' "$status"
+          awk '
+            $0 == "Package: lexbor" { found=1; next }
+            found && /^Version: / {
+              version=$2
+              if (version !~ /^3\./) exit 2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$status"
 
   stun-linux-cache-contract:
     name: STUN Linux cache contract
@@ -599,11 +619,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          manifest="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/stun-linux"
           log="$RUNNER_TEMP/stun-linux-cache-contract.log"
           install_root="$RUNNER_TEMP/stun-linux-installed"
+          test -f "$manifest/vcpkg.json"
+          ! grep -Eq '"vulkan-(loader|headers)"' "$manifest/vcpkg.json"
           rm -rf "$install_root"
           "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/stun-linux" \
+            --x-manifest-root="$manifest" \
             --x-install-root="$install_root" \
             --triplet x64-linux \
             --only-binarycaching 2>&1 | tee "$log"
@@ -611,6 +634,8 @@ jobs:
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
           status="$install_root/vcpkg/status"
           test -f "$status"
+          ! grep -Fqx 'Package: vulkan-loader' "$status"
+          ! grep -Fqx 'Package: vulkan-headers' "$status"
           awk '
             $0 == "Package: lexbor" { found=1; next }
             found && /^Version: / {
