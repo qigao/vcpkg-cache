@@ -578,6 +578,50 @@ jobs:
             --x-install-root=build/vcpkg-stun-linux \
             --triplet x64-linux
 
+  stun-linux-cache-contract:
+    name: STUN Linux cache contract
+    needs: stun-linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-stun-linux-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Restore canonical STUN profile from shared cache only
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/stun-linux-cache-contract.log"
+          install_root="$RUNNER_TEMP/stun-linux-installed"
+          rm -rf "$install_root"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/stun-linux" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          ! grep -Eq '^Building [^:]+:x64-linux' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          status="$install_root/vcpkg/status"
+          test -f "$status"
+          awk '
+            $0 == "Package: lexbor" { found=1; next }
+            found && /^Version: / {
+              version=$2
+              if (version !~ /^3\./) exit 2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$status"
+
   turbodb-postgresql-linux:
     name: TurboDB PostgreSQL Linux x64
     needs: linux
