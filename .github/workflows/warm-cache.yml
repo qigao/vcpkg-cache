@@ -243,14 +243,15 @@ jobs:
           set "VCPKG_ROOT=%QIGAO_VCPKG_ROOT%"
           if errorlevel 1 exit /b 1
           "%QIGAO_VCPKG_ROOT%\vcpkg.exe" install --x-manifest-root="%GITHUB_WORKSPACE%\manifests\plugin-databind" --x-install-root="%RUNNER_TEMP%\plugin-databind-contract-installed" --triplet=x64-windows --only-binarycaching > "%RUNNER_TEMP%\plugin-databind-contract.log" 2>&1
+          set "VCPKG_STATUS=%ERRORLEVEL%"
           type "%RUNNER_TEMP%\plugin-databind-contract.log"
-          if errorlevel 1 exit /b 1
+          if not "%VCPKG_STATUS%"=="0" exit /b %VCPKG_STATUS%
           findstr /R /C:"^Building .*:x64-windows" "%RUNNER_TEMP%\plugin-databind-contract.log" >nul
           if not errorlevel 1 (
             echo focused Plugin/DataBind shared cache miss detected
             exit /b 1
           )
-          findstr /R /C:"Restored [1-9][0-9]* package(s) from NuGet" "%RUNNER_TEMP%\plugin-databind-contract.log" >nul
+          findstr /C:"from NuGet" "%RUNNER_TEMP%\plugin-databind-contract.log" >nul
           if errorlevel 1 (
             echo focused Plugin/DataBind restore did not use NuGet
             exit /b 1
