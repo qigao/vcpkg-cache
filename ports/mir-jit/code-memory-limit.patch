@@ -1,0 +1,101 @@
+diff --git a/mir.h b/mir.h
+index 38b282b..4d4010e 100644
+--- a/mir.h
++++ b/mir.h
+@@ -596,6 +596,9 @@ extern uint8_t *_MIR_publish_code_by_addr (MIR_context_t ctx, void *addr, const
+                                            size_t code_len);
+ extern uint8_t *_MIR_get_new_code_addr (MIR_context_t ctx, size_t size);
++extern void MIR_set_code_limit (MIR_context_t ctx, size_t limit);
++extern size_t MIR_get_code_mapped_size (MIR_context_t ctx);
++
+ extern uint8_t *_MIR_publish_code_by_addr (MIR_context_t ctx, void *addr, const uint8_t *code,
+                                            size_t code_len);
+ struct MIR_code_reloc {
+diff --git a/mir.c b/mir.c
+index 9bb8e62..f91fe1b 100644
+--- a/mir.c
++++ b/mir.c
+@@ -5417,6 +5417,8 @@ struct machine_code_ctx {
+   VARR (code_holder_t) * code_holders;
+   size_t page_size;
++  size_t code_limit;
++  size_t code_mapped_size;
+ };
+ 
+ #define code_holders ctx->machine_code_ctx->code_holders
+ #define page_size ctx->machine_code_ctx->page_size
++#define code_limit ctx->machine_code_ctx->code_limit
++#define code_mapped_size ctx->machine_code_ctx->code_mapped_size
+ 
+ static code_holder_t *get_last_code_holder (MIR_context_t ctx, size_t size) {
+@@ -5432,9 +5434,14 @@ static code_holder_t *get_last_code_holder (MIR_context_t ctx, size_t size) {
+   }
+   npages = (size + page_size) / page_size;
+   len = page_size * npages;
++  if (code_limit != 0
++      && (code_mapped_size > code_limit || len > code_limit - code_mapped_size))
++    return NULL;
+   mem = (uint8_t *) mem_map (len);
+   if (mem == MAP_FAILED) return NULL;
++  code_mapped_size += len;
+   ch.start = mem;
+   ch.free = mem;
+   ch.bound = mem + len;
+@@ -5498,12 +5505,25 @@ uint8_t *_MIR_get_new_code_addr (MIR_context_t ctx, size_t size) {
+   return ch_ptr == NULL ? NULL : ch_ptr->free;
+ }
+ 
++void MIR_set_code_limit (MIR_context_t ctx, size_t limit) {
++  mir_assert (ctx != NULL && ctx->machine_code_ctx != NULL);
++  code_limit = limit;
++}
++
++size_t MIR_get_code_mapped_size (MIR_context_t ctx) {
++  mir_assert (ctx != NULL && ctx->machine_code_ctx != NULL);
++  return code_mapped_size;
++}
++
+ static void code_init (MIR_context_t ctx) {
+   if ((ctx->machine_code_ctx = malloc (sizeof (struct machine_code_ctx))) == NULL)
+     MIR_get_error_func (ctx) (MIR_alloc_error, "Not enough memory for ctx");
+   page_size = mem_page_size ();
++  code_limit = 0;
++  code_mapped_size = 0;
+   VARR_CREATE (code_holder_t, code_holders, 128);
+ }
+diff --git a/mir-gen.c b/mir-gen.c
+index fd7c38e..047ac32 100644
+--- a/mir-gen.c
++++ b/mir-gen.c
+@@ -10443,17 +10443,19 @@ static void *generate_func_code (MIR_context_t ctx, MIR_item_t func_item,
+   if (machine_code_p) {
+     code = target_translate (gen_ctx, &code_len);
+     machine_code = func_item->u.func->call_addr = _MIR_publish_code (ctx, code, code_len);
+-    target_rebase (gen_ctx, func_item->u.func->call_addr);
++    if (machine_code != NULL) {
++      target_rebase (gen_ctx, func_item->u.func->call_addr);
+ #if MIR_GEN_CALL_TRACE
+-    func_item->u.func->call_addr = _MIR_get_wrapper (ctx, func_item, print_and_execute_wrapper);
++      func_item->u.func->call_addr = _MIR_get_wrapper (ctx, func_item, print_and_execute_wrapper);
+ #endif
+-    DEBUG (2, {
+-      _MIR_dump_code (NULL, machine_code, code_len);
+-      fprintf (debug_file, "code size = %lu:\n", (unsigned long) code_len);
+-    });
+-    _MIR_redirect_thunk (ctx, func_item->addr, func_item->u.func->call_addr);
++      DEBUG (2, {
++        _MIR_dump_code (NULL, machine_code, code_len);
++        fprintf (debug_file, "code size = %lu:\n", (unsigned long) code_len);
++      });
++      _MIR_redirect_thunk (ctx, func_item->addr, func_item->u.func->call_addr);
++    }
+   }
+   if (optimize_level != 0) destroy_loop_tree (gen_ctx, curr_cfg->root_loop_node);
+   destroy_func_cfg (gen_ctx);
+@@ -10472,7 +10474,7 @@ static void *generate_func_code (MIR_context_t ctx, MIR_item_t func_item,
+   _MIR_restore_func_insns (ctx, func_item);
+   /* ??? We should use atomic here but c2mir does not implement them yet.  */
+   func_item->u.func->machine_code = machine_code;
+-  return func_item->addr;
++  return machine_code == NULL ? NULL : func_item->addr;
+ }
