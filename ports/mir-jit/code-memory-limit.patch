@@ -41,7 +41,7 @@ diff --git a/mir.c b/mir.c
    ch.start = mem;
    ch.free = mem;
    ch.bound = mem + len;
-@@ -4515,10 +4523,21 @@ uint8_t *_MIR_get_new_code_addr (MIR_context_t ctx, size_t size) {
+@@ -4515,10 +4523,22 @@ uint8_t *_MIR_get_new_code_addr (MIR_context_t ctx, size_t size) {
  
    return ch_ptr == NULL ? NULL : ch_ptr->free;
  }
