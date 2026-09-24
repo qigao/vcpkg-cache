@@ -832,3 +832,122 @@ jobs:
             --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/gcanvas-shader-tools" \
             --x-install-root=build/vcpkg-gcanvas-shader-tools-macos \
             --triplet "$GCANVAS_SHADER_TOOLS_TRIPLET"
+
+
+  turbowasm-mir-linux:
+    name: TurboWasm MIR Linux x64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config
+      - name: Warm TurboWasm MIR profile
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-mir" \
+            --x-install-root=build/vcpkg-turbowasm-mir-linux \
+            --triplet x64-linux
+
+  turbowasm-mir-linux-cache-contract:
+    name: TurboWasm MIR Linux cache contract
+    needs: turbowasm-mir-linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-turbowasm-mir-linux-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Restore MIR from shared cache only
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/turbowasm-mir-linux-cache.log"
+          install_root="$RUNNER_TEMP/turbowasm-mir-linux-installed"
+          rm -rf "$install_root"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-mir" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          ! grep -Eq '^Building [^:]+:x64-linux' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+
+  turbowasm-mir-macos:
+    name: TurboWasm MIR macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Resolve host triplet
+        shell: bash
+        run: |
+          case "$RUNNER_ARCH" in
+            X64) echo "TURBOWASM_MIR_TRIPLET=x64-osx" >> "$GITHUB_ENV" ;;
+            ARM64) echo "TURBOWASM_MIR_TRIPLET=arm64-osx" >> "$GITHUB_ENV" ;;
+            *) echo "unsupported macOS arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+      - name: Warm TurboWasm MIR profile
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-mir" \
+            --x-install-root=build/vcpkg-turbowasm-mir-macos \
+            --triplet "$TURBOWASM_MIR_TRIPLET"
+
+  turbowasm-mir-macos-cache-contract:
+    name: TurboWasm MIR macOS cache contract
+    needs: turbowasm-mir-macos
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-turbowasm-mir-macos-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Resolve host triplet
+        shell: bash
+        run: |
+          case "$RUNNER_ARCH" in
+            X64) echo "TURBOWASM_MIR_TRIPLET=x64-osx" >> "$GITHUB_ENV" ;;
+            ARM64) echo "TURBOWASM_MIR_TRIPLET=arm64-osx" >> "$GITHUB_ENV" ;;
+            *) echo "unsupported macOS arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+      - name: Restore MIR from shared cache only
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/turbowasm-mir-macos-cache.log"
+          install_root="$RUNNER_TEMP/turbowasm-mir-macos-installed"
+          rm -rf "$install_root"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-mir" \
+            --x-install-root="$install_root" \
+            --triplet "$TURBOWASM_MIR_TRIPLET" \
+            --only-binarycaching 2>&1 | tee "$log"
+          ! grep -Eq "^Building [^:]+:$TURBOWASM_MIR_TRIPLET" "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"

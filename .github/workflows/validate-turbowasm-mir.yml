@@ -1,0 +1,122 @@
+name: Validate TurboWasm MIR profile
+
+on:
+  pull_request:
+    paths:
+      - "ports/mir/**"
+      - "manifests/turbowasm-mir/**"
+      - ".github/actions/setup-vcpkg-cache/**"
+      - ".github/workflows/validate-turbowasm-mir.yml"
+      - "vcpkg-tool-version.txt"
+      - "vcpkg-scripts-revision.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  linux:
+    name: Linux x64 MIR profile
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config
+      - name: Install MIR profile
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-mir" \
+            --x-install-root=build/mir-linux \
+            --triplet x64-linux
+      - name: Qualify external CMake consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD/build/mir-linux/x64-linux"
+          mkdir -p build/mir-consumer-linux
+          cat > build/mir-consumer-linux/main.c <<'EOF'
+          #include <mir.h>
+          #include <mir-gen.h>
+
+          int main(void) {
+              MIR_context_t ctx = MIR_init();
+              if (ctx == NULL) return 1;
+              MIR_gen_init(ctx);
+              MIR_gen_set_optimize_level(ctx, 1);
+              MIR_gen_finish(ctx);
+              MIR_finish(ctx);
+              return 0;
+          }
+          EOF
+          cat > build/mir-consumer-linux/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(mir_consumer C)
+          find_package(MIR CONFIG REQUIRED)
+          add_executable(mir_consumer main.c)
+          target_link_libraries(mir_consumer PRIVATE MIR::MIR)
+          EOF
+          cmake -S build/mir-consumer-linux -B build/mir-consumer-linux/out \
+            -G Ninja -DCMAKE_PREFIX_PATH="$root"
+          cmake --build build/mir-consumer-linux/out
+          build/mir-consumer-linux/out/mir_consumer
+
+  macos:
+    name: macOS MIR profile
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Resolve host triplet
+        shell: bash
+        run: |
+          case "$RUNNER_ARCH" in
+            X64) echo "MIR_TRIPLET=x64-osx" >> "$GITHUB_ENV" ;;
+            ARM64) echo "MIR_TRIPLET=arm64-osx" >> "$GITHUB_ENV" ;;
+            *) echo "unsupported macOS arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+      - name: Install MIR profile
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-mir" \
+            --x-install-root=build/mir-macos \
+            --triplet "$MIR_TRIPLET"
+      - name: Qualify external CMake consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD/build/mir-macos/$MIR_TRIPLET"
+          mkdir -p build/mir-consumer-macos
+          cat > build/mir-consumer-macos/main.c <<'EOF'
+          #include <mir.h>
+          #include <mir-gen.h>
+
+          int main(void) {
+              MIR_context_t ctx = MIR_init();
+              if (ctx == NULL) return 1;
+              MIR_gen_init(ctx);
+              MIR_gen_set_optimize_level(ctx, 1);
+              MIR_gen_finish(ctx);
+              MIR_finish(ctx);
+              return 0;
+          }
+          EOF
+          cat > build/mir-consumer-macos/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(mir_consumer C)
+          find_package(MIR CONFIG REQUIRED)
+          add_executable(mir_consumer main.c)
+          target_link_libraries(mir_consumer PRIVATE MIR::MIR)
+          EOF
+          cmake -S build/mir-consumer-macos -B build/mir-consumer-macos/out \
+            -DCMAKE_PREFIX_PATH="$root"
+          cmake --build build/mir-consumer-macos/out
+          build/mir-consumer-macos/out/mir_consumer
