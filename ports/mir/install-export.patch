@@ -1,0 +1,36 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -53,6 +53,30 @@
+ # ------------------ LIBMIR -----------------------
+-add_library(mir_static STATIC)
+-target_link_libraries(mir_static PRIVATE mir)
++add_library(mir_static STATIC $<TARGET_OBJECTS:mir>)
++set_target_properties(mir_static PROPERTIES
++  OUTPUT_NAME mir
++  EXPORT_NAME mir)
++target_include_directories(mir_static
++  PUBLIC
++    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
++    $<INSTALL_INTERFACE:include>)
++if(Threads_FOUND)
++  target_link_libraries(mir_static PUBLIC Threads::Threads)
++endif()
++if(UNIX)
++  target_link_libraries(mir_static PUBLIC m ${CMAKE_DL_LIBS})
++endif()
++
++file(GLOB MIR_PUBLIC_HEADERS "${PROJECT_SOURCE_DIR}/mir*.h")
++install(
++  TARGETS mir_static
++  EXPORT MIRTargets
++  ARCHIVE DESTINATION lib)
++install(FILES ${MIR_PUBLIC_HEADERS} DESTINATION include)
++install(
++  EXPORT MIRTargets
++  FILE MIRTargets.cmake
++  NAMESPACE MIR::
++  DESTINATION share/mir)
+ 
+ # ------------------ LIBMIR SO --------------------
+ add_library(mir_shared SHARED)
