@@ -1,0 +1,60 @@
+name: Validate STUN vcpkg profile
+
+on:
+  pull_request:
+    paths:
+      - "manifests/stun-linux/**"
+      - ".github/actions/setup-vcpkg-cache/**"
+      - ".github/workflows/validate-stun-profile.yml"
+      - ".github/workflows/warm-cache.yml"
+      - "vcpkg-tool-version.txt"
+      - "vcpkg-scripts-revision.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  linux:
+    name: STUN Linux x64 profile
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Prepare STUN host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config nasm libudev-dev \
+            xorg-dev libwayland-dev libxkbcommon-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev
+      - name: Resolve canonical STUN profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/validate-stun-linux"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/stun-linux" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux
+          status="$install_root/vcpkg/status"
+          awk '
+            $0 == "Package: lexbor" { found=1; next }
+            found && /^Version: / {
+              version=$2
+              if (version !~ /^3\./) exit 2
+              print "Lexbor=" version
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$status"

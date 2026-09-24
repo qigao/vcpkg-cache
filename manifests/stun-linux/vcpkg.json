@@ -8,7 +8,10 @@
     "box2d",
     "nlohmann-json",
     "pugixml",
-    "lexbor",
+    {
+      "name": "lexbor",
+      "version>=": "3.0.0"
+    },
     "tree-sitter",
     "tree-sitter-c",
     "catch2",
