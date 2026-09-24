@@ -1,7 +1,7 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -53,6 +53,31 @@
+@@ -53,6 +53,30 @@
  # ------------------ LIBMIR -----------------------
 -add_library(mir_static STATIC)
 -target_link_libraries(mir_static PRIVATE mir)
