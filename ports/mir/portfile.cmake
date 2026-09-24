@@ -14,8 +14,10 @@ vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         -DBUILD_TESTING=OFF
+        -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=ON
 )
 
+vcpkg_cmake_build(TARGET mir_static)
 vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 
