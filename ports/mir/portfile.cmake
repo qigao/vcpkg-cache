@@ -1,0 +1,38 @@
+vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+
+vcpkg_from_github(
+    OUT_SOURCE_PATH SOURCE_PATH
+    REPO vnmakarov/mir
+    REF a8ab7c31cd5f9b23b77d84c60b3d83e62d9d304c
+    SHA512 0
+    HEAD_REF master
+    PATCHES
+        install-export.patch
+)
+
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DBUILD_TESTING=OFF
+)
+
+vcpkg_cmake_install()
+vcpkg_copy_pdbs()
+
+file(REMOVE_RECURSE
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
+)
+
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/MIRConfig.cmake"
+     DESTINATION "${CURRENT_PACKAGES_DIR}/share/mir")
+
+vcpkg_cmake_config_fixup(
+    PACKAGE_NAME MIR
+    CONFIG_PATH "share/mir"
+)
+
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage"
+     DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")
