@@ -83,6 +83,7 @@ The root manifest stays focused on broadly shared dependencies. Larger or featur
 - `manifests/turboraft-linux` — TurboRaft Linux-only dependency warm-up.
 - `manifests/stun-linux` — STUN/FlexUI/gCanvas Linux graphics and UI dependency union.
 - `manifests/gcanvas-shader-tools` — host-only shader compilation/reflection profile (`shaderc`, `glslang`, `spirv-cross`); Android runtime consumes generated assets and does not link these tools.
+- `manifests/turbowasm-mir` — host-only MIR lightweight JIT profile for TurboWasm optional JIT qualification on Linux/macOS.
 - `manifests/turbodb-postgresql` — TurboDB PostgreSQL contract using centralized `libpq[zstd]` with BoringSSL.
 
 This keeps specialized dependency graphs out of unrelated platform jobs while still publishing their binaries into the same GitHub Packages L2 cache.
