@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 
 typedef int64_t (*add_fn)(int64_t, int64_t);
 
@@ -25,12 +26,14 @@ int main(void) {
     assert(ctx != NULL);
     MIR_scan_string(ctx, program);
 
-    module = DLIST_HEAD(MIR_module_t, *MIR_get_module_list(ctx));
+    module = DLIST_TAIL(MIR_module_t, *MIR_get_module_list(ctx));
     assert(module != NULL);
-    MIR_load_module(ctx, module);
 
-    item = MIR_get_global_item(ctx, "add");
+    item = DLIST_TAIL(MIR_item_t, module->items);
     assert(item != NULL);
+    assert(strcmp(MIR_item_name(ctx, item), "add") == 0);
+
+    MIR_load_module(ctx, module);
 
     MIR_gen_init(ctx);
     MIR_gen_set_optimize_level(ctx, 0u);
