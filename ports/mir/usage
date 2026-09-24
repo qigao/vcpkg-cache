@@ -1,7 +1,0 @@
-MIR JIT provides a private static-library CMake target:
-
-  find_package(MIR CONFIG REQUIRED)
-  target_link_libraries(main PRIVATE MIR::MIR)
-
-The port intentionally packages only the MIR core/generator API.
-C2MIR, MIR command-line tools, and upstream tests are not built.
