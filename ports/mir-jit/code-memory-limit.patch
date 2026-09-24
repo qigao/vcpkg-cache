@@ -1,8 +1,8 @@
 diff --git a/mir.h b/mir.h
 --- a/mir.h
 +++ b/mir.h
-@@ -1,3 +1,3 @@
-@@
+@@ -670,8 +670,10 @@ extern MIR_item_t _MIR_builtin_func (MIR_context_t ctx, MIR_module_t module, co
+                                      void *addr);
  extern void _MIR_flush_code_cache (void *start, void *bound);
  extern uint8_t *_MIR_publish_code (MIR_context_t ctx, const uint8_t *code, size_t code_len);
  extern uint8_t *_MIR_get_new_code_addr (MIR_context_t ctx, size_t size);
@@ -14,7 +14,7 @@ diff --git a/mir.h b/mir.h
 diff --git a/mir.c b/mir.c
 --- a/mir.c
 +++ b/mir.c
-@@
+@@ -4391,9 +4391,13 @@ struct code_holder {
  struct machine_code_ctx {
    VARR (code_holder_t) * code_holders;
    size_t page_size;
@@ -28,7 +28,7 @@ diff --git a/mir.c b/mir.c
 +#define code_mapped_size ctx->machine_code_ctx->code_mapped_size
  
  static code_holder_t *get_last_code_holder (MIR_context_t ctx, size_t size) {
-@@
+@@ -4409,9 +4413,14 @@ static code_holder_t *get_last_code_holder (MIR_context_t ctx, size_t size) {
    }
    npages = (size + page_size) / page_size;
    len = page_size * npages;
@@ -41,9 +41,7 @@ diff --git a/mir.c b/mir.c
    ch.start = mem;
    ch.free = mem;
    ch.bound = mem + len;
-@@
- uint8_t *_MIR_get_new_code_addr (MIR_context_t ctx, size_t size) {
-   code_holder_t *ch_ptr = get_last_code_holder (ctx, size);
+@@ -4515,12 +4524,24 @@ uint8_t *_MIR_get_new_code_addr (MIR_context_t ctx, size_t size) {
  
    return ch_ptr == NULL ? NULL : ch_ptr->free;
  }
@@ -69,7 +67,7 @@ diff --git a/mir.c b/mir.c
 diff --git a/mir-gen.c b/mir-gen.c
 --- a/mir-gen.c
 +++ b/mir-gen.c
-@@
+@@ -9415,15 +9415,17 @@ static void *generate_func_code (MIR_context_t ctx, MIR_item_t func_item,
    if (machine_code_p) {
      code = target_translate (gen_ctx, &code_len);
      machine_code = func_item->u.func->call_addr = _MIR_publish_code (ctx, code, code_len);
@@ -92,7 +90,7 @@ diff --git a/mir-gen.c b/mir-gen.c
 +      _MIR_redirect_thunk (ctx, func_item->addr, func_item->u.func->call_addr);
 +    }
    }
-@@
+@@ -9440,7 +9442,7 @@ static void *generate_func_code (MIR_context_t ctx, MIR_item_t func_item,
    _MIR_restore_func_insns (ctx, func_item);
    /* ??? We should use atomic here but c2mir does not implement them yet.  */
    func_item->u.func->machine_code = machine_code;
