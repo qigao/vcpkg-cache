@@ -171,6 +171,91 @@ jobs:
             exit 1
           fi
 
+  plugin-databind-windows:
+    name: Plugin DataBind Windows consumer cache
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare consumer toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vcpkgRoot = $env:VCPKG_ROOT
+          if ([string]::IsNullOrWhiteSpace($vcpkgRoot)) {
+            throw "VCPKG_ROOT is unavailable"
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ([string]::IsNullOrWhiteSpace($vsInstall)) {
+            throw "Visual Studio x64 C++ toolchain not found"
+          }
+          "QIGAO_VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+          "VSINSTALL=$vsInstall" >> $env:GITHUB_ENV
+      - name: Warm focused Plugin DataBind closure
+        shell: cmd
+        run: |
+          call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 >nul
+          set "VCPKG_ROOT=%QIGAO_VCPKG_ROOT%"
+          if errorlevel 1 exit /b 1
+          "%QIGAO_VCPKG_ROOT%\vcpkg.exe" install --x-manifest-root="%GITHUB_WORKSPACE%\manifests\plugin-databind" --x-install-root="%GITHUB_WORKSPACE%\build\vcpkg-plugin-databind-windows" --triplet=x64-windows
+          if errorlevel 1 exit /b 1
+
+  plugin-databind-windows-cache-contract:
+    name: Plugin DataBind Windows cache contract
+    needs: plugin-databind-windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP "empty-plugin-databind-l1"
+          if (Test-Path -LiteralPath $cache) {
+            Remove-Item -LiteralPath $cache -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_BINARY_CACHE=$cache" >> $env:GITHUB_ENV
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare consumer toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vcpkgRoot = $env:VCPKG_ROOT
+          if ([string]::IsNullOrWhiteSpace($vcpkgRoot)) {
+            throw "VCPKG_ROOT is unavailable"
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ([string]::IsNullOrWhiteSpace($vsInstall)) {
+            throw "Visual Studio x64 C++ toolchain not found"
+          }
+          "QIGAO_VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+          "VSINSTALL=$vsInstall" >> $env:GITHUB_ENV
+      - name: Verify focused closure from shared cache only
+        shell: cmd
+        run: |
+          call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 >nul
+          set "VCPKG_ROOT=%QIGAO_VCPKG_ROOT%"
+          if errorlevel 1 exit /b 1
+          "%QIGAO_VCPKG_ROOT%\vcpkg.exe" install --x-manifest-root="%GITHUB_WORKSPACE%\manifests\plugin-databind" --x-install-root="%RUNNER_TEMP%\plugin-databind-contract-installed" --triplet=x64-windows --only-binarycaching > "%RUNNER_TEMP%\plugin-databind-contract.log" 2>&1
+          type "%RUNNER_TEMP%\plugin-databind-contract.log"
+          if errorlevel 1 exit /b 1
+          findstr /R /C:"^Building .*:x64-windows" "%RUNNER_TEMP%\plugin-databind-contract.log" >nul
+          if not errorlevel 1 (
+            echo focused Plugin/DataBind shared cache miss detected
+            exit /b 1
+          )
+          findstr /R /C:"Restored [1-9][0-9]* package(s) from NuGet" "%RUNNER_TEMP%\plugin-databind-contract.log" >nul
+          if errorlevel 1 (
+            echo focused Plugin/DataBind restore did not use NuGet
+            exit /b 1
+          )
+
   windows:
     name: Windows x64
     runs-on: windows-2022
