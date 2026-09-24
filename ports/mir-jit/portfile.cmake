@@ -9,6 +9,8 @@ vcpkg_from_git(
     URL "https://github.com/vnmakarov/mir.git"
     REF 477d820e7b3054980ea1b936ecb2945c0e6465e8
     FETCH_REF v1.0.0
+    PATCHES
+        code-memory-limit.patch
 )
 
 vcpkg_cmake_configure(

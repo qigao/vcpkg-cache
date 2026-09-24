@@ -37,11 +37,14 @@ int main(void) {
 
     MIR_gen_init(ctx);
     MIR_gen_set_optimize_level(ctx, 0u);
+    MIR_set_code_limit(ctx, 1024u * 1024u);
     MIR_link(ctx, MIR_set_gen_interface, NULL);
 
     add = (add_fn)MIR_gen(ctx, item);
     assert(add != NULL);
     assert(add(INT64_C(20), INT64_C(22)) == INT64_C(42));
+    assert(MIR_get_code_mapped_size(ctx) > 0u);
+    assert(MIR_get_code_mapped_size(ctx) <= 1024u * 1024u);
 
     MIR_gen_finish(ctx);
     MIR_finish(ctx);
