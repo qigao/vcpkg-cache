@@ -7,7 +7,7 @@ endif()
 vcpkg_from_git(
     OUT_SOURCE_PATH SOURCE_PATH
     URL "https://github.com/vnmakarov/mir.git"
-    REF 8001ee92a40c3681f3de766a622bc3fd4e27bb68
+    REF 477d820e7b3054980ea1b936ecb2945c0e6465e8
     FETCH_REF v1.0.0
 )
 
