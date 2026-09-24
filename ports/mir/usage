@@ -1,0 +1,9 @@
+MIR provides the C API for constructing and JIT-compiling MIR.
+
+CMake:
+  find_package(MIR CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE MIR::mir)
+
+Headers:
+  #include <mir.h>
+  #include <mir-gen.h>
