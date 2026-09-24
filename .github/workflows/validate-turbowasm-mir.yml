@@ -3,8 +3,9 @@ name: Validate TurboWasm MIR profile
 on:
   pull_request:
     paths:
-      - "ports/mir/**"
+      - "ports/mir-jit/**"
       - "manifests/turbowasm-mir/**"
+      - "tests/mir-consumer/**"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/validate-turbowasm-mir.yml"
       - "vcpkg-tool-version.txt"
@@ -65,6 +66,16 @@ jobs:
             -G Ninja -DCMAKE_PREFIX_PATH="$root"
           cmake --build build/mir-consumer-linux/out
           build/mir-consumer-linux/out/mir_consumer
+      - name: Qualify generated-code execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD/build/mir-linux/x64-linux"
+          cmake -S tests/mir-consumer -B build/mir-jit-exec-linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$root"
+          cmake --build build/mir-jit-exec-linux
+          build/mir-jit-exec-linux/mir_consumer
 
   macos:
     name: macOS MIR profile
@@ -120,3 +131,13 @@ jobs:
             -DCMAKE_PREFIX_PATH="$root"
           cmake --build build/mir-consumer-macos/out
           build/mir-consumer-macos/out/mir_consumer
+      - name: Qualify generated-code execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD/build/mir-macos/$MIR_TRIPLET"
+          cmake -S tests/mir-consumer -B build/mir-jit-exec-macos \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$root"
+          cmake --build build/mir-jit-exec-macos
+          build/mir-jit-exec-macos/mir_consumer
