@@ -4,7 +4,7 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO vnmakarov/mir
     REF a8ab7c31cd5f9b23b77d84c60b3d83e62d9d304c
-    SHA512 0
+    SHA512 5758942c2aeb22317005ed1bfbd104387674e74001ceb0da77485ed8ba011ae2b39e7a2acf8d9425e77741adb233966fc25c4cafca7f25efcceb96e161500039
     HEAD_REF master
     PATCHES
         install-export.patch
