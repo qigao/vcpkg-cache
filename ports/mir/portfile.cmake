@@ -25,7 +25,7 @@ file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/MIRConfig.cmake"
      DESTINATION "${CURRENT_PACKAGES_DIR}/debug/share/mir")
 
 vcpkg_cmake_config_fixup(
-    PACKAGE_NAME MIR
+    PACKAGE_NAME mir
     CONFIG_PATH "share/mir"
 )
 
