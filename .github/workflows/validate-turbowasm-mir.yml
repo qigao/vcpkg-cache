@@ -36,6 +36,38 @@ jobs:
             --x-install-root=build/validate-turbowasm-mir-linux \
             --triplet x64-linux
 
+      - name: Qualify MIR CMake consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/mir-consumer"
+          rm -rf "$src"
+          mkdir -p "$src"
+          cat > "$src/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(mir_consumer C)
+          find_package(MIR CONFIG REQUIRED)
+          add_executable(mir_consumer main.c)
+          target_link_libraries(mir_consumer PRIVATE MIR::mir)
+          EOF
+          cat > "$src/main.c" <<'EOF'
+          #include <mir-gen.h>
+          #include <mir.h>
+          int main(void) {
+              MIR_context_t ctx = MIR_init();
+              if (ctx == 0) return 1;
+              MIR_gen_init(ctx);
+              MIR_gen_finish(ctx);
+              MIR_finish(ctx);
+              return 0;
+          }
+          EOF
+          cmake -S "$src" -B "$src/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build/validate-turbowasm-mir-linux/x64-linux"
+          cmake --build "$src/build"
+          "$src/build/mir_consumer"
+
   windows:
     name: Windows x64 profile
     runs-on: windows-2022
@@ -54,6 +86,37 @@ jobs:
             "--x-manifest-root=$env:VCPKG_CACHE_REPOSITORY_ROOT\manifests\turbowasm-mir" `
             "--x-install-root=build\validate-turbowasm-mir-windows" `
             --triplet x64-windows
+
+      - name: Qualify MIR CMake consumer
+        shell: pwsh
+        run: |
+          $src = Join-Path $env:RUNNER_TEMP "mir-consumer"
+          if (Test-Path $src) { Remove-Item -Recurse -Force $src }
+          New-Item -ItemType Directory -Path $src | Out-Null
+          @'
+          cmake_minimum_required(VERSION 3.20)
+          project(mir_consumer C)
+          find_package(MIR CONFIG REQUIRED)
+          add_executable(mir_consumer main.c)
+          target_link_libraries(mir_consumer PRIVATE MIR::mir)
+          '@ | Set-Content (Join-Path $src "CMakeLists.txt")
+          @'
+          #include <mir-gen.h>
+          #include <mir.h>
+          int main(void) {
+              MIR_context_t ctx = MIR_init();
+              if (ctx == 0) return 1;
+              MIR_gen_init(ctx);
+              MIR_gen_finish(ctx);
+              MIR_finish(ctx);
+              return 0;
+          }
+          '@ | Set-Content (Join-Path $src "main.c")
+          cmake -S $src -B (Join-Path $src "build") -G Ninja `
+            "-DCMAKE_BUILD_TYPE=Release" `
+            "-DCMAKE_PREFIX_PATH=$env:GITHUB_WORKSPACE\build\validate-turbowasm-mir-windows\x64-windows"
+          cmake --build (Join-Path $src "build")
+          & (Join-Path $src "build\mir_consumer.exe")
 
   macos:
     name: macOS host profile
@@ -78,3 +141,35 @@ jobs:
             --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-mir" \
             --x-install-root=build/validate-turbowasm-mir-macos \
             --triplet "$VCPKG_VALIDATE_TRIPLET"
+
+      - name: Qualify MIR CMake consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/mir-consumer"
+          rm -rf "$src"
+          mkdir -p "$src"
+          cat > "$src/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(mir_consumer C)
+          find_package(MIR CONFIG REQUIRED)
+          add_executable(mir_consumer main.c)
+          target_link_libraries(mir_consumer PRIVATE MIR::mir)
+          EOF
+          cat > "$src/main.c" <<'EOF'
+          #include <mir-gen.h>
+          #include <mir.h>
+          int main(void) {
+              MIR_context_t ctx = MIR_init();
+              if (ctx == 0) return 1;
+              MIR_gen_init(ctx);
+              MIR_gen_finish(ctx);
+              MIR_finish(ctx);
+              return 0;
+          }
+          EOF
+          cmake -S "$src" -B "$src/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build/validate-turbowasm-mir-macos/$VCPKG_VALIDATE_TRIPLET"
+          cmake --build "$src/build"
+          "$src/build/mir_consumer"
