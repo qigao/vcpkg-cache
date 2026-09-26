@@ -14,28 +14,28 @@ inputs:
 outputs:
   contract-version:
     description: Semantic version of the shared cache contract.
-    value: ${{ steps.contract.outputs.contract-version }}
+    value: ${{ steps.contract.outputs.contract_version }}
   cache-revision:
     description: Canonical content revision for overlay ports, registry versions, manifests, and vcpkg identities.
-    value: ${{ steps.contract.outputs.cache-revision }}
+    value: ${{ steps.contract.outputs.cache_revision }}
   tool-revision:
     description: Canonical vcpkg executable identity.
-    value: ${{ steps.contract.outputs.tool-revision }}
+    value: ${{ steps.contract.outputs.tool_revision }}
   scripts-revision:
     description: Canonical Microsoft vcpkg scripts commit.
-    value: ${{ steps.contract.outputs.scripts-revision }}
+    value: ${{ steps.contract.outputs.scripts_revision }}
   contract_version:
     description: Expression-safe alias for the semantic shared cache contract version.
-    value: ${{ steps.contract.outputs.contract-version }}
+    value: ${{ steps.contract.outputs.contract_version }}
   cache_revision:
     description: Expression-safe alias for the canonical shared cache content revision.
-    value: ${{ steps.contract.outputs.cache-revision }}
+    value: ${{ steps.contract.outputs.cache_revision }}
   tool_revision:
     description: Expression-safe alias for the canonical vcpkg executable identity.
-    value: ${{ steps.contract.outputs.tool-revision }}
+    value: ${{ steps.contract.outputs.tool_revision }}
   scripts_revision:
     description: Expression-safe alias for the canonical Microsoft vcpkg scripts commit.
-    value: ${{ steps.contract.outputs.scripts-revision }}
+    value: ${{ steps.contract.outputs.scripts_revision }}
 
 runs:
   using: composite
@@ -427,3 +427,7 @@ runs:
         "cache-revision=$env:VCPKG_CACHE_REVISION" >> $env:GITHUB_OUTPUT
         "tool-revision=$env:VCPKG_TOOL_REVISION" >> $env:GITHUB_OUTPUT
         "scripts-revision=$env:VCPKG_SCRIPTS_REVISION" >> $env:GITHUB_OUTPUT
+        "contract_version=$env:VCPKG_CACHE_CONTRACT_VERSION" >> $env:GITHUB_OUTPUT
+        "cache_revision=$env:VCPKG_CACHE_REVISION" >> $env:GITHUB_OUTPUT
+        "tool_revision=$env:VCPKG_TOOL_REVISION" >> $env:GITHUB_OUTPUT
+        "scripts_revision=$env:VCPKG_SCRIPTS_REVISION" >> $env:GITHUB_OUTPUT
