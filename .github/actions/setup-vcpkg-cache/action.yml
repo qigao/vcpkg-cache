@@ -11,6 +11,20 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  contract-version:
+    description: Semantic version of the shared cache contract.
+    value: ${{ steps.contract.outputs.contract-version }}
+  cache-revision:
+    description: Canonical content revision for overlay ports, registry versions, manifests, and vcpkg identities.
+    value: ${{ steps.contract.outputs.cache-revision }}
+  tool-revision:
+    description: Canonical vcpkg executable identity.
+    value: ${{ steps.contract.outputs.tool-revision }}
+  scripts-revision:
+    description: Canonical Microsoft vcpkg scripts commit.
+    value: ${{ steps.contract.outputs.scripts-revision }}
+
 runs:
   using: composite
   steps:
@@ -195,7 +209,9 @@ runs:
 
         feed="https://nuget.pkg.github.com/qigao/index.json"
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
-        revision="$(python3 -c 'import hashlib,pathlib,sys;root=pathlib.Path(sys.argv[1]);files=[p for p in (root/"ports").rglob("*") if p.is_file()]+[root/".github/actions/setup-vcpkg-cache/action.yml",root/"vcpkg.json",root/"vcpkg-tool-version.txt",root/"vcpkg-scripts-revision.txt"];h=hashlib.sha256();[(h.update(p.relative_to(root).as_posix().encode()+b"\\0"),h.update(p.read_bytes()),h.update(b"\\0")) for p in sorted(files,key=lambda p:p.relative_to(root).as_posix())];print(h.hexdigest())' "$action_root")"
+        contract_version="$(tr -d '\r\n' < "$action_root/cache-contract-version.txt")"
+        test -n "$contract_version"
+        revision="$(python3 "$action_root/scripts/cache-contract-revision.py" "$action_root")"
         config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
         binary_cache="${VCPKG_BINARY_CACHE:-$GITHUB_WORKSPACE/build/vcpkg-binary-cache}"
         mkdir -p "$binary_cache"
@@ -226,6 +242,7 @@ runs:
         sources="clear;files,$binary_cache,readwrite;nugettimeout,1800;nugetconfig,$config,$CACHE_MODE"
 
         echo "VCPKG_BINARY_CACHE=$binary_cache" >> "$GITHUB_ENV"
+        echo "VCPKG_CACHE_CONTRACT_VERSION=$contract_version" >> "$GITHUB_ENV"
         echo "VCPKG_CACHE_REVISION=$revision" >> "$GITHUB_ENV"
         echo "VCPKG_CACHE_REPOSITORY_ROOT=$action_root" >> "$GITHUB_ENV"
         echo "VCPKG_OVERLAY_PORTS=$action_root/ports" >> "$GITHUB_ENV"
@@ -247,21 +264,16 @@ runs:
 
         $feed = "https://nuget.pkg.github.com/qigao/index.json"
         $actionRoot = (Resolve-Path (Join-Path "${{ github.action_path }}" "..\..\..")).Path
-        $revisionFiles = @(
-          Get-ChildItem -LiteralPath (Join-Path $actionRoot "ports") -Recurse -File |
-            Sort-Object FullName
-        )
-        $revisionFiles += Get-Item -LiteralPath (Join-Path $actionRoot ".github\actions\setup-vcpkg-cache\action.yml")
-        $revisionFiles += Get-Item -LiteralPath (Join-Path $actionRoot "vcpkg.json")
-        $revisionFiles += Get-Item -LiteralPath (Join-Path $actionRoot "vcpkg-tool-version.txt")
-        $revisionFiles += Get-Item -LiteralPath (Join-Path $actionRoot "vcpkg-scripts-revision.txt")
-        $revisionMaterial = foreach ($file in $revisionFiles) {
-          $relative = [IO.Path]::GetRelativePath($actionRoot, $file.FullName).Replace("\", "/")
-          $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$relative$([char]0)$hash"
+        $contractVersion = (Get-Content -LiteralPath (Join-Path $actionRoot "cache-contract-version.txt") -Raw).Trim()
+        if ([string]::IsNullOrWhiteSpace($contractVersion)) { throw "cache contract version is unavailable" }
+
+        $revisionScript = Join-Path $actionRoot "scripts\cache-contract-revision.py"
+        $revisionOutput = @(& python $revisionScript $actionRoot 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+          throw "cache contract revision calculation failed: $($revisionOutput -join [Environment]::NewLine)"
         }
-        $revisionBytes = [Text.Encoding]::UTF8.GetBytes(($revisionMaterial -join [Environment]::NewLine))
-        $revision = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($revisionBytes)).ToLowerInvariant()
+        $revision = ([string]$revisionOutput[-1]).Trim()
+        if ([string]::IsNullOrWhiteSpace($revision)) { throw "cache contract revision is unavailable" }
         $config = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-nuget.config"
         $binaryCache = $env:VCPKG_BINARY_CACHE
         if ([string]::IsNullOrWhiteSpace($binaryCache)) {
@@ -294,8 +306,31 @@ runs:
         $sources = "clear;files,$binaryCache,readwrite;nugettimeout,1800;nugetconfig,$config,$env:CACHE_MODE"
 
         "VCPKG_BINARY_CACHE=$binaryCache" >> $env:GITHUB_ENV
+        "VCPKG_CACHE_CONTRACT_VERSION=$contractVersion" >> $env:GITHUB_ENV
         "VCPKG_CACHE_REVISION=$revision" >> $env:GITHUB_ENV
         "VCPKG_CACHE_REPOSITORY_ROOT=$actionRoot" >> $env:GITHUB_ENV
         "VCPKG_OVERLAY_PORTS=$(Join-Path $actionRoot 'ports')" >> $env:GITHUB_ENV
         "VCPKG_BINARY_SOURCES=$sources" >> $env:GITHUB_ENV
         "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> $env:GITHUB_ENV
+
+
+    - name: Expose cache contract identity
+      id: contract
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        foreach ($name in @(
+          "VCPKG_CACHE_CONTRACT_VERSION",
+          "VCPKG_CACHE_REVISION",
+          "VCPKG_TOOL_REVISION",
+          "VCPKG_SCRIPTS_REVISION"
+        )) {
+          $value = [Environment]::GetEnvironmentVariable($name)
+          if ([string]::IsNullOrWhiteSpace($value)) {
+            throw "missing shared cache identity: $name"
+          }
+        }
+        "contract-version=$env:VCPKG_CACHE_CONTRACT_VERSION" >> $env:GITHUB_OUTPUT
+        "cache-revision=$env:VCPKG_CACHE_REVISION" >> $env:GITHUB_OUTPUT
+        "tool-revision=$env:VCPKG_TOOL_REVISION" >> $env:GITHUB_OUTPUT
+        "scripts-revision=$env:VCPKG_SCRIPTS_REVISION" >> $env:GITHUB_OUTPUT
