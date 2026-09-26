@@ -1,18 +1,20 @@
 {
-  "name": "qigao-salts-utils-cache",
+  "name": "qigao-salts-cache",
   "version-string": "1",
-  "description": "Cross-platform third-party dependency warm-up for SaltsUtils SDK and plugin CI.",
+  "description": "Canonical third-party dependency profile for Salts SDK, Lua binding, and QuickJS binding CI.",
   "dependencies": [
     {
       "name": "pkgconf",
       "host": true
     },
     "simde",
-    "boringssl",
-    "miniaudio",
     "zstd",
+    "aklomp-base64",
+    "c-ares",
+    "libuv",
+    "kcp",
+    "boringssl",
     "lua",
-    "libyuv",
     "quickjs-ng"
   ],
   "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
