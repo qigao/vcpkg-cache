@@ -8,6 +8,7 @@ on:
       - ".github/actions/setup-vcpkg-cache/**"
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
+      - "scripts/vcpkg-required-commits.py"
   workflow_dispatch:
 
 permissions:
