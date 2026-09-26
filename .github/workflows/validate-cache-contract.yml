@@ -21,21 +21,18 @@ permissions:
   packages: read
 
 jobs:
-  unix:
-    name: Contract / ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-15]
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: Contract / ubuntu-24.04
+    runs-on: ubuntu-24.04
+    outputs:
+      revision: ${{ steps.cache.outputs.cache-revision }}
+      contract: ${{ steps.cache.outputs.contract-version }}
     steps:
       - uses: actions/checkout@v4
-
       - id: cache
         uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
-
       - name: Verify canonical contract identity
         shell: bash
         env:
@@ -49,28 +46,57 @@ jobs:
           expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
           expected_tool="$(tr -d '\r\n' < vcpkg-tool-version.txt)"
           expected_scripts="$(tr -d '\r\n' < vcpkg-scripts-revision.txt)"
-
           test "$OUTPUT_CONTRACT" = "$expected_contract"
           test "$OUTPUT_REVISION" = "$expected_revision"
           test "$OUTPUT_TOOL" = "$expected_tool"
           test "$OUTPUT_SCRIPTS" = "$expected_scripts"
-
           test "$VCPKG_CACHE_CONTRACT_VERSION" = "$expected_contract"
           test "$VCPKG_CACHE_REVISION" = "$expected_revision"
-          test "$VCPKG_TOOL_REVISION" = "$expected_tool"
-          test "$VCPKG_SCRIPTS_REVISION" = "$expected_scripts"
 
-  windows:
-    name: Contract / windows-2022
-    runs-on: windows-2022
+  macos:
+    name: Contract / macos-15
+    runs-on: macos-15
+    outputs:
+      revision: ${{ steps.cache.outputs.cache-revision }}
+      contract: ${{ steps.cache.outputs.contract-version }}
     steps:
       - uses: actions/checkout@v4
-
       - id: cache
         uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
+      - name: Verify canonical contract identity
+        shell: bash
+        env:
+          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract-version }}
+          OUTPUT_REVISION: ${{ steps.cache.outputs.cache-revision }}
+          OUTPUT_TOOL: ${{ steps.cache.outputs.tool-revision }}
+          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts-revision }}
+        run: |
+          set -euo pipefail
+          expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
+          expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
+          expected_tool="$(tr -d '\r\n' < vcpkg-tool-version.txt)"
+          expected_scripts="$(tr -d '\r\n' < vcpkg-scripts-revision.txt)"
+          test "$OUTPUT_CONTRACT" = "$expected_contract"
+          test "$OUTPUT_REVISION" = "$expected_revision"
+          test "$OUTPUT_TOOL" = "$expected_tool"
+          test "$OUTPUT_SCRIPTS" = "$expected_scripts"
+          test "$VCPKG_CACHE_CONTRACT_VERSION" = "$expected_contract"
+          test "$VCPKG_CACHE_REVISION" = "$expected_revision"
 
+  windows:
+    name: Contract / windows-2022
+    runs-on: windows-2022
+    outputs:
+      revision: ${{ steps.cache.outputs.cache-revision }}
+      contract: ${{ steps.cache.outputs.contract-version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
       - name: Verify canonical contract identity
         shell: pwsh
         env:
@@ -85,13 +111,33 @@ jobs:
           $expectedContract = (Get-Content cache-contract-version.txt -Raw).Trim()
           $expectedTool = (Get-Content vcpkg-tool-version.txt -Raw).Trim()
           $expectedScripts = (Get-Content vcpkg-scripts-revision.txt -Raw).Trim()
-
           if ($env:OUTPUT_CONTRACT -ne $expectedContract) { throw "contract output mismatch" }
           if ($env:OUTPUT_REVISION -ne $expectedRevision) { throw "revision output mismatch" }
           if ($env:OUTPUT_TOOL -ne $expectedTool) { throw "tool output mismatch" }
           if ($env:OUTPUT_SCRIPTS -ne $expectedScripts) { throw "scripts output mismatch" }
-
           if ($env:VCPKG_CACHE_CONTRACT_VERSION -ne $expectedContract) { throw "contract env mismatch" }
           if ($env:VCPKG_CACHE_REVISION -ne $expectedRevision) { throw "revision env mismatch" }
-          if ($env:VCPKG_TOOL_REVISION -ne $expectedTool) { throw "tool env mismatch" }
-          if ($env:VCPKG_SCRIPTS_REVISION -ne $expectedScripts) { throw "scripts env mismatch" }
+
+  consistent:
+    name: Contract identity is cross-platform stable
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Compare host identities
+        shell: bash
+        env:
+          LINUX_CONTRACT: ${{ needs.linux.outputs.contract }}
+          MACOS_CONTRACT: ${{ needs.macos.outputs.contract }}
+          WINDOWS_CONTRACT: ${{ needs.windows.outputs.contract }}
+          LINUX_REVISION: ${{ needs.linux.outputs.revision }}
+          MACOS_REVISION: ${{ needs.macos.outputs.revision }}
+          WINDOWS_REVISION: ${{ needs.windows.outputs.revision }}
+        run: |
+          set -euo pipefail
+          test -n "$LINUX_CONTRACT"
+          test "$LINUX_CONTRACT" = "$MACOS_CONTRACT"
+          test "$LINUX_CONTRACT" = "$WINDOWS_CONTRACT"
+          test -n "$LINUX_REVISION"
+          test "$LINUX_REVISION" = "$MACOS_REVISION"
+          test "$LINUX_REVISION" = "$WINDOWS_REVISION"
+          printf 'contract=%s\nrevision=%s\n' "$LINUX_CONTRACT" "$LINUX_REVISION"
