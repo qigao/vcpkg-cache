@@ -24,6 +24,18 @@ outputs:
   scripts-revision:
     description: Canonical Microsoft vcpkg scripts commit.
     value: ${{ steps.contract.outputs.scripts-revision }}
+  contract_version:
+    description: Expression-safe alias for the semantic shared cache contract version.
+    value: ${{ steps.contract.outputs.contract-version }}
+  cache_revision:
+    description: Expression-safe alias for the canonical shared cache content revision.
+    value: ${{ steps.contract.outputs.cache-revision }}
+  tool_revision:
+    description: Expression-safe alias for the canonical vcpkg executable identity.
+    value: ${{ steps.contract.outputs.tool-revision }}
+  scripts_revision:
+    description: Expression-safe alias for the canonical Microsoft vcpkg scripts commit.
+    value: ${{ steps.contract.outputs.scripts-revision }}
 
 runs:
   using: composite
