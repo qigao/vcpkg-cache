@@ -211,39 +211,7 @@ runs:
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
         contract_version="$(tr -d '\r\n' < "$action_root/cache-contract-version.txt")"
         test -n "$contract_version"
-        revision="$(python3 - "$action_root" <<'PY'
-import hashlib
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-files = []
-for directory in ("ports", "versions", "manifests"):
-    path = root / directory
-    if path.is_dir():
-        files.extend(p for p in path.rglob("*") if p.is_file())
-for relative in (
-    ".gitattributes",
-    ".github/actions/setup-vcpkg-cache/action.yml",
-    "cache-contract-version.txt",
-    "vcpkg.json",
-    "vcpkg-tool-version.txt",
-    "vcpkg-scripts-revision.txt",
-):
-    path = root / relative
-    if path.is_file():
-        files.append(path)
-
-digest = hashlib.sha256()
-for path in sorted(files, key=lambda p: p.relative_to(root).as_posix()):
-    relative = path.relative_to(root).as_posix().encode()
-    digest.update(relative)
-    digest.update(b"\0")
-    digest.update(path.read_bytes())
-    digest.update(b"\0")
-print(digest.hexdigest())
-PY
-)"
+        revision="$(python3 "$action_root/scripts/cache-contract-revision.py" "$action_root")"
         config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
         binary_cache="${VCPKG_BINARY_CACHE:-$GITHUB_WORKSPACE/build/vcpkg-binary-cache}"
         mkdir -p "$binary_cache"
@@ -299,42 +267,13 @@ PY
         $contractVersion = (Get-Content -LiteralPath (Join-Path $actionRoot "cache-contract-version.txt") -Raw).Trim()
         if ([string]::IsNullOrWhiteSpace($contractVersion)) { throw "cache contract version is unavailable" }
 
-        $revisionFiles = @()
-        foreach ($directory in @("ports", "versions", "manifests")) {
-          $path = Join-Path $actionRoot $directory
-          if (Test-Path -LiteralPath $path -PathType Container) {
-            $revisionFiles += Get-ChildItem -LiteralPath $path -Recurse -File
-          }
+        $revisionScript = Join-Path $actionRoot "scripts\cache-contract-revision.py"
+        $revisionOutput = @(& python $revisionScript $actionRoot 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+          throw "cache contract revision calculation failed: $($revisionOutput -join [Environment]::NewLine)"
         }
-        foreach ($relative in @(
-          ".gitattributes",
-          ".github/actions/setup-vcpkg-cache/action.yml",
-          "cache-contract-version.txt",
-          "vcpkg.json",
-          "vcpkg-tool-version.txt",
-          "vcpkg-scripts-revision.txt"
-        )) {
-          $path = Join-Path $actionRoot $relative
-          if (Test-Path -LiteralPath $path -PathType Leaf) {
-            $revisionFiles += Get-Item -LiteralPath $path
-          }
-        }
-        $revisionFiles = @($revisionFiles | Sort-Object {
-          [IO.Path]::GetRelativePath($actionRoot, $_.FullName).Replace("\", "/")
-        })
-
-        $hasher = [Security.Cryptography.IncrementalHash]::CreateHash(
-          [Security.Cryptography.HashAlgorithmName]::SHA256
-        )
-        foreach ($file in $revisionFiles) {
-          $relative = [IO.Path]::GetRelativePath($actionRoot, $file.FullName).Replace("\", "/")
-          $hasher.AppendData([Text.Encoding]::UTF8.GetBytes($relative))
-          $hasher.AppendData([byte[]]@(0))
-          $hasher.AppendData([IO.File]::ReadAllBytes($file.FullName))
-          $hasher.AppendData([byte[]]@(0))
-        }
-        $revision = [Convert]::ToHexString($hasher.GetHashAndReset()).ToLowerInvariant()
-        $hasher.Dispose()
+        $revision = ([string]$revisionOutput[-1]).Trim()
+        if ([string]::IsNullOrWhiteSpace($revision)) { throw "cache contract revision is unavailable" }
         $config = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-nuget.config"
         $binaryCache = $env:VCPKG_BINARY_CACHE
         if ([string]::IsNullOrWhiteSpace($binaryCache)) {
