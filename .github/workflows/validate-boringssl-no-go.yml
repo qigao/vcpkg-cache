@@ -38,12 +38,6 @@ jobs:
           set -euo pipefail
 
           disabled=()
-          while IFS= read -r go_path; do
-            [ -n "$go_path" ] || continue
-            disabled_path="$go_path.qigao-ci-disabled"
-            sudo mv "$go_path" "$disabled_path"
-            disabled+=("$go_path|$disabled_path")
-          done < <(type -a -p go 2>/dev/null | awk '!seen[$0]++')
 
           restore_go() {
             local entry original disabled_path
@@ -56,6 +50,18 @@ jobs:
             done
           }
           trap restore_go EXIT
+
+          while IFS= read -r go_path; do
+            [ -n "$go_path" ] || continue
+            [ -e "$go_path" ] || continue
+            disabled_path="$go_path.qigao-ci-disabled"
+            sudo mv "$go_path" "$disabled_path"
+            disabled+=("$go_path|$disabled_path")
+          done < <(
+            type -a -p go 2>/dev/null |
+              while IFS= read -r path; do readlink -f "$path"; done |
+              awk '!seen[$0]++'
+          )
 
           hash -r
           if command -v go >/dev/null 2>&1; then
