@@ -57,10 +57,12 @@ v2
 
 `setup-vcpkg-cache` exports both environment variables and action outputs:
 
-- `VCPKG_CACHE_CONTRACT_VERSION` / `contract-version`
-- `VCPKG_CACHE_REVISION` / `cache-revision`
-- `VCPKG_TOOL_REVISION` / `tool-revision`
-- `VCPKG_SCRIPTS_REVISION` / `scripts-revision`
+- `VCPKG_CACHE_CONTRACT_VERSION` / `contract_version`
+- `VCPKG_CACHE_REVISION` / `cache_revision`
+- `VCPKG_TOOL_REVISION` / `tool_revision`
+- `VCPKG_SCRIPTS_REVISION` / `scripts_revision`
+
+Hyphenated action-output aliases remain available for compatibility, but consumers should use the underscore names in GitHub expressions.
 
 The semantic contract version changes only when the producer/consumer protocol changes. The cache revision is an exact SHA-256 identity derived from the canonical overlay ports, registry versions, stack manifests, cache action, contract version, root manifest, and pinned vcpkg tool/scripts identities.
 
@@ -77,13 +79,13 @@ Consumer L1 caches must include the central cache revision and must not use a re
     path: build/vcpkg-binary-cache
     key: >-
       vcpkg-l1-v3-${{ runner.os }}-${{ runner.arch }}-
-      ${{ steps.shared-vcpkg.outputs.contract-version }}-
-      ${{ steps.shared-vcpkg.outputs.cache-revision }}-
+      ${{ steps.shared-vcpkg.outputs.contract_version }}-
+      ${{ steps.shared-vcpkg.outputs.cache_revision }}-
       ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
     restore-keys: |
       vcpkg-l1-v3-${{ runner.os }}-${{ runner.arch }}-
-      ${{ steps.shared-vcpkg.outputs.contract-version }}-
-      ${{ steps.shared-vcpkg.outputs.cache-revision }}-
+      ${{ steps.shared-vcpkg.outputs.contract_version }}-
+      ${{ steps.shared-vcpkg.outputs.cache_revision }}-
 ```
 
 A `vcpkg-configuration.json` git-registry baseline remains a package-version resolution pin. It is not the shared binary-cache revision and should not be advanced merely because the cache implementation or an unrelated overlay changes.
