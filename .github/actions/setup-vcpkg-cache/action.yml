@@ -116,6 +116,32 @@ runs:
 
         test "$(git -C "$root" rev-parse HEAD)" = "$scripts_revision"
         test "$(git -C "$root" rev-parse --is-shallow-repository)" = "true"
+
+        while IFS= read -r baseline; do
+          [ -n "$baseline" ] || continue
+          if ! git -C "$root" cat-file -e "$baseline^{commit}" 2>/dev/null; then
+            baseline_fetched=false
+            for attempt in 1 2 3; do
+              if git -c protocol.version=2 -C "$root" fetch                   --no-tags --depth=1 origin "$baseline"; then
+                baseline_fetched=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 2))
+              fi
+            done
+            if [ "$baseline_fetched" != "true" ]; then
+              echo "failed to shallow-fetch required vcpkg baseline $baseline" >&2
+              exit 1
+            fi
+          fi
+          git -C "$root" cat-file -e "$baseline:versions/baseline.json"
+        done < <(
+          python3 "$action_root/scripts/vcpkg-required-commits.py"             "$action_root" "${GITHUB_WORKSPACE:-$action_root}"
+        )
+
+        test "$(git -C "$root" rev-parse HEAD)" = "$scripts_revision"
+        test "$(git -C "$root" rev-parse --is-shallow-repository)" = "true"
         cp "$runner_tool" "$root/vcpkg"
         chmod +x "$root/vcpkg"
         "$root/vcpkg" version
@@ -203,6 +229,42 @@ runs:
         if ($actual -ne $scriptsRevision) { throw "vcpkg scripts revision mismatch: $actual != $scriptsRevision" }
         $isShallow = (& git -C $root rev-parse --is-shallow-repository).Trim()
         if ($isShallow -ne "true") { throw "canonical vcpkg scripts repository is not shallow" }
+
+        $baselineScript = Join-Path $actionRoot "scripts\vcpkg-required-commits.py"
+        $requiredBaselines = @(& python $baselineScript $actionRoot $env:GITHUB_WORKSPACE 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+          throw "required vcpkg baseline discovery failed: $($requiredBaselines -join [Environment]::NewLine)"
+        }
+        foreach ($baselineLine in $requiredBaselines) {
+          $baseline = ([string]$baselineLine).Trim()
+          if ([string]::IsNullOrWhiteSpace($baseline)) { continue }
+
+          git -C $root cat-file -e "${baseline}^{commit}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            $baselineFetched = $false
+            foreach ($attempt in 1..3) {
+              git -c protocol.version=2 -C $root fetch --no-tags --depth=1 origin $baseline
+              if ($LASTEXITCODE -eq 0) {
+                $baselineFetched = $true
+                break
+              }
+              if ($attempt -lt 3) { Start-Sleep -Seconds ($attempt * 2) }
+            }
+            if (-not $baselineFetched) {
+              throw "failed to shallow-fetch required vcpkg baseline $baseline"
+            }
+          }
+
+          git -C $root cat-file -e "${baseline}:versions/baseline.json"
+          if ($LASTEXITCODE -ne 0) {
+            throw "required vcpkg baseline does not contain versions/baseline.json: $baseline"
+          }
+        }
+
+        $actual = (& git -C $root rev-parse HEAD).Trim()
+        if ($actual -ne $scriptsRevision) { throw "vcpkg scripts HEAD changed while fetching baselines: $actual" }
+        $isShallow = (& git -C $root rev-parse --is-shallow-repository).Trim()
+        if ($isShallow -ne "true") { throw "canonical vcpkg scripts repository is not shallow after baseline fetch" }
 
         $exe = Join-Path $root "vcpkg.exe"
         Copy-Item -LiteralPath $runnerTool -Destination $exe -Force
