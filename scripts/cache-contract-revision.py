@@ -18,6 +18,7 @@ def contract_files(root: pathlib.Path) -> list[pathlib.Path]:
         ".github/actions/setup-vcpkg-cache/action.yml",
         "cache-contract-version.txt",
         "scripts/cache-contract-revision.py",
+        "scripts/vcpkg-required-commits.py",
         "vcpkg.json",
         "vcpkg-tool-version.txt",
         "vcpkg-scripts-revision.txt",
