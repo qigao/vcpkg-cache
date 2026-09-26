@@ -4,11 +4,15 @@ on:
   push:
     branches: [master]
     paths:
+      - ".gitattributes"
       - "ports/**"
+      - "versions/**"
+      - "manifests/**"
+      - "cache-contract-version.txt"
+      - "scripts/cache-contract-revision.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
-      - "manifests/**"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
   workflow_dispatch:
