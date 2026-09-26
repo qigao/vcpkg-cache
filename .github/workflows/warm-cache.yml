@@ -26,10 +26,6 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
       - name: Prepare host dependencies
         shell: bash
         run: |
@@ -265,10 +261,6 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
       - name: Prepare host dependencies
         shell: pwsh
         run: choco install nasm ninja -y --no-progress
@@ -371,10 +363,6 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
       - name: Prepare host dependencies
         shell: pwsh
         run: choco install nasm ninja -y --no-progress
@@ -444,10 +432,6 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
       - name: Prepare host dependencies
         shell: pwsh
         run: choco install nasm ninja -y --no-progress
@@ -480,10 +464,6 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
       - name: Prepare host dependencies
         shell: bash
         run: |
@@ -520,10 +500,6 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
       - name: Prepare host dependencies
         shell: bash
         run: |
@@ -557,10 +533,6 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-          cache: false
       - name: Prepare STUN host dependencies
         shell: bash
         run: |
