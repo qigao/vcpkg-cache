@@ -36,6 +36,12 @@ outputs:
   scripts_revision:
     description: Expression-safe alias for the canonical Microsoft vcpkg scripts commit.
     value: ${{ steps.contract.outputs.scripts_revision }}
+  toolchain-file:
+    description: Canonical project toolchain for development and test builds.
+    value: ${{ steps.contract.outputs.toolchain_file }}
+  toolchain_file:
+    description: Expression-safe alias for the canonical project toolchain.
+    value: ${{ steps.contract.outputs.toolchain_file }}
 
 runs:
   using: composite
@@ -430,4 +436,11 @@ runs:
         "contract_version=$env:VCPKG_CACHE_CONTRACT_VERSION" >> $env:GITHUB_OUTPUT
         "cache_revision=$env:VCPKG_CACHE_REVISION" >> $env:GITHUB_OUTPUT
         "tool_revision=$env:VCPKG_TOOL_REVISION" >> $env:GITHUB_OUTPUT
+        $toolchainFile = Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "cmake\QigaoVcpkgToolchain.cmake"
+        if (-not (Test-Path -LiteralPath $toolchainFile -PathType Leaf)) {
+          throw "canonical project toolchain is unavailable: $toolchainFile"
+        }
+        "QIGAO_VCPKG_TOOLCHAIN_FILE=$toolchainFile" >> $env:GITHUB_ENV
+        "toolchain-file=$toolchainFile" >> $env:GITHUB_OUTPUT
+        "toolchain_file=$toolchainFile" >> $env:GITHUB_OUTPUT
         "scripts_revision=$env:VCPKG_SCRIPTS_REVISION" >> $env:GITHUB_OUTPUT
