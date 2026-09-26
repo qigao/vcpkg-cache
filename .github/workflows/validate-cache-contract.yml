@@ -9,6 +9,7 @@ on:
       - "manifests/**"
       - "cache-contract-version.txt"
       - "scripts/cache-contract-revision.py"
+      - "scripts/vcpkg-required-commits.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
@@ -25,8 +26,8 @@ jobs:
     name: Contract / ubuntu-24.04
     runs-on: ubuntu-24.04
     outputs:
-      revision: ${{ steps.cache.outputs.cache-revision }}
-      contract: ${{ steps.cache.outputs.contract-version }}
+      revision: ${{ steps.cache.outputs.cache_revision }}
+      contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
       - id: cache
@@ -36,10 +37,10 @@ jobs:
       - name: Verify canonical contract identity
         shell: bash
         env:
-          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract-version }}
-          OUTPUT_REVISION: ${{ steps.cache.outputs.cache-revision }}
-          OUTPUT_TOOL: ${{ steps.cache.outputs.tool-revision }}
-          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts-revision }}
+          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract_version }}
+          OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
+          OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
+          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts_revision }}
         run: |
           set -euo pipefail
           expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
@@ -57,8 +58,8 @@ jobs:
     name: Contract / macos-15
     runs-on: macos-15
     outputs:
-      revision: ${{ steps.cache.outputs.cache-revision }}
-      contract: ${{ steps.cache.outputs.contract-version }}
+      revision: ${{ steps.cache.outputs.cache_revision }}
+      contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
       - id: cache
@@ -68,10 +69,10 @@ jobs:
       - name: Verify canonical contract identity
         shell: bash
         env:
-          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract-version }}
-          OUTPUT_REVISION: ${{ steps.cache.outputs.cache-revision }}
-          OUTPUT_TOOL: ${{ steps.cache.outputs.tool-revision }}
-          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts-revision }}
+          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract_version }}
+          OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
+          OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
+          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts_revision }}
         run: |
           set -euo pipefail
           expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
@@ -89,8 +90,8 @@ jobs:
     name: Contract / windows-2022
     runs-on: windows-2022
     outputs:
-      revision: ${{ steps.cache.outputs.cache-revision }}
-      contract: ${{ steps.cache.outputs.contract-version }}
+      revision: ${{ steps.cache.outputs.cache_revision }}
+      contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
       - id: cache
@@ -100,10 +101,10 @@ jobs:
       - name: Verify canonical contract identity
         shell: pwsh
         env:
-          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract-version }}
-          OUTPUT_REVISION: ${{ steps.cache.outputs.cache-revision }}
-          OUTPUT_TOOL: ${{ steps.cache.outputs.tool-revision }}
-          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts-revision }}
+          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract_version }}
+          OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
+          OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
+          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts_revision }}
         run: |
           $ErrorActionPreference = "Stop"
           $expectedRevision = (& python scripts/cache-contract-revision.py $env:GITHUB_WORKSPACE).Trim()

@@ -24,6 +24,18 @@ outputs:
   scripts-revision:
     description: Canonical Microsoft vcpkg scripts commit.
     value: ${{ steps.contract.outputs.scripts-revision }}
+  contract_version:
+    description: Expression-safe alias for the semantic shared cache contract version.
+    value: ${{ steps.contract.outputs.contract-version }}
+  cache_revision:
+    description: Expression-safe alias for the canonical shared cache content revision.
+    value: ${{ steps.contract.outputs.cache-revision }}
+  tool_revision:
+    description: Expression-safe alias for the canonical vcpkg executable identity.
+    value: ${{ steps.contract.outputs.tool-revision }}
+  scripts_revision:
+    description: Expression-safe alias for the canonical Microsoft vcpkg scripts commit.
+    value: ${{ steps.contract.outputs.scripts-revision }}
 
 runs:
   using: composite
@@ -93,21 +105,55 @@ runs:
         root="$RUNNER_TEMP/qigao-vcpkg-$scripts_revision"
         if [ ! -d "$root/.git" ] || [ "$(git -C "$root" rev-parse HEAD 2>/dev/null || true)" != "$scripts_revision" ]; then
           rm -rf "$root"
+          fetched=false
           for attempt in 1 2 3; do
-            if git clone --no-checkout https://github.com/microsoft/vcpkg.git "$root"; then
+            rm -rf "$root"
+            mkdir -p "$root"
+            git -C "$root" init
+            git -C "$root" remote add origin https://github.com/microsoft/vcpkg.git
+            if git -c protocol.version=2 -C "$root" fetch                 --no-tags --depth=1 origin "$scripts_revision" &&
+               git -C "$root" checkout --detach FETCH_HEAD; then
+              fetched=true
               break
             fi
-            rm -rf "$root"
-            if [ "$attempt" = 3 ]; then
-              echo "failed to clone canonical vcpkg scripts after $attempt attempts" >&2
-              exit 1
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 2))
             fi
-            sleep $((attempt * 2))
           done
-          git -C "$root" checkout --detach "$scripts_revision"
+          if [ "$fetched" != "true" ]; then
+            echo "failed to shallow-fetch canonical vcpkg scripts after 3 attempts" >&2
+            exit 1
+          fi
         fi
 
         test "$(git -C "$root" rev-parse HEAD)" = "$scripts_revision"
+        test "$(git -C "$root" rev-parse --is-shallow-repository)" = "true"
+
+        while IFS= read -r baseline; do
+          [ -n "$baseline" ] || continue
+          if ! git -C "$root" cat-file -e "$baseline^{commit}" 2>/dev/null; then
+            baseline_fetched=false
+            for attempt in 1 2 3; do
+              if git -c protocol.version=2 -C "$root" fetch                   --no-tags --depth=1 origin "$baseline"; then
+                baseline_fetched=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 2))
+              fi
+            done
+            if [ "$baseline_fetched" != "true" ]; then
+              echo "failed to shallow-fetch required vcpkg baseline $baseline" >&2
+              exit 1
+            fi
+          fi
+          git -C "$root" cat-file -e "$baseline:versions/baseline.json"
+        done < <(
+          python3 "$action_root/scripts/vcpkg-required-commits.py"             "$action_root" "${GITHUB_WORKSPACE:-$action_root}"
+        )
+
+        test "$(git -C "$root" rev-parse HEAD)" = "$scripts_revision"
+        test "$(git -C "$root" rev-parse --is-shallow-repository)" = "true"
         cp "$runner_tool" "$root/vcpkg"
         chmod +x "$root/vcpkg"
         "$root/vcpkg" version
@@ -167,23 +213,70 @@ runs:
         }
         if ([string]::IsNullOrWhiteSpace($head) -or $head.Trim() -ne $scriptsRevision) {
           if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-          $cloned = $false
+          $fetched = $false
           foreach ($attempt in 1..3) {
-            git clone --no-checkout https://github.com/microsoft/vcpkg.git $root
-            if ($LASTEXITCODE -eq 0) {
-              $cloned = $true
-              break
-            }
             if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $root | Out-Null
+            git -C $root init
+            if ($LASTEXITCODE -ne 0) { throw "failed to initialize vcpkg scripts repository" }
+            git -C $root remote add origin https://github.com/microsoft/vcpkg.git
+            if ($LASTEXITCODE -ne 0) { throw "failed to configure vcpkg scripts remote" }
+
+            git -c protocol.version=2 -C $root fetch --no-tags --depth=1 origin $scriptsRevision
+            $fetchExit = $LASTEXITCODE
+            if ($fetchExit -eq 0) {
+              git -C $root checkout --detach FETCH_HEAD
+              if ($LASTEXITCODE -eq 0) {
+                $fetched = $true
+                break
+              }
+            }
+
             if ($attempt -lt 3) { Start-Sleep -Seconds ($attempt * 2) }
           }
-          if (-not $cloned) { throw "failed to clone canonical vcpkg scripts after 3 attempts" }
-          git -C $root checkout --detach $scriptsRevision
-          if ($LASTEXITCODE -ne 0) { throw "failed to checkout canonical vcpkg scripts $scriptsRevision" }
+          if (-not $fetched) { throw "failed to shallow-fetch canonical vcpkg scripts after 3 attempts" }
         }
 
         $actual = (& git -C $root rev-parse HEAD).Trim()
         if ($actual -ne $scriptsRevision) { throw "vcpkg scripts revision mismatch: $actual != $scriptsRevision" }
+        $isShallow = (& git -C $root rev-parse --is-shallow-repository).Trim()
+        if ($isShallow -ne "true") { throw "canonical vcpkg scripts repository is not shallow" }
+
+        $baselineScript = Join-Path $actionRoot "scripts\vcpkg-required-commits.py"
+        $requiredBaselines = @(& python $baselineScript $actionRoot $env:GITHUB_WORKSPACE 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+          throw "required vcpkg baseline discovery failed: $($requiredBaselines -join [Environment]::NewLine)"
+        }
+        foreach ($baselineLine in $requiredBaselines) {
+          $baseline = ([string]$baselineLine).Trim()
+          if ([string]::IsNullOrWhiteSpace($baseline)) { continue }
+
+          git -C $root cat-file -e "${baseline}^{commit}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            $baselineFetched = $false
+            foreach ($attempt in 1..3) {
+              git -c protocol.version=2 -C $root fetch --no-tags --depth=1 origin $baseline
+              if ($LASTEXITCODE -eq 0) {
+                $baselineFetched = $true
+                break
+              }
+              if ($attempt -lt 3) { Start-Sleep -Seconds ($attempt * 2) }
+            }
+            if (-not $baselineFetched) {
+              throw "failed to shallow-fetch required vcpkg baseline $baseline"
+            }
+          }
+
+          git -C $root cat-file -e "${baseline}:versions/baseline.json"
+          if ($LASTEXITCODE -ne 0) {
+            throw "required vcpkg baseline does not contain versions/baseline.json: $baseline"
+          }
+        }
+
+        $actual = (& git -C $root rev-parse HEAD).Trim()
+        if ($actual -ne $scriptsRevision) { throw "vcpkg scripts HEAD changed while fetching baselines: $actual" }
+        $isShallow = (& git -C $root rev-parse --is-shallow-repository).Trim()
+        if ($isShallow -ne "true") { throw "canonical vcpkg scripts repository is not shallow after baseline fetch" }
 
         $exe = Join-Path $root "vcpkg.exe"
         Copy-Item -LiteralPath $runnerTool -Destination $exe -Force

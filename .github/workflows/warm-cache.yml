@@ -10,6 +10,7 @@ on:
       - "manifests/**"
       - "cache-contract-version.txt"
       - "scripts/cache-contract-revision.py"
+      - "scripts/vcpkg-required-commits.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
