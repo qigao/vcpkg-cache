@@ -17,6 +17,7 @@ def contract_files(root: pathlib.Path) -> list[pathlib.Path]:
         ".gitattributes",
         ".github/actions/setup-vcpkg-cache/action.yml",
         "cache-contract-version.txt",
+        "cmake/QigaoVcpkgToolchain.cmake",
         "scripts/cache-contract-revision.py",
         "scripts/vcpkg-required-commits.py",
         "vcpkg.json",
