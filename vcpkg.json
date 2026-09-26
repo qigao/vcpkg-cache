@@ -24,7 +24,8 @@
     "catch2",
     "xxhash",
     "cxxopts",
-    "sqlite3"
+    "sqlite3",
+    "quickjs-ng"
   ],
   "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
 }

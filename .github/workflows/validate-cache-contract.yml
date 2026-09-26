@@ -119,6 +119,103 @@ jobs:
           if ($env:VCPKG_CACHE_CONTRACT_VERSION -ne $expectedContract) { throw "contract env mismatch" }
           if ($env:VCPKG_CACHE_REVISION -ne $expectedRevision) { throw "revision env mismatch" }
 
+  quickjs-linux-warm:
+    name: QuickJS-ng 0.16.2 warm / ubuntu-24.04
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config
+      - name: Warm canonical QuickJS-ng package
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/quickjs-ng-warm"
+          rm -rf "$install_root"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$GITHUB_WORKSPACE/manifests/quickjs-ng" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux
+          status="$install_root/vcpkg/status"
+          test -f "$status"
+          awk '
+            $0 == "Package: quickjs-ng" { found=1; next }
+            found && /^Version: / {
+              if ($2 != "0.16.2") exit 2
+              print "quickjs-ng=" $2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$status"
+
+  quickjs-linux-cache-only:
+    name: QuickJS-ng 0.16.2 empty-L1 restore
+    needs: quickjs-linux-warm
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-quickjs-ng-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Restore QuickJS-ng from shared cache only
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/quickjs-ng-cache-only"
+          log="$RUNNER_TEMP/quickjs-ng-cache-only.log"
+          rm -rf "$install_root"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$GITHUB_WORKSPACE/manifests/quickjs-ng" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status_code=${PIPESTATUS[0]}
+          set -e
+          if [ "$status_code" -ne 0 ]; then
+            exit "$status_code"
+          fi
+          if grep -Eq '^Building [^:]+:x64-linux' "$log"; then
+            echo "QuickJS-ng shared cache miss detected" >&2
+            grep -E '^Building [^:]+:x64-linux' "$log" >&2
+            exit 1
+          fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          status="$install_root/vcpkg/status"
+          test -f "$status"
+          awk '
+            $0 == "Package: quickjs-ng" { found=1; next }
+            found && /^Version: / {
+              if ($2 != "0.16.2") exit 2
+              print "quickjs-ng=" $2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$status"
+
   consistent:
     name: Contract identity is cross-platform stable
     needs: [linux, macos, windows]

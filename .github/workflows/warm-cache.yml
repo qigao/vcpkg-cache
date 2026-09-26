@@ -41,12 +41,53 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet x64-linux
 
+      - name: Warm Salts x64-linux dependencies
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=manifests/salts \
+            --x-install-root=build/vcpkg-salts-linux \
+            --triplet x64-linux
+
+      - name: Verify Salts QuickJS version
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="build/vcpkg-salts-linux/vcpkg/status"
+          test -f "$status"
+          awk '
+            $0 == "Package: quickjs-ng" { found=1; next }
+            found && /^Version: / {
+              if ($2 != "0.16.2") exit 2
+              print "quickjs-ng=" $2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$status"
+
       - name: Warm SaltsUtils x64-linux dependencies
         run: |
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root=manifests/salts-utils \
             --x-install-root=build/vcpkg-salts-utils-linux \
             --triplet x64-linux
+
+      - name: Verify SaltsUtils QuickJS version
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="build/vcpkg-salts-utils-linux/vcpkg/status"
+          test -f "$status"
+          awk '
+            $0 == "Package: quickjs-ng" { found=1; next }
+            found && /^Version: / {
+              if ($2 != "0.16.2") exit 2
+              print "quickjs-ng=" $2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$status"
 
       - name: Verify SaltsUtils Linux root packages are published
         shell: python
@@ -63,6 +104,7 @@ jobs:
               "zstd_x64-linux",
               "lua_x64-linux",
               "libyuv_x64-linux",
+              "quickjs-ng_x64-linux",
           }
 
           token = os.environ["GITHUB_TOKEN"]
@@ -83,7 +125,7 @@ jobs:
           for attempt in range(18):
               visible = set()
               for query in ("pkgconf", "simde", "boringssl", "miniaudio",
-                            "zstd", "lua", "libyuv"):
+                            "zstd", "lua", "libyuv", "quickjs"):
                   url = search + "?" + urllib.parse.urlencode(
                       {"q": query, "prerelease": "true", "take": "100"}
                   )
@@ -137,6 +179,49 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
+      - name: Verify Salts clean restore from GitHub Packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$VCPKG_BINARY_CACHE"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          log="$RUNNER_TEMP/linux-salts-cache-contract.log"
+          install_root="$RUNNER_TEMP/linux-salts-installed"
+          rm -rf "$install_root"
+
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=manifests/salts \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status_code=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status_code" -ne 0 ]; then
+            echo "Salts Linux cache-only restore failed" >&2
+            exit "$status_code"
+          fi
+          if grep -Eq '^Building [^:]+:x64-linux' "$log"; then
+            echo "Salts Linux shared cache miss detected:" >&2
+            grep -E '^Building [^:]+:x64-linux' "$log" >&2
+            exit 1
+          fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+
+          installed_status="$install_root/vcpkg/status"
+          test -f "$installed_status"
+          awk '
+            $0 == "Package: quickjs-ng" { found=1; next }
+            found && /^Version: / {
+              if ($2 != "0.16.2") exit 2
+              print "quickjs-ng=" $2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$installed_status"
+
       - name: Verify SaltsUtils clean restore from GitHub Packages
         shell: bash
         run: |
@@ -171,6 +256,19 @@ jobs:
             echo "SaltsUtils Linux shared cache did not restore packages from NuGet" >&2
             exit 1
           fi
+
+          installed_status="$install_root/vcpkg/status"
+          test -f "$installed_status"
+          awk '
+            $0 == "Package: quickjs-ng" { found=1; next }
+            found && /^Version: / {
+              if ($2 != "0.16.2") exit 2
+              print "quickjs-ng=" $2
+              ok=1
+              exit
+            }
+            END { if (!ok) exit 1 }
+          ' "$installed_status"
 
   plugin-databind-windows:
     name: Plugin DataBind Windows consumer cache
@@ -274,6 +372,25 @@ jobs:
         run: |
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
 
+      - name: Warm Salts x64-windows dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --x-manifest-root=manifests/salts `
+            --x-install-root=build/vcpkg-salts-windows-2022 `
+            --triplet x64-windows
+
+      - name: Verify Salts QuickJS version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $status = Join-Path $env:GITHUB_WORKSPACE "build\vcpkg-salts-windows-2022\vcpkg\status"
+          if (-not (Test-Path -LiteralPath $status -PathType Leaf)) { throw "missing $status" }
+          $text = Get-Content -LiteralPath $status -Raw
+          if ($text -notmatch "(?ms)^Package: quickjs-ng\r?\nVersion: 0\.16\.2\r?$") {
+            throw "Salts QuickJS-ng is not 0.16.2"
+          }
+
       - name: Warm SaltsUtils x64-windows dependencies
         shell: pwsh
         run: |
@@ -281,6 +398,17 @@ jobs:
             --x-manifest-root=manifests/salts-utils `
             --x-install-root=build/vcpkg-salts-utils-windows-2022 `
             --triplet x64-windows
+
+      - name: Verify SaltsUtils QuickJS version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $status = Join-Path $env:GITHUB_WORKSPACE "build\vcpkg-salts-utils-windows-2022\vcpkg\status"
+          if (-not (Test-Path -LiteralPath $status -PathType Leaf)) { throw "missing $status" }
+          $text = Get-Content -LiteralPath $status -Raw
+          if ($text -notmatch "(?ms)^Package: quickjs-ng\r?\nVersion: 0\.16\.2\r?$") {
+            throw "SaltsUtils QuickJS-ng is not 0.16.2"
+          }
 
       - name: Warm FlowMQ x64-windows dependencies
         shell: pwsh
@@ -310,6 +438,7 @@ jobs:
               "llhttp_x64-windows",
               "lua_x64-windows",
               "miniaudio_x64-windows",
+              "quickjs-ng_x64-windows",
               "simde_x64-windows",
               "sqlite3_x64-windows",
               "tree-sitter_x64-windows",
@@ -339,7 +468,7 @@ jobs:
               visible.clear()
               for query in ("aklomp", "boringssl", "c-ares", "catch2", "cxxopts",
                             "kcp", "libusb", "libuv", "libyuv", "llhttp", "lua",
-                            "miniaudio", "simde", "sqlite3", "tree-sitter", "xxhash", "zstd",
+                            "miniaudio", "quickjs", "simde", "sqlite3", "tree-sitter", "xxhash", "zstd",
                             "zeromq"):
                   url = search + "?" + urllib.parse.urlencode(
                       {"q": query, "prerelease": "true", "take": "100"}
@@ -398,6 +527,45 @@ jobs:
             throw "Windows 2022 shared cache did not restore packages from NuGet."
           }
 
+      - name: Verify Salts clean restore from GitHub Packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cache = $env:VCPKG_BINARY_CACHE
+          if (Test-Path -LiteralPath $cache) {
+            Remove-Item -LiteralPath $cache -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          $log = Join-Path $env:RUNNER_TEMP "windows-2022-salts-cache-contract.log"
+          $installRoot = Join-Path $env:RUNNER_TEMP "windows-2022-salts-installed"
+          if (Test-Path -LiteralPath $installRoot) {
+            Remove-Item -LiteralPath $installRoot -Recurse -Force
+          }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            "--x-manifest-root=$env:GITHUB_WORKSPACE\manifests\salts" `
+            "--x-install-root=$installRoot" `
+            "--triplet=x64-windows" `
+            --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "Salts cache-only restore failed" }
+          $text = Get-Content -LiteralPath $log -Raw
+          $misses = [regex]::Matches($text, "(?m)^Building ([^:]+):x64-windows") |
+            ForEach-Object { $_.Groups[1].Value } |
+            Sort-Object -Unique
+          if ($misses.Count -gt 0) {
+            throw "Salts Windows shared cache miss: $($misses -join ', ')"
+          }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "Salts Windows shared cache did not restore packages from NuGet."
+          }
+          $statusFile = Join-Path $installRoot "vcpkg\status"
+          if (-not (Test-Path -LiteralPath $statusFile -PathType Leaf)) {
+            throw "missing $statusFile"
+          }
+          $statusText = Get-Content -LiteralPath $statusFile -Raw
+          if ($statusText -notmatch "(?ms)^Package: quickjs-ng\r?\nVersion: 0\.16\.2\r?$") {
+            throw "Salts cached QuickJS-ng is not 0.16.2"
+          }
+
       - name: Verify SaltsUtils clean restore from GitHub Packages
         shell: pwsh
         run: |
@@ -427,6 +595,14 @@ jobs:
           }
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
             throw "SaltsUtils Windows shared cache did not restore packages from NuGet."
+          }
+          $statusFile = Join-Path $installRoot "vcpkg\status"
+          if (-not (Test-Path -LiteralPath $statusFile -PathType Leaf)) {
+            throw "missing $statusFile"
+          }
+          $statusText = Get-Content -LiteralPath $statusFile -Raw
+          if ($statusText -notmatch "(?ms)^Package: quickjs-ng\r?\nVersion: 0\.16\.2\r?$") {
+            throw "SaltsUtils cached QuickJS-ng is not 0.16.2"
           }
 
   windows-latest:
