@@ -45,6 +45,49 @@ Downstream repositories are consumers and should use `mode: read`. The runner su
 
 Only workflows in this repository publish shared binaries. The central warm workflows use `mode: readwrite` with `packages: write`, keeping package ownership and publication policy in one place. Large stack-specific publishers also verify that their expected package IDs are visible in the GitHub Packages feed after upload; a compile-success/upload-failure must fail the warm workflow rather than silently degrade to a consumer rebuild.
 
+## Cache contract identity
+
+The shared cache exposes a machine-readable contract identity. Consumers should treat it as part of their local L1 cache key instead of inventing an independent cache version.
+
+Current semantic contract:
+
+```text
+v2
+```
+
+`setup-vcpkg-cache` exports both environment variables and action outputs:
+
+- `VCPKG_CACHE_CONTRACT_VERSION` / `contract-version`
+- `VCPKG_CACHE_REVISION` / `cache-revision`
+- `VCPKG_TOOL_REVISION` / `tool-revision`
+- `VCPKG_SCRIPTS_REVISION` / `scripts-revision`
+
+The semantic contract version changes only when the producer/consumer protocol changes. The cache revision is an exact SHA-256 identity derived from the canonical overlay ports, registry versions, stack manifests, cache action, contract version, root manifest, and pinned vcpkg tool/scripts identities.
+
+Consumer L1 caches must include the central cache revision and must not use a restore prefix that crosses revisions:
+
+```yaml
+- id: shared-vcpkg
+  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
+  with:
+    mode: read
+
+- uses: actions/cache@v4
+  with:
+    path: build/vcpkg-binary-cache
+    key: >-
+      vcpkg-l1-v3-${{ runner.os }}-${{ runner.arch }}-
+      ${{ steps.shared-vcpkg.outputs.contract-version }}-
+      ${{ steps.shared-vcpkg.outputs.cache-revision }}-
+      ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+    restore-keys: |
+      vcpkg-l1-v3-${{ runner.os }}-${{ runner.arch }}-
+      ${{ steps.shared-vcpkg.outputs.contract-version }}-
+      ${{ steps.shared-vcpkg.outputs.cache-revision }}-
+```
+
+A `vcpkg-configuration.json` git-registry baseline remains a package-version resolution pin. It is not the shared binary-cache revision and should not be advanced merely because the cache implementation or an unrelated overlay changes.
+
 ## re2c binary
 
 `Qigao.Re2c.Binary` is a host binary/tool package, not a vcpkg library port.
