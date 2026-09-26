@@ -38,7 +38,8 @@ def calculate(root: pathlib.Path) -> str:
         relative = path.relative_to(root).as_posix().encode()
         digest.update(relative)
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        data = path.read_bytes().replace(b"\r\n", b"\n")
+        digest.update(data)
         digest.update(b"\0")
     return digest.hexdigest()
 
