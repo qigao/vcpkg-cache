@@ -349,6 +349,9 @@ runs:
         echo "VCPKG_OVERLAY_PORTS=$action_root/ports" >> "$GITHUB_ENV"
         echo "VCPKG_BINARY_SOURCES=$sources" >> "$GITHUB_ENV"
         echo "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> "$GITHUB_ENV"
+        if [ "$CACHE_MODE" != "read" ]; then
+          echo "NUGET_API_KEY=$token" >> "$GITHUB_ENV"
+        fi
 
     - name: Configure shared vcpkg cache on Windows
       if: runner.os == 'Windows'
@@ -415,6 +418,9 @@ runs:
         "VCPKG_OVERLAY_PORTS=$(Join-Path $actionRoot 'ports')" >> $env:GITHUB_ENV
         "VCPKG_BINARY_SOURCES=$sources" >> $env:GITHUB_ENV
         "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> $env:GITHUB_ENV
+        if ($env:CACHE_MODE -ne "read") {
+          "NUGET_API_KEY=$token" >> $env:GITHUB_ENV
+        }
 
 
     - name: Expose cache contract identity
