@@ -307,6 +307,7 @@ runs:
         test -n "$token"
 
         feed="https://nuget.pkg.github.com/qigao/index.json"
+        push_feed="https://nuget.pkg.github.com/qigao"
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
         contract_version="$(tr -d '\r\n' < "$action_root/cache-contract-version.txt")"
         test -n "$contract_version"
@@ -330,6 +331,7 @@ runs:
           </packageSourceCredentials>
           <apiKeys>
             <add key="$feed" value="$token" />
+            <add key="$push_feed" value="$token" />
           </apiKeys>
           <config>
             <add key="defaultPushSource" value="$feed" />
@@ -362,6 +364,7 @@ runs:
         if ([string]::IsNullOrWhiteSpace($token)) { throw "GitHub Packages token is unavailable" }
 
         $feed = "https://nuget.pkg.github.com/qigao/index.json"
+        $pushFeed = "https://nuget.pkg.github.com/qigao"
         $actionRoot = (Resolve-Path (Join-Path "${{ github.action_path }}" "..\..\..")).Path
         $contractVersion = (Get-Content -LiteralPath (Join-Path $actionRoot "cache-contract-version.txt") -Raw).Trim()
         if ([string]::IsNullOrWhiteSpace($contractVersion)) { throw "cache contract version is unavailable" }
@@ -395,6 +398,7 @@ runs:
           </packageSourceCredentials>
           <apiKeys>
             <add key="$feed" value="$token" />
+            <add key="$pushFeed" value="$token" />
           </apiKeys>
           <config>
             <add key="defaultPushSource" value="$feed" />

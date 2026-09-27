@@ -34,6 +34,14 @@ jobs:
         uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
+      - name: Verify NuGet read/write endpoint keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
+          test -f "$config"
+          grep -Fq '<add key="https://nuget.pkg.github.com/qigao/index.json"' "$config"
+          grep -Fq '<add key="https://nuget.pkg.github.com/qigao"' "$config"
       - name: Verify canonical contract identity
         shell: bash
         env:
@@ -98,6 +106,19 @@ jobs:
         uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
+      - name: Verify NuGet read/write endpoint keys
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $config = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-nuget.config"
+          if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { throw "missing NuGet config" }
+          $text = Get-Content -LiteralPath $config -Raw
+          if (-not $text.Contains('<add key="https://nuget.pkg.github.com/qigao/index.json"')) {
+            throw "missing NuGet service-index API key"
+          }
+          if (-not $text.Contains('<add key="https://nuget.pkg.github.com/qigao"')) {
+            throw "missing NuGet resolved push-endpoint API key"
+          }
       - name: Verify canonical contract identity
         shell: pwsh
         env:
