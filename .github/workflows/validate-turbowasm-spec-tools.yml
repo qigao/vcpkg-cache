@@ -3,6 +3,7 @@ name: Validate TurboWasm spec tools profile
 on:
   pull_request:
     paths:
+      - "ports/wabt/**"
       - "manifests/turbowasm-spec-tools/**"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/validate-turbowasm-spec-tools.yml"
@@ -45,7 +46,7 @@ jobs:
           root="$PWD/build/turbowasm-spec-tools/x64-linux"
           tool="$root/tools/wabt/wast2json"
           test -x "$tool"
-          "$tool" --version
+          test "$("$tool" --version)" = "1.0.42"
           cat > "$RUNNER_TEMP/smoke.wast" <<'EOF'
           (module
             (func (export "answer") (result i32)
@@ -56,3 +57,13 @@ jobs:
           "$tool" "$RUNNER_TEMP/smoke.wast"             -o "$RUNNER_TEMP/wast2json-out/smoke.json"
           test -s "$RUNNER_TEMP/wast2json-out/smoke.json"
           test -s "$RUNNER_TEMP/wast2json-out/smoke.0.wasm"
+
+          cat > "$RUNNER_TEMP/typed-ref.wast" <<'EOF'
+          (module
+            (type $t (func))
+            (func (export "typed") (result (ref null $t))
+              ref.null $t))
+          EOF
+          "$tool" --enable-function-references "$RUNNER_TEMP/typed-ref.wast"             -o "$RUNNER_TEMP/wast2json-out/typed-ref.json"
+          test -s "$RUNNER_TEMP/wast2json-out/typed-ref.json"
+          test -s "$RUNNER_TEMP/wast2json-out/typed-ref.0.wasm"
