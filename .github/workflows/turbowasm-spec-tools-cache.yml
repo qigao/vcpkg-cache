@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - "ports/wabt/**"
       - "manifests/turbowasm-spec-tools/**"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/turbowasm-spec-tools-cache.yml"
@@ -45,7 +46,7 @@ jobs:
             --triplet x64-linux
           tool="$install_root/x64-linux/tools/wabt/wast2json"
           test -x "$tool"
-          "$tool" --version
+          test "$("$tool" --version)" = "1.0.42"
 
   cache-contract:
     name: Verify WABT clean cache restore

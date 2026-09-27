@@ -25,6 +25,7 @@ The root warm-cache manifest includes the common dependency set used across the 
 - `c-ares`
 - `libpq` — PostgreSQL 16.9 client port using BoringSSL
 - `zstd`
+- `wabt` — temporary WABT 1.0.42 overlay for TurboWasm spec tooling while the pinned canonical vcpkg scripts version database still tops out at 1.0.41.
 
 Consumers should not keep private copies of these ports. In GitHub Actions, use:
 
