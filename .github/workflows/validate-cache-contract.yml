@@ -151,6 +151,11 @@ jobs:
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
+      - name: Verify producer NuGet API key environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$NUGET_API_KEY"
       - name: Prepare host dependencies
         shell: bash
         run: |
