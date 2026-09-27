@@ -1056,6 +1056,63 @@ jobs:
             --triplet "$GCANVAS_SHADER_TOOLS_TRIPLET"
 
 
+  turbowasm-spec-tools-linux:
+    name: TurboWasm spec tools Linux x64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config
+      - name: Warm TurboWasm spec tools profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-spec-tools" \
+            --x-install-root=build/vcpkg-turbowasm-spec-tools-linux \
+            --triplet x64-linux
+          test -x build/vcpkg-turbowasm-spec-tools-linux/x64-linux/tools/wabt/wast2json
+
+  turbowasm-spec-tools-linux-cache-contract:
+    name: TurboWasm spec tools Linux cache contract
+    needs: turbowasm-spec-tools-linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-turbowasm-spec-tools-linux-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Restore WABT from shared cache only
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/turbowasm-spec-tools-linux-cache.log"
+          install_root="$RUNNER_TEMP/turbowasm-spec-tools-linux-installed"
+          rm -rf "$install_root"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$VCPKG_CACHE_REPOSITORY_ROOT/manifests/turbowasm-spec-tools" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          ! grep -Eq '^Building [^:]+:x64-linux' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          test -x "$install_root/x64-linux/tools/wabt/wast2json"
+
   turbowasm-mir-linux:
     name: TurboWasm MIR Linux x64
     runs-on: ubuntu-24.04
