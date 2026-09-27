@@ -3,6 +3,11 @@
   "version-string": "1",
   "description": "Host WABT tooling profile for TurboWasm WebAssembly spec conformance conversion.",
   "dependencies": [
-    "wabt"
+    {
+      "name": "wabt",
+      "features": [
+        "tools"
+      ]
+    }
   ]
 }
