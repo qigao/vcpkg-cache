@@ -69,6 +69,30 @@ jobs:
           test "$VCPKG_CACHE_CONTRACT_VERSION" = "$expected_contract"
           test "$VCPKG_CACHE_REVISION" = "$expected_revision"
 
+      - name: Verify historical versioned-port objects are local
+        shell: bash
+        run: |
+          set -euo pipefail
+          tree="$(
+            python3 - "$VCPKG_ROOT/versions/s-/sqlite3.json" <<'PY'
+          import json
+          import sys
+
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          for entry in data["versions"]:
+              version = entry.get("version-string") or entry.get("version-semver") or entry.get("version")
+              if version == "3.49.0":
+                  print(entry["git-tree"])
+                  break
+          else:
+              raise SystemExit("sqlite3 3.49.0 is missing from the pinned vcpkg version database")
+          PY
+          )"
+          test -n "$tree"
+          git -C "$VCPKG_ROOT" cat-file -e "$tree^{tree}"
+          git -C "$VCPKG_ROOT" archive "$tree" >/dev/null
+
+
   macos:
     name: Contract / macos-15
     runs-on: macos-15
