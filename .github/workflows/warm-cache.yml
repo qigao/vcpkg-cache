@@ -36,6 +36,28 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm libudev-dev
+      - name: Pre-warm isolated OpenSSL dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/openssl-warm-manifest"
+          install_root="$RUNNER_TEMP/openssl-warm-install"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-openssl-cache-warm",
+            "version-string": "1",
+            "dependencies": ["openssl"],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux
+
       - name: Warm generic x64-linux cache
         shell: bash
         run: |
