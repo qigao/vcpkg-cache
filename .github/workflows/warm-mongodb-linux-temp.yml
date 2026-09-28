@@ -1,0 +1,36 @@
+name: Temporary MongoDB Linux cache warm
+
+on:
+  push:
+    branches: [infra/warm-mongodb-linux]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: warm-mongodb-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm libudev-dev
+      - name: Warm MongoDB Linux dependency graph
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=. \
+            --triplet x64-linux
