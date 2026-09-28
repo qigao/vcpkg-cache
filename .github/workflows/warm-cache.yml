@@ -164,7 +164,7 @@ jobs:
 
 
   mir-jit-cache-contract:
-    name: MIR JIT clean L2 / \${{ matrix.triplet }}
+    name: MIR JIT clean L2 / ${{ matrix.triplet }}
     needs: [linux, macos]
     strategy:
       fail-fast: false
@@ -172,7 +172,7 @@ jobs:
         include:
           - {runner: ubuntu-24.04, triplet: x64-linux}
           - {runner: macos-15, triplet: arm64-osx}
-    runs-on: \${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
@@ -207,23 +207,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "\${{ matrix.triplet }}" == "arm64-osx" ]]; then
+          if [[ "${{ matrix.triplet }}" == "arm64-osx" ]]; then
             test "$(uname -m)" = "arm64"
           fi
-          install_root="$RUNNER_TEMP/mir-jit-install-\${{ matrix.triplet }}"
-          log="$RUNNER_TEMP/mir-jit-\${{ matrix.triplet }}.log"
+          install_root="$RUNNER_TEMP/mir-jit-install-${{ matrix.triplet }}"
+          log="$RUNNER_TEMP/mir-jit-${{ matrix.triplet }}.log"
           rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
           mkdir -p "$VCPKG_BINARY_CACHE"
           set +e
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$MIR_JIT_MANIFEST_ROOT" \
             --x-install-root="$install_root" \
-            --triplet "\${{ matrix.triplet }}" \
+            --triplet "${{ matrix.triplet }}" \
             --only-binarycaching 2>&1 | tee "$log"
-          status=\${PIPESTATUS[0]}
+          status=${PIPESTATUS[0]}
           set -e
           if [[ "$status" -ne 0 ]]; then
-            echo "mir-jit shared-cache restore failed for \${{ matrix.triplet }}" >&2
+            echo "mir-jit shared-cache restore failed for ${{ matrix.triplet }}" >&2
             exit "$status"
           fi
           if grep -Eq '^Building mir-jit:' "$log"; then
@@ -232,7 +232,7 @@ jobs:
           fi
           grep -Fq 'mir-jit' "$log"
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          printf 'mir-jit clean-L2 restore passed: %s\n' "\${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
+          printf 'mir-jit clean-L2 restore passed: %s\n' "${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
 
   android:
     name: Android arm64
