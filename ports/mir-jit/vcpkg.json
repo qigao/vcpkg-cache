@@ -4,7 +4,7 @@
   "description": "MIR lightweight JIT compiler core and generator",
   "homepage": "https://github.com/vnmakarov/mir",
   "license": "MIT",
-  "supports": "linux | osx",
+  "supports": "linux | osx | android",
   "dependencies": [
     {
       "name": "vcpkg-cmake",
@@ -15,5 +15,5 @@
       "host": true
     }
   ],
-  "port-version": 1
+  "port-version": 2
 }
