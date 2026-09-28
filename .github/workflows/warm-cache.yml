@@ -305,6 +305,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm
           test -n "${ANDROID_NDK_HOME:-}"
+      - name: Warm target pkgconf for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/android-pkgconf-manifest"
+          install_root="$RUNNER_TEMP/android-pkgconf-install"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-android-pkgconf-cache-warm",
+            "version-string": "1",
+            "dependencies": ["pkgconf"],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-android
+
       - name: Warm generic arm64-android cache
         shell: bash
         run: |
