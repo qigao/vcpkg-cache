@@ -25,8 +25,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SALTS_SDK_VERSION: "1.2.0"
-  SALTS_UTILS_SDK_VERSION: "2.0.2"
+  SALTS_SDK_VERSION: "1.7.12"
+  SALTS_UTILS_SDK_VERSION: "4.0.3"
 
 jobs:
   metadata:
