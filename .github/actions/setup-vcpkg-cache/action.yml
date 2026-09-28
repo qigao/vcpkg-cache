@@ -109,7 +109,10 @@ runs:
         fi
 
         root="$RUNNER_TEMP/qigao-vcpkg-$scripts_revision"
-        if [ ! -d "$root/.git" ] || [ "$(git -C "$root" rev-parse HEAD 2>/dev/null || true)" != "$scripts_revision" ]; then
+        if [ ! -d "$root/.git" ] ||
+           [ "$(git -C "$root" rev-parse HEAD 2>/dev/null || true)" != "$scripts_revision" ] ||
+           [ "$(git -C "$root" rev-parse --is-shallow-repository 2>/dev/null || true)" != "false" ] ||
+           [ "$(git -C "$root" config --get remote.origin.promisor 2>/dev/null || true)" = "true" ]; then
           rm -rf "$root"
           fetched=false
           for attempt in 1 2 3; do
@@ -117,7 +120,7 @@ runs:
             mkdir -p "$root"
             git -C "$root" init
             git -C "$root" remote add origin https://github.com/microsoft/vcpkg.git
-            if git -c protocol.version=2 -C "$root" fetch                 --no-tags --depth=1 origin "$scripts_revision" &&
+            if git -c protocol.version=2 -C "$root" fetch                 --no-tags origin "$scripts_revision" &&
                git -C "$root" checkout --detach FETCH_HEAD; then
               fetched=true
               break
@@ -127,20 +130,20 @@ runs:
             fi
           done
           if [ "$fetched" != "true" ]; then
-            echo "failed to shallow-fetch canonical vcpkg scripts after 3 attempts" >&2
+            echo "failed to fetch canonical vcpkg full reachable history after 3 attempts" >&2
             exit 1
           fi
         fi
 
         test "$(git -C "$root" rev-parse HEAD)" = "$scripts_revision"
-        test "$(git -C "$root" rev-parse --is-shallow-repository)" = "true"
+        test "$(git -C "$root" rev-parse --is-shallow-repository)" = "false"
 
         while IFS= read -r baseline; do
           [ -n "$baseline" ] || continue
           if ! git -C "$root" cat-file -e "$baseline^{commit}" 2>/dev/null; then
             baseline_fetched=false
             for attempt in 1 2 3; do
-              if git -c protocol.version=2 -C "$root" fetch                   --no-tags --depth=1 origin "$baseline"; then
+              if git -c protocol.version=2 -C "$root" fetch                   --no-tags origin "$baseline"; then
                 baseline_fetched=true
                 break
               fi
@@ -149,7 +152,7 @@ runs:
               fi
             done
             if [ "$baseline_fetched" != "true" ]; then
-              echo "failed to shallow-fetch required vcpkg baseline $baseline" >&2
+              echo "failed to fetch required vcpkg baseline $baseline" >&2
               exit 1
             fi
           fi
@@ -159,7 +162,9 @@ runs:
         )
 
         test "$(git -C "$root" rev-parse HEAD)" = "$scripts_revision"
-        test "$(git -C "$root" rev-parse --is-shallow-repository)" = "true"
+        test "$(git -C "$root" rev-parse --is-shallow-repository)" = "false"
+        test "$(git -C "$root" config --get remote.origin.promisor 2>/dev/null || true)" != "true"
+        test -z "$(git -C "$root" config --get remote.origin.partialclonefilter 2>/dev/null || true)"
         cp "$runner_tool" "$root/vcpkg"
         chmod +x "$root/vcpkg"
         "$root/vcpkg" version
@@ -217,7 +222,17 @@ runs:
           $head = (& git -C $root rev-parse HEAD 2>$null)
           if ($LASTEXITCODE -ne 0) { $head = $null }
         }
-        if ([string]::IsNullOrWhiteSpace($head) -or $head.Trim() -ne $scriptsRevision) {
+        $isShallow = $null
+        $promisor = $null
+        if (Test-Path -LiteralPath (Join-Path $root ".git")) {
+          $isShallow = (& git -C $root rev-parse --is-shallow-repository 2>$null)
+          if ($LASTEXITCODE -ne 0) { $isShallow = $null }
+          $promisor = (& git -C $root config --get remote.origin.promisor 2>$null)
+          if ($LASTEXITCODE -ne 0) { $promisor = $null }
+        }
+        if ([string]::IsNullOrWhiteSpace($head) -or $head.Trim() -ne $scriptsRevision -or
+            [string]::IsNullOrWhiteSpace($isShallow) -or $isShallow.Trim() -ne "false" -or
+            $promisor -eq "true") {
           if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
           $fetched = $false
           foreach ($attempt in 1..3) {
@@ -228,7 +243,7 @@ runs:
             git -C $root remote add origin https://github.com/microsoft/vcpkg.git
             if ($LASTEXITCODE -ne 0) { throw "failed to configure vcpkg scripts remote" }
 
-            git -c protocol.version=2 -C $root fetch --no-tags --depth=1 origin $scriptsRevision
+            git -c protocol.version=2 -C $root fetch --no-tags origin $scriptsRevision
             $fetchExit = $LASTEXITCODE
             if ($fetchExit -eq 0) {
               git -C $root checkout --detach FETCH_HEAD
@@ -240,13 +255,13 @@ runs:
 
             if ($attempt -lt 3) { Start-Sleep -Seconds ($attempt * 2) }
           }
-          if (-not $fetched) { throw "failed to shallow-fetch canonical vcpkg scripts after 3 attempts" }
+          if (-not $fetched) { throw "failed to fetch canonical vcpkg full reachable history after 3 attempts" }
         }
 
         $actual = (& git -C $root rev-parse HEAD).Trim()
         if ($actual -ne $scriptsRevision) { throw "vcpkg scripts revision mismatch: $actual != $scriptsRevision" }
         $isShallow = (& git -C $root rev-parse --is-shallow-repository).Trim()
-        if ($isShallow -ne "true") { throw "canonical vcpkg scripts repository is not shallow" }
+        if ($isShallow -ne "false") { throw "canonical vcpkg scripts repository must not be shallow" }
 
         $baselineScript = Join-Path $actionRoot "scripts\vcpkg-required-commits.py"
         $requiredBaselines = @(& python $baselineScript $actionRoot $env:GITHUB_WORKSPACE 2>&1)
@@ -261,7 +276,7 @@ runs:
           if ($LASTEXITCODE -ne 0) {
             $baselineFetched = $false
             foreach ($attempt in 1..3) {
-              git -c protocol.version=2 -C $root fetch --no-tags --depth=1 origin $baseline
+              git -c protocol.version=2 -C $root fetch --no-tags origin $baseline
               if ($LASTEXITCODE -eq 0) {
                 $baselineFetched = $true
                 break
@@ -269,7 +284,7 @@ runs:
               if ($attempt -lt 3) { Start-Sleep -Seconds ($attempt * 2) }
             }
             if (-not $baselineFetched) {
-              throw "failed to shallow-fetch required vcpkg baseline $baseline"
+              throw "failed to fetch required vcpkg baseline $baseline"
             }
           }
 
@@ -282,7 +297,15 @@ runs:
         $actual = (& git -C $root rev-parse HEAD).Trim()
         if ($actual -ne $scriptsRevision) { throw "vcpkg scripts HEAD changed while fetching baselines: $actual" }
         $isShallow = (& git -C $root rev-parse --is-shallow-repository).Trim()
-        if ($isShallow -ne "true") { throw "canonical vcpkg scripts repository is not shallow after baseline fetch" }
+        if ($isShallow -ne "false") { throw "canonical vcpkg scripts repository became shallow after baseline fetch" }
+        $promisor = (& git -C $root config --get remote.origin.promisor 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $promisor.Trim() -eq "true") {
+          throw "canonical vcpkg scripts repository must not depend on a promisor remote"
+        }
+        $partialFilter = (& git -C $root config --get remote.origin.partialclonefilter 2>$null)
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($partialFilter)) {
+          throw "canonical vcpkg scripts repository must not use a partial-clone filter"
+        }
 
         $exe = Join-Path $root "vcpkg.exe"
         Copy-Item -LiteralPath $runnerTool -Destination $exe -Force
