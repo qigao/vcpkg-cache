@@ -36,20 +36,20 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm libudev-dev
-      - name: Pre-warm isolated OpenSSL dependency
+      - name: Warm isolated Linux BoringSSL cache
         shell: bash
         run: |
           set -euo pipefail
-          manifest="$RUNNER_TEMP/openssl-warm-manifest"
-          install_root="$RUNNER_TEMP/openssl-warm-install"
+          manifest="$RUNNER_TEMP/boringssl-warm-manifest"
+          install_root="$RUNNER_TEMP/boringssl-warm-install"
           rm -rf "$manifest" "$install_root"
           mkdir -p "$manifest"
           baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
           cat > "$manifest/vcpkg.json" <<EOF
           {
-            "name": "qigao-openssl-cache-warm",
+            "name": "qigao-boringssl-cache-warm",
             "version-string": "1",
-            "dependencies": ["openssl"],
+            "dependencies": ["boringssl"],
             "builtin-baseline": "$baseline"
           }
           EOF
@@ -143,6 +143,40 @@ jobs:
             echo "generic Linux shared-cache miss detected" >&2
             exit 1
           fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+
+      - name: Verify isolated BoringSSL cache-only restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/boringssl-contract-manifest"
+          install_root="$RUNNER_TEMP/boringssl-contract-install"
+          log="$RUNNER_TEMP/boringssl-contract.log"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-boringssl-cache-contract",
+            "version-string": "1",
+            "dependencies": ["boringssl"],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          if grep -Eq '^Building boringssl:x64-linux' "$log"; then
+            echo "BoringSSL Linux shared-cache miss detected" >&2
+            exit 1
+          fi
+          grep -Fq 'boringssl:x64-linux' "$log"
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
 
   windows:
