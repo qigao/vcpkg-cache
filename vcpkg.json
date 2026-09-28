@@ -24,7 +24,13 @@
     "catch2",
     "xxhash",
     "cxxopts",
-    "sqlite3",
+    {
+      "name": "sqlite3",
+      "features": [
+        "fts5"
+      ]
+    },
+    "tiny-aes-c",
     {
       "name": "mir-jit",
       "platform": "linux | osx | android"
