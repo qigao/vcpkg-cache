@@ -27,6 +27,7 @@
     "catch2",
     "xxhash",
     "cxxopts",
+    "stb",
     {
       "name": "sqlite3",
       "features": [
