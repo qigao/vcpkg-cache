@@ -1,33 +1,48 @@
 # vcpkg-cache
 
-Shared third-party C/C++ dependency infrastructure for the qigao repositories.
+Shared **vcpkg infrastructure** and **re2c host tooling** for the qigao repositories.
 
-This repository is the source of truth for two reusable build inputs:
+This repository owns exactly two reusable build inputs:
 
-1. **vcpkg overlay ports and binary cache** — custom ports live in `ports/` and compatible binaries are published to the qigao GitHub Packages NuGet feed.
-2. **re2c host binaries** — `Qigao.Re2c.Binary` contains prebuilt re2c executables and stdlib data for CI hosts.
+1. **vcpkg infrastructure** — pinned vcpkg tool/scripts identity, shared overlay ports/versions, setup action, and ABI-compatible binary-cache production.
+2. **re2c host binaries** — `Qigao.Re2c.Binary` plus the reusable setup action.
 
-Product SDKs such as `Salts.Native` and `SaltsUtils.Native` remain owned and versioned by their product repositories. `Praktor.Native` and `FlowMQ.Native` are built from their product default branches and published centrally here; Praktor supports Linux x64, macOS arm64 and Android arm64-v8a Release with TurboScript enabled, while FlowMQ's initial profile is Linux x64 Release. See [Praktor SDK packaging and consumption](packaging/praktor/README.md) and [FlowMQ SDK packaging and consumption](packaging/flowmq/README.md).
+## Ownership boundary
+
+This repository does **not** own product dependency graphs or product releases.
+
+Product repositories must own:
+
+- their own `vcpkg.json` / `vcpkg-configuration.json`;
+- product- or stack-specific dependency selection and qualification;
+- native SDK build/test/package workflows;
+- product NuGet packages and publication.
+
+Accordingly, this repository must not contain a product `manifests/` tree, product SDK packaging directories, or product release workflows. Consumers use the shared setup action and binary cache, but keep dependency policy in their own repository.
 
 ## Shared vcpkg baseline
+
+The generic warm-cache manifest at the repository root uses:
 
 ```text
 b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 ```
 
-The root warm-cache manifest includes the common dependency set used across the core native repositories. Repository- or stack-specific ABI combinations live under `manifests/`, including TurboRaft, STUN Linux, and TurboDB PostgreSQL. The TurboDB manifest warms the exact `libpq[zstd]` contract used by the PostgreSQL driver on Linux and Windows.
+The root `vcpkg.json` is only a generic cache warm set. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product.
 
 ## Central overlay ports
 
-`ports/` currently owns:
+`ports/` currently owns shared vcpkg overlay implementations such as:
 
 - `aklomp-base64`
 - `c-ares`
-- `libpq` — PostgreSQL 16.9 client port using BoringSSL
+- `libpq`
 - `zstd`
-- `wabt` — temporary WABT 1.0.42 overlay for TurboWasm spec tooling while the pinned canonical vcpkg scripts version database still tops out at 1.0.41.
+- `wabt`
 
-Consumers should not keep private copies of these ports. In GitHub Actions, use:
+A product may depend on these ports, but the product still owns its manifest and version-selection policy.
+
+Consumers configure vcpkg with:
 
 ```yaml
 permissions:
@@ -36,38 +51,34 @@ permissions:
 
 steps:
   - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@master
+    with:
+      mode: read
 ```
 
-The action exports `VCPKG_CACHE_REPOSITORY_ROOT` so downstream jobs can consume canonical manifests directly without copying them into product repositories. The action does not download or bootstrap a vcpkg executable. It takes only the executable from the runner/toolchain (preferring `VCPKG_ROOT`, then `VCPKG_INSTALLATION_ROOT`, then `vcpkg` on `PATH`), requires it to match `vcpkg-tool-version.txt`, and combines it with the exact canonical vcpkg scripts revision declared by `vcpkg-scripts-revision.txt`. The Microsoft vcpkg scripts repository is materialized with exact-SHA depth-1 fetches rather than a full-history clone: one fetch for the pinned scripts revision plus exact fetches for every `builtin-baseline` referenced by the canonical/consumer manifests. Setup fails if required baseline objects are unavailable or the resulting repository is not shallow. This prevents hosted-runner image rollouts from changing the scripts root and therefore changing binary-cache ABI keys between otherwise identical jobs. Manifest `builtin-baseline` values remain independent and continue to select dependency port versions. If no usable runner executable is present, setup fails immediately; there is no `bootstrap-vcpkg` or release-asset curl fallback. NuGet network operations use a 1800-second timeout because large native packages such as Linux `glslang`, `spirv-tools`, and `libpq` can exceed shorter NuGet/vcpkg upload limits. An explicit `token` input may be supplied for cross-repository package access.
+The action provides the pinned vcpkg executable/scripts environment, overlay ports, and GitHub Packages binary-cache configuration. It does not provide a product manifest and must not build or publish a product SDK.
 
-vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain and build configuration are ABI-compatible.
-
-Downstream repositories are consumers and should use `mode: read`. The runner supplies execution only; `vcpkg-tool-version.txt` fixes the executable identity, `vcpkg-scripts-revision.txt` fixes the scripts identity, and each manifest `builtin-baseline` fixes its dependency-port versions. Product SDKs and host tools such as re2c are restored directly from NuGet packages; C/C++ third-party dependencies remain owned by `vcpkg install`, with GitHub Packages/NuGet acting only as the shared vcpkg binary-cache backend. Consumers may keep a repository-scoped filesystem cache as L1; strict release/ABI gates should use `--only-binarycaching` so a shared-cache miss is RED instead of silently rebuilding.
-
-Only workflows in this repository publish shared binaries. The central warm workflows use `mode: readwrite` with `packages: write`, keeping package ownership and publication policy in one place. Large stack-specific publishers also verify that their expected package IDs are visible in the GitHub Packages feed after upload; a compile-success/upload-failure must fail the warm workflow rather than silently degrade to a consumer rebuild.
+vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
 ## Cache contract identity
 
-The shared cache exposes a machine-readable contract identity. Consumers should treat it as part of their local L1 cache key instead of inventing an independent cache version.
+The shared cache exposes a machine-readable contract identity.
 
 Current semantic contract:
 
 ```text
-v2
+v4
 ```
 
-`setup-vcpkg-cache` exports both environment variables and action outputs:
+`setup-vcpkg-cache` exports:
 
 - `VCPKG_CACHE_CONTRACT_VERSION` / `contract_version`
 - `VCPKG_CACHE_REVISION` / `cache_revision`
 - `VCPKG_TOOL_REVISION` / `tool_revision`
 - `VCPKG_SCRIPTS_REVISION` / `scripts_revision`
 
-Hyphenated action-output aliases remain available for compatibility, but consumers should use the underscore names in GitHub expressions.
+The cache revision is derived only from shared vcpkg infrastructure: overlay ports, versions, setup/toolchain logic, the generic root warm manifest, and pinned vcpkg identities. Product manifests are intentionally outside this hash and belong to the consuming repository.
 
-The semantic contract version changes only when the producer/consumer protocol changes. The cache revision is an exact SHA-256 identity derived from the canonical overlay ports, registry versions, stack manifests, cache action, contract version, root manifest, and pinned vcpkg tool/scripts identities.
-
-Consumer L1 caches must include the central cache revision and must not use a restore prefix that crosses revisions:
+Consumer L1 caches should include both the central cache revision and their own manifest hash:
 
 ```yaml
 - id: shared-vcpkg
@@ -79,21 +90,15 @@ Consumer L1 caches must include the central cache revision and must not use a re
   with:
     path: build/vcpkg-binary-cache
     key: >-
-      vcpkg-l1-v3-${{ runner.os }}-${{ runner.arch }}-
+      vcpkg-l1-v4-${{ runner.os }}-${{ runner.arch }}-
       ${{ steps.shared-vcpkg.outputs.contract_version }}-
       ${{ steps.shared-vcpkg.outputs.cache_revision }}-
       ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
-    restore-keys: |
-      vcpkg-l1-v3-${{ runner.os }}-${{ runner.arch }}-
-      ${{ steps.shared-vcpkg.outputs.contract_version }}-
-      ${{ steps.shared-vcpkg.outputs.cache_revision }}-
 ```
-
-A `vcpkg-configuration.json` git-registry baseline remains a package-version resolution pin. It is not the shared binary-cache revision and should not be advanced merely because the cache implementation or an unrelated overlay changes.
 
 ## re2c binary
 
-`Qigao.Re2c.Binary` is a host binary/tool package, not a vcpkg library port.
+`Qigao.Re2c.Binary` is a host binary/tool package, not a product SDK and not a vcpkg library port.
 
 Current package version:
 
@@ -101,36 +106,19 @@ Current package version:
 4.6.3
 ```
 
-It contains host executables for Linux x64, Windows x64, and the macOS runner architecture, plus the re2c stdlib. Android intentionally uses the Linux host binary during cross compilation.
-
 Consumers restore it with:
 
 ```yaml
 - uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@master
 ```
 
-Both shared setup actions accept an optional `token` input so consumers can use a package-scoped PAT when repository-scoped `GITHUB_TOKEN` access is insufficient.
-
 ## Workflows
 
-- `warm-cache.yml` warms and publishes ABI-compatible vcpkg binary packages for Linux, Windows, macOS and Android, plus stack-specific manifests under `manifests/`.
-- `re2c-tools-package.yml` builds and publishes `Qigao.Re2c.Binary`.
-- `praktor-sdk-package.yml` builds Praktor master using released dependency SDKs, tests a restored `Praktor.Native` package, and publishes qualified CI versions on master.
-- `flowmq-sdk-package.yml` pins one FlowMQ main commit, builds Linux/Windows/macOS/Android SDK profiles using released Salts/SaltsUtils packages and cache-only vcpkg restores, packs one multi-platform `FlowMQ.Native`, qualifies clean-restored external consumers on every RID, and publishes only after all gates pass.
+Allowed workflows in this repository are infrastructure workflows only:
 
-Repository-specific `actions/cache` entries may still be used as an optional L1 cache; GitHub Packages is the cross-repository L2/source of truth.
+- `warm-cache.yml` — produces the generic cross-platform vcpkg binary cache.
+- `validate-cache-contract.yml` — validates the shared vcpkg contract and cross-platform identity.
+- vcpkg port-specific validation workflows, where the subject is a central overlay port rather than a product.
+- `re2c-tools-package.yml` — builds and publishes `Qigao.Re2c.Binary`.
 
-
-## Stack-specific warm manifests
-
-The root manifest stays focused on broadly shared dependencies. Larger or feature-specific ABI sets are warmed separately:
-
-- `manifests/flowmq` — exact BoringSSL + ZeroMQ dependency set for FlowMQ SDK packaging on Linux, Windows, macOS, and Android arm64.
-- `manifests/turboraft-linux` — TurboRaft Linux-only dependency warm-up.
-- `manifests/stun-linux` — STUN/FlexUI/gCanvas Linux graphics and UI dependency union.
-- `manifests/gcanvas-shader-tools` — host-only shader compilation/reflection profile (`shaderc`, `glslang`, `spirv-cross`); Android runtime consumes generated assets and does not link these tools.
-- `manifests/turbowasm-mir` — host-only MIR lightweight JIT profile for TurboWasm optional JIT qualification on Linux/macOS.
-- `manifests/turbowasm-spec-tools` — Linux host WABT profile used to restore `wast2json` for pinned WebAssembly spec conformance conversion.
-- `manifests/turbodb-postgresql` — TurboDB PostgreSQL contract using centralized `libpq[zstd]` with BoringSSL.
-
-This keeps specialized dependency graphs out of unrelated platform jobs while still publishing their binaries into the same GitHub Packages L2 cache.
+Product SDK packaging and publishing must live in the product repository.
