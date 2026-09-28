@@ -13,7 +13,10 @@
     "c-ares",
     "libuv",
     "kcp",
-    "boringssl",
+    {
+      "name": "boringssl",
+      "platform": "!linux"
+    },
     "miniaudio",
     "lua",
     "libyuv",
