@@ -162,6 +162,78 @@ jobs:
           set -euo pipefail
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
 
+
+  mir-jit-cache-contract:
+    name: MIR JIT clean L2 / ${{ matrix.triplet }}
+    needs: [linux, macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, triplet: x64-linux}
+          - {runner: macos-15, triplet: arm64-osx}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-mir-jit-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Create focused MIR JIT manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mir-jit-manifest"
+          rm -rf "$manifest"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-mir-jit-cache-contract",
+            "version-string": "1",
+            "dependencies": ["mir-jit"],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          echo "MIR_JIT_MANIFEST_ROOT=$manifest" >> "$GITHUB_ENV"
+      - name: Verify MIR JIT cache-only restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.triplet }}" == "arm64-osx" ]]; then
+            test "$(uname -m)" = "arm64"
+          fi
+          install_root="$RUNNER_TEMP/mir-jit-install-${{ matrix.triplet }}"
+          log="$RUNNER_TEMP/mir-jit-${{ matrix.triplet }}.log"
+          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$MIR_JIT_MANIFEST_ROOT" \
+            --x-install-root="$install_root" \
+            --triplet "${{ matrix.triplet }}" \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            echo "mir-jit shared-cache restore failed for ${{ matrix.triplet }}" >&2
+            exit "$status"
+          fi
+          if grep -Eq '^Building mir-jit:' "$log"; then
+            echo "mir-jit source build detected during cache-only qualification" >&2
+            exit 1
+          fi
+          grep -Fq 'mir-jit' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          printf 'mir-jit clean-L2 restore passed: %s\n' "${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
+
   android:
     name: Android arm64
     runs-on: ubuntu-24.04
