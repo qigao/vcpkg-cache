@@ -58,6 +58,33 @@ jobs:
             --x-install-root="$install_root" \
             --triplet x64-linux
 
+      - name: Warm isolated MongoDB Linux cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mongodb-warm-manifest"
+          install_root="$RUNNER_TEMP/mongodb-warm-install"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-mongodb-cache-warm",
+            "version-string": "1",
+            "dependencies": ["mongo-c-driver"],
+            "builtin-baseline": "$baseline",
+            "overrides": [
+              {"name":"mongo-c-driver","version":"2.3.1","port-version":2},
+              {"name":"libbson","version":"2.3.1","port-version":0},
+              {"name":"utf8proc","version":"2.11.3","port-version":0}
+            ]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux
+
       - name: Warm generic x64-linux cache
         shell: bash
         run: |
@@ -138,6 +165,48 @@ jobs:
             exit 1
           fi
           grep -Fq 'boringssl:x64-linux' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+
+      - name: Verify isolated MongoDB cache-only restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mongodb-contract-manifest"
+          install_root="$RUNNER_TEMP/mongodb-contract-install"
+          log="$RUNNER_TEMP/mongodb-contract.log"
+          rm -rf "$manifest" "$install_root" "$VCPKG_BINARY_CACHE"
+          mkdir -p "$manifest" "$VCPKG_BINARY_CACHE"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-mongodb-cache-contract",
+            "version-string": "1",
+            "dependencies": ["mongo-c-driver"],
+            "builtin-baseline": "$baseline",
+            "overrides": [
+              {"name":"mongo-c-driver","version":"2.3.1","port-version":2},
+              {"name":"libbson","version":"2.3.1","port-version":0},
+              {"name":"utf8proc","version":"2.11.3","port-version":0}
+            ]
+          }
+          EOF
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          if grep -Eq '^Building (mongo-c-driver|libbson|utf8proc|openssl):x64-linux' "$log"; then
+            echo "MongoDB Linux shared-cache miss detected" >&2
+            exit 1
+          fi
+          grep -Fq 'mongo-c-driver' "$log"
+          grep -Fq 'libbson' "$log"
+          grep -Fq 'utf8proc' "$log"
+          grep -Fq 'openssl' "$log"
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
 
   windows:
