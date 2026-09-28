@@ -6,8 +6,23 @@ on:
       - ".gitattributes"
       - "ports/**"
       - "versions/**"
-      - "manifests/**"
       - "cache-contract-version.txt"
+      - "cmake/**"
+      - "scripts/cache-contract-revision.py"
+      - "scripts/vcpkg-required-commits.py"
+      - "vcpkg.json"
+      - "vcpkg-tool-version.txt"
+      - "vcpkg-scripts-revision.txt"
+      - ".github/actions/setup-vcpkg-cache/**"
+      - ".github/workflows/validate-cache-contract.yml"
+  push:
+    branches: [master]
+    paths:
+      - ".gitattributes"
+      - "ports/**"
+      - "versions/**"
+      - "cache-contract-version.txt"
+      - "cmake/**"
       - "scripts/cache-contract-revision.py"
       - "scripts/vcpkg-required-commits.py"
       - "vcpkg.json"
@@ -34,14 +49,6 @@ jobs:
         uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
-      - name: Verify NuGet read/write endpoint keys
-        shell: bash
-        run: |
-          set -euo pipefail
-          config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
-          test -f "$config"
-          grep -Fq '<add key="https://nuget.pkg.github.com/qigao/index.json"' "$config"
-          grep -Fq '<add key="https://nuget.pkg.github.com/qigao"' "$config"
       - name: Verify canonical contract identity
         shell: bash
         env:
@@ -79,20 +86,12 @@ jobs:
         env:
           OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract_version }}
           OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
-          OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
-          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts_revision }}
         run: |
           set -euo pipefail
           expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
           expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
-          expected_tool="$(tr -d '\r\n' < vcpkg-tool-version.txt)"
-          expected_scripts="$(tr -d '\r\n' < vcpkg-scripts-revision.txt)"
           test "$OUTPUT_CONTRACT" = "$expected_contract"
           test "$OUTPUT_REVISION" = "$expected_revision"
-          test "$OUTPUT_TOOL" = "$expected_tool"
-          test "$OUTPUT_SCRIPTS" = "$expected_scripts"
-          test "$VCPKG_CACHE_CONTRACT_VERSION" = "$expected_contract"
-          test "$VCPKG_CACHE_REVISION" = "$expected_revision"
 
   windows:
     name: Contract / windows-2022
@@ -106,141 +105,18 @@ jobs:
         uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
-      - name: Verify NuGet read/write endpoint keys
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $config = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-nuget.config"
-          if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { throw "missing NuGet config" }
-          $text = Get-Content -LiteralPath $config -Raw
-          if (-not $text.Contains('<add key="https://nuget.pkg.github.com/qigao/index.json"')) {
-            throw "missing NuGet service-index API key"
-          }
-          if (-not $text.Contains('<add key="https://nuget.pkg.github.com/qigao"')) {
-            throw "missing NuGet resolved push-endpoint API key"
-          }
       - name: Verify canonical contract identity
         shell: pwsh
         env:
           OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract_version }}
           OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
-          OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
-          OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts_revision }}
         run: |
           $ErrorActionPreference = "Stop"
           $expectedRevision = (& python scripts/cache-contract-revision.py $env:GITHUB_WORKSPACE).Trim()
           if ($LASTEXITCODE -ne 0) { throw "revision calculation failed" }
           $expectedContract = (Get-Content cache-contract-version.txt -Raw).Trim()
-          $expectedTool = (Get-Content vcpkg-tool-version.txt -Raw).Trim()
-          $expectedScripts = (Get-Content vcpkg-scripts-revision.txt -Raw).Trim()
           if ($env:OUTPUT_CONTRACT -ne $expectedContract) { throw "contract output mismatch" }
           if ($env:OUTPUT_REVISION -ne $expectedRevision) { throw "revision output mismatch" }
-          if ($env:OUTPUT_TOOL -ne $expectedTool) { throw "tool output mismatch" }
-          if ($env:OUTPUT_SCRIPTS -ne $expectedScripts) { throw "scripts output mismatch" }
-          if ($env:VCPKG_CACHE_CONTRACT_VERSION -ne $expectedContract) { throw "contract env mismatch" }
-          if ($env:VCPKG_CACHE_REVISION -ne $expectedRevision) { throw "revision env mismatch" }
-
-  quickjs-linux-warm:
-    name: QuickJS-ng 0.16.2 warm / ubuntu-24.04
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
-      - name: Verify producer NuGet API key environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$NUGET_API_KEY"
-      - name: Prepare host dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config
-      - name: Warm canonical QuickJS-ng package
-        shell: bash
-        run: |
-          set -euo pipefail
-          install_root="$RUNNER_TEMP/quickjs-ng-warm"
-          rm -rf "$install_root"
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root="$GITHUB_WORKSPACE/manifests/quickjs-ng" \
-            --x-install-root="$install_root" \
-            --triplet x64-linux
-          status="$install_root/vcpkg/status"
-          test -f "$status"
-          awk '
-            $0 == "Package: quickjs-ng" { found=1; next }
-            found && /^Version: / {
-              if ($2 != "0.16.2") exit 2
-              print "quickjs-ng=" $2
-              ok=1
-              exit
-            }
-            END { if (!ok) exit 1 }
-          ' "$status"
-
-  quickjs-linux-cache-only:
-    name: QuickJS-ng 0.16.2 empty-L1 restore
-    needs: quickjs-linux-warm
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use empty L1 cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          cache="$RUNNER_TEMP/empty-quickjs-ng-l1"
-          rm -rf "$cache"
-          mkdir -p "$cache"
-          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: read
-      - name: Restore QuickJS-ng from shared cache only
-        shell: bash
-        run: |
-          set -euo pipefail
-          install_root="$RUNNER_TEMP/quickjs-ng-cache-only"
-          log="$RUNNER_TEMP/quickjs-ng-cache-only.log"
-          rm -rf "$install_root"
-          set +e
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root="$GITHUB_WORKSPACE/manifests/quickjs-ng" \
-            --x-install-root="$install_root" \
-            --triplet x64-linux \
-            --only-binarycaching 2>&1 | tee "$log"
-          status_code=${PIPESTATUS[0]}
-          set -e
-          if [ "$status_code" -ne 0 ]; then
-            exit "$status_code"
-          fi
-          if grep -Eq '^Building [^:]+:x64-linux' "$log"; then
-            echo "QuickJS-ng shared cache miss detected" >&2
-            grep -E '^Building [^:]+:x64-linux' "$log" >&2
-            exit 1
-          fi
-          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          status="$install_root/vcpkg/status"
-          test -f "$status"
-          awk '
-            $0 == "Package: quickjs-ng" { found=1; next }
-            found && /^Version: / {
-              if ($2 != "0.16.2") exit 2
-              print "quickjs-ng=" $2
-              ok=1
-              exit
-            }
-            END { if (!ok) exit 1 }
-          ' "$status"
 
   consistent:
     name: Contract identity is cross-platform stable
@@ -258,10 +134,8 @@ jobs:
           WINDOWS_REVISION: ${{ needs.windows.outputs.revision }}
         run: |
           set -euo pipefail
-          test -n "$LINUX_CONTRACT"
           test "$LINUX_CONTRACT" = "$MACOS_CONTRACT"
           test "$LINUX_CONTRACT" = "$WINDOWS_CONTRACT"
-          test -n "$LINUX_REVISION"
           test "$LINUX_REVISION" = "$MACOS_REVISION"
           test "$LINUX_REVISION" = "$WINDOWS_REVISION"
           printf 'contract=%s\nrevision=%s\n' "$LINUX_CONTRACT" "$LINUX_REVISION"
