@@ -210,8 +210,12 @@ jobs:
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
 
   windows:
-    name: Windows x64
-    runs-on: windows-2022
+    name: Windows x64 / ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
@@ -228,9 +232,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
 
   windows-cache-contract:
-    name: Windows x64 cache-only restore
+    name: Windows x64 cache-only restore / ${{ matrix.runner }}
     needs: windows
-    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
