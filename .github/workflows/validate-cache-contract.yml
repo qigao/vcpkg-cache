@@ -55,7 +55,7 @@ jobs:
 
           for workflow in .github/workflows/*.yml; do
             case "$(basename "$workflow")" in
-              re2c-tools-package.yml) continue ;;
+              re2c-tools-package.yml|validate-cache-contract.yml) continue ;;
             esac
             if grep -qE 'dotnet[[:space:]]+nuget[[:space:]]+push|PackageId>.*\.Native<' "$workflow"; then
               echo "product package publication is forbidden in vcpkg-cache: $workflow" >&2
