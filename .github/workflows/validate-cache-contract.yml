@@ -39,10 +39,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -e packaging || -e manifests ]]; then
-            echo "vcpkg-cache must not own product packaging/ or manifests/ trees" >&2
+
+          if [[ -e manifests ]]; then
+            echo "vcpkg-cache must not own a product manifests/ tree" >&2
             exit 1
           fi
+
+          if [[ -d packaging ]]; then
+            while IFS= read -r entry; do
+              [[ "$entry" == "re2c" ]] && continue
+              echo "product packaging is forbidden in vcpkg-cache: packaging/$entry" >&2
+              exit 1
+            done < <(find packaging -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          fi
+
           for workflow in .github/workflows/*.yml; do
             case "$(basename "$workflow")" in
               re2c-tools-package.yml) continue ;;
