@@ -48,7 +48,23 @@
         "zstd"
       ],
       "platform": "linux"
-    }
+    },
+    "opus",
+    "libvpx",
+    "openh264",
+    "x265",
+    "libde265",
+    {
+      "name": "ffmpeg",
+      "features": [
+        "openh264",
+        "opus",
+        "xml2"
+      ]
+    },
+    "libsrtp",
+    "roaring",
+    "usrsctp"
   ],
   "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01",
   "overrides": []
