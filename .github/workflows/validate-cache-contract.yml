@@ -14,7 +14,9 @@ on:
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
       - ".github/actions/setup-vcpkg-cache/**"
-      - ".github/workflows/validate-cache-contract.yml"
+      - ".github/workflows/**"
+      - "packaging/**"
+      - "manifests/**"
 
 permissions:
   contents: read
@@ -33,6 +35,34 @@ jobs:
         uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: read
+      - name: Enforce infrastructure-only ownership boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -e manifests ]]; then
+            echo "vcpkg-cache must not own a product manifests/ tree" >&2
+            exit 1
+          fi
+
+          if [[ -d packaging ]]; then
+            while IFS= read -r entry; do
+              [[ "$entry" == "re2c" ]] && continue
+              echo "product packaging is forbidden in vcpkg-cache: packaging/$entry" >&2
+              exit 1
+            done < <(find packaging -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+          fi
+
+          for workflow in .github/workflows/*.yml; do
+            case "$(basename "$workflow")" in
+              re2c-tools-package.yml|validate-cache-contract.yml) continue ;;
+            esac
+            if grep -qE 'dotnet[[:space:]]+nuget[[:space:]]+push|PackageId>.*\.Native<' "$workflow"; then
+              echo "product package publication is forbidden in vcpkg-cache: $workflow" >&2
+              exit 1
+            fi
+          done
+
       - name: Verify canonical contract identity
         shell: bash
         env:
