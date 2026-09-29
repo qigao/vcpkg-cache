@@ -1,6 +1,12 @@
 name: Warm consumer vcpkg cache
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/warm-consumer-cache.yml"
+      - ".github/actions/setup-vcpkg-cache/**"
+      - "ports/**"
+      - "scripts/vcpkg-required-commits.py"
   workflow_dispatch:
     inputs:
       repository:
@@ -19,7 +25,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: warm-consumer-vcpkg-${{ inputs.repository }}-${{ inputs.ref }}
+  group: warm-consumer-vcpkg-${{ inputs.repository || 'qigao/turbomedia' }}-${{ inputs.ref || 'master' }}
   cancel-in-progress: false
 
 jobs:
@@ -34,8 +40,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository }}
-          CONSUMER_REF: ${{ inputs.ref }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
+          CONSUMER_REF: ${{ inputs.ref || 'master' }}
         run: |
           $ErrorActionPreference = "Stop"
           if ($env:CONSUMER_REPOSITORY -notmatch '^qigao/[A-Za-z0-9._-]+$') {
@@ -90,8 +96,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository }}
-          CONSUMER_REF: ${{ inputs.ref }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
+          CONSUMER_REF: ${{ inputs.ref || 'master' }}
         run: |
           $ErrorActionPreference = "Stop"
           $manifestRoot = Join-Path $env:GITHUB_WORKSPACE ".consumer-manifest"
@@ -154,8 +160,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository }}
-          CONSUMER_REF: ${{ inputs.ref }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
+          CONSUMER_REF: ${{ inputs.ref || 'master' }}
         run: |
           set -euo pipefail
           [[ "$CONSUMER_REPOSITORY" =~ ^qigao/[A-Za-z0-9._-]+$ ]]
@@ -197,8 +203,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository }}
-          CONSUMER_REF: ${{ inputs.ref }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
+          CONSUMER_REF: ${{ inputs.ref || 'master' }}
         run: |
           set -euo pipefail
           mkdir -p .consumer-manifest
