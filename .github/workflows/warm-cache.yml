@@ -484,6 +484,22 @@ jobs:
           set -euo pipefail
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
 
+
+
+  mir-jit-macos-warm:
+    name: macOS MIR JIT warm
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install ninja
+          test "$(uname -m)" = "arm64"
       - name: Warm unversioned MIR JIT cache
         shell: bash
         run: |
@@ -502,12 +518,12 @@ jobs:
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$manifest" \
             --x-install-root="$install_root" \
-            --triplet "$VCPKG_WARM_TRIPLET"
-
+            --triplet arm64-osx
+          test -f "$install_root/arm64-osx/share/MIR/MIRConfig.cmake"
 
   mir-jit-cache-contract:
     name: MIR JIT clean L2 / ${{ matrix.triplet }}
-    needs: [linux, macos]
+    needs: [linux, mir-jit-macos-warm]
     strategy:
       fail-fast: false
       matrix:
