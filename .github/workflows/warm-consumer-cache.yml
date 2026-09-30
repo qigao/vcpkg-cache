@@ -29,6 +29,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  x265-macos:
+    name: Validate x265 macOS arm64 overlay
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+
+      - name: Prepare macOS build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install ninja nasm autoconf automake autoconf-archive libtool
+          test "$(uname -m)" = "arm64"
+
+      - name: Build x265 overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/x265-macos-overlay"
+          installed="$RUNNER_TEMP/x265-macos-install"
+          rm -rf "$manifest" "$installed"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-x265-macos-overlay-check",
+            "version-string": "1",
+            "dependencies": ["x265"]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install             --x-manifest-root="$manifest"             --x-install-root="$installed"             --triplet arm64-osx
+          test -f "$installed/arm64-osx/lib/libx265.a" || test -f "$installed/arm64-osx/lib/libx265.dylib"
+
   windows:
     name: Warm consumer Windows x64
     runs-on: windows-2022
