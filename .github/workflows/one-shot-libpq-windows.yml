@@ -1,0 +1,131 @@
+name: One-shot Windows libpq cache warm
+
+on:
+  push:
+    branches:
+      - ci/one-shot-libpq-windows
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: one-shot-libpq-windows
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: Warm libpq x64-windows
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare Windows build tools
+        shell: pwsh
+        run: choco install ninja nasm strawberryperl -y --no-progress
+      - name: Create focused manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "libpq-warm-manifest"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          @"
+          {
+            "name": "qigao-libpq-cache-warm",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          "@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          "LIBPQ_MANIFEST=$manifest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Warm shared L2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installed = Join-Path $env:RUNNER_TEMP "libpq-warm-install"
+          $args = @(
+            "install",
+            "--x-manifest-root=$env:LIBPQ_MANIFEST",
+            "--x-install-root=$installed",
+            "--triplet=x64-windows"
+          )
+          & "$env:VCPKG_ROOT\vcpkg.exe" @args
+          if ($LASTEXITCODE -ne 0) { throw "libpq Windows cache warm failed" }
+          $status = Join-Path $installed "vcpkg/status"
+          if (-not (Select-String -LiteralPath $status -SimpleMatch "Package: libpq")) {
+            throw "libpq was not installed"
+          }
+
+  verify:
+    name: Verify clean L2 libpq restore
+    needs: warm
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP "empty-libpq-l1"
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_BINARY_CACHE=$cache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare Windows build tools
+        shell: pwsh
+        run: choco install ninja nasm strawberryperl -y --no-progress
+      - name: Create focused manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "libpq-verify-manifest"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          @"
+          {
+            "name": "qigao-libpq-cache-verify",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          "@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          "LIBPQ_MANIFEST=$manifest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Verify cache-only restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installed = Join-Path $env:RUNNER_TEMP "libpq-verify-install"
+          $log = Join-Path $env:RUNNER_TEMP "libpq-verify.log"
+          $args = @(
+            "install",
+            "--x-manifest-root=$env:LIBPQ_MANIFEST",
+            "--x-install-root=$installed",
+            "--triplet=x64-windows",
+            "--only-binarycaching"
+          )
+          & "$env:VCPKG_ROOT\vcpkg.exe" @args 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "libpq clean-L2 restore failed" }
+          $text = Get-Content -LiteralPath $log -Raw
+          if ($text -match "(?m)^Building libpq:x64-windows") {
+            throw "libpq source build occurred during cache-only verification"
+          }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "libpq clean-L2 restore did not use shared NuGet cache"
+          }
