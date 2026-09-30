@@ -20,6 +20,10 @@
     },
     "miniaudio",
     "lua",
+    {
+      "name": "zeromq",
+      "default-features": false
+    },
     "libusb",
     "llhttp",
     "tree-sitter",
