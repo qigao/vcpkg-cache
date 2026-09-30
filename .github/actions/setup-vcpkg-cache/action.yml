@@ -351,6 +351,17 @@ runs:
           cp -R "$action_root/triplets" "$contract_root/triplets"
           mkdir -p "$contract_root/cmake"
           cp "$action_root/cmake/QigaoVcpkgToolchain.cmake" "$contract_root/cmake/QigaoVcpkgToolchain.cmake"
+          python3 - "$contract_root" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+files = list((root / "triplets").rglob("*.cmake"))
+files.append(root / "cmake" / "QigaoVcpkgToolchain.cmake")
+for path in files:
+    data = path.read_bytes()
+    path.write_bytes(data.replace(b"\r\n", b"\n"))
+PY
           printf '%s\n' "$revision" > "$marker"
         fi
         test -d "$contract_root/ports"
@@ -449,6 +460,19 @@ runs:
           Copy-Item -LiteralPath (Join-Path $actionRoot "triplets") -Destination (Join-Path $contractRoot "triplets") -Recurse
           New-Item -ItemType Directory -Force -Path (Join-Path $contractRoot "cmake") | Out-Null
           Copy-Item -LiteralPath (Join-Path $actionRoot "cmake\QigaoVcpkgToolchain.cmake") -Destination (Join-Path $contractRoot "cmake\QigaoVcpkgToolchain.cmake")
+          $normalizeScript = @'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+files = list((root / "triplets").rglob("*.cmake"))
+files.append(root / "cmake" / "QigaoVcpkgToolchain.cmake")
+for path in files:
+    data = path.read_bytes()
+    path.write_bytes(data.replace(b"\\r\\n", b"\\n"))
+'@
+          & python -c $normalizeScript $contractRoot
+          if ($LASTEXITCODE -ne 0) { throw "canonical cache asset normalization failed" }
           Set-Content -LiteralPath $marker -Value $revision -NoNewline
         }
         foreach ($required in @(
