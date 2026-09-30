@@ -12,12 +12,12 @@ on:
       repository:
         description: Consumer repository in owner/name form
         required: true
-        default: qigao/turbomedia
+        default: qigao/TurboAgent
         type: string
       ref:
         description: Consumer git ref containing vcpkg.json
         required: true
-        default: master
+        default: main
         type: string
 
 permissions:
@@ -25,13 +25,13 @@ permissions:
   packages: write
 
 concurrency:
-  group: warm-consumer-vcpkg-${{ inputs.repository || 'qigao/turbomedia' }}-${{ inputs.ref || 'master' }}
+  group: warm-consumer-vcpkg-${{ inputs.repository || 'qigao/TurboAgent' }}-${{ inputs.ref || 'main' }}
   cancel-in-progress: false
 
 jobs:
   windows:
     name: Warm consumer Windows x64
-    runs-on: windows-2022
+    runs-on: windows-2025
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -40,8 +40,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
-          CONSUMER_REF: ${{ inputs.ref || 'master' }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/TurboAgent' }}
+          CONSUMER_REF: ${{ inputs.ref || 'main' }}
         run: |
           $ErrorActionPreference = "Stop"
           if ($env:CONSUMER_REPOSITORY -notmatch '^qigao/[A-Za-z0-9._-]+$') {
@@ -87,7 +87,7 @@ jobs:
   windows-cache-contract:
     name: Consumer Windows clean L2 restore
     needs: windows
-    runs-on: windows-2022
+    runs-on: windows-2025
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +96,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
-          CONSUMER_REF: ${{ inputs.ref || 'master' }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/TurboAgent' }}
+          CONSUMER_REF: ${{ inputs.ref || 'main' }}
         run: |
           $ErrorActionPreference = "Stop"
           $manifestRoot = Join-Path $env:GITHUB_WORKSPACE ".consumer-manifest"
@@ -160,8 +160,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
-          CONSUMER_REF: ${{ inputs.ref || 'master' }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/TurboAgent' }}
+          CONSUMER_REF: ${{ inputs.ref || 'main' }}
         run: |
           set -euo pipefail
           [[ "$CONSUMER_REPOSITORY" =~ ^qigao/[A-Za-z0-9._-]+$ ]]
@@ -203,8 +203,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/turbomedia' }}
-          CONSUMER_REF: ${{ inputs.ref || 'master' }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository || 'qigao/TurboAgent' }}
+          CONSUMER_REF: ${{ inputs.ref || 'main' }}
         run: |
           set -euo pipefail
           mkdir -p .consumer-manifest
