@@ -283,6 +283,139 @@ jobs:
             throw "generic Windows restore did not use NuGet"
           }
 
+  turboagent-windows:
+    name: TurboAgent Windows cache / windows-2025
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare Windows build tools
+        shell: pwsh
+        run: choco install nasm ninja strawberryperl -y --no-progress
+      - name: Create TurboAgent Windows manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifestRoot = Join-Path $env:RUNNER_TEMP "turboagent-windows-manifest"
+          if (Test-Path -LiteralPath $manifestRoot) {
+            Remove-Item -LiteralPath $manifestRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null
+          $baseline = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "vcpkg.json") -Raw | ConvertFrom-Json).'builtin-baseline'
+          @"
+          {
+            "name": "qigao-turboagent-windows-cache",
+            "version-string": "1",
+            "dependencies": [
+              "boringssl",
+              {
+                "name": "sqlite3",
+                "features": ["fts5"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          "@ | Set-Content -LiteralPath (Join-Path $manifestRoot "vcpkg.json")
+          "TURBOAGENT_WINDOWS_MANIFEST=$manifestRoot" >> $env:GITHUB_ENV
+      - name: Warm TurboAgent Windows v145 closure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installed = Join-Path $env:RUNNER_TEMP "turboagent-windows-warm"
+          if (Test-Path -LiteralPath $installed) {
+            Remove-Item -LiteralPath $installed -Recurse -Force
+          }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            "--x-manifest-root=$env:TURBOAGENT_WINDOWS_MANIFEST" `
+            "--x-install-root=$installed" `
+            "--triplet=$env:QIGAO_VCPKG_WINDOWS_TRIPLET"
+          if ($LASTEXITCODE -ne 0) { throw "TurboAgent Windows v145 cache warm failed" }
+
+  turboagent-windows-cache-contract:
+    name: TurboAgent Windows clean L2 / windows-2025
+    needs: turboagent-windows
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP "empty-turboagent-windows-l1"
+          if (Test-Path -LiteralPath $cache) {
+            Remove-Item -LiteralPath $cache -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_BINARY_CACHE=$cache" >> $env:GITHUB_ENV
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare Windows build tools
+        shell: pwsh
+        run: choco install nasm ninja strawberryperl -y --no-progress
+      - name: Create TurboAgent Windows manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifestRoot = Join-Path $env:RUNNER_TEMP "turboagent-windows-contract-manifest"
+          if (Test-Path -LiteralPath $manifestRoot) {
+            Remove-Item -LiteralPath $manifestRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null
+          $baseline = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "vcpkg.json") -Raw | ConvertFrom-Json).'builtin-baseline'
+          @"
+          {
+            "name": "qigao-turboagent-windows-cache-contract",
+            "version-string": "1",
+            "dependencies": [
+              "boringssl",
+              {
+                "name": "sqlite3",
+                "features": ["fts5"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          "@ | Set-Content -LiteralPath (Join-Path $manifestRoot "vcpkg.json")
+          "TURBOAGENT_WINDOWS_MANIFEST=$manifestRoot" >> $env:GITHUB_ENV
+      - name: Verify TurboAgent Windows closure from shared cache only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installed = Join-Path $env:RUNNER_TEMP "turboagent-windows-contract-install"
+          $log = Join-Path $env:RUNNER_TEMP "turboagent-windows-contract.log"
+          if (Test-Path -LiteralPath $installed) {
+            Remove-Item -LiteralPath $installed -Recurse -Force
+          }
+
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            "--x-manifest-root=$env:TURBOAGENT_WINDOWS_MANIFEST" `
+            "--x-install-root=$installed" `
+            "--triplet=$env:QIGAO_VCPKG_WINDOWS_TRIPLET" `
+            --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) {
+            throw "TurboAgent Windows clean-L2 restore failed"
+          }
+
+          $text = Get-Content -LiteralPath $log -Raw
+          $triplet = [regex]::Escape($env:QIGAO_VCPKG_WINDOWS_TRIPLET)
+          if ($text -match ("(?m)^Building [^:]+:" + $triplet)) {
+            throw "TurboAgent Windows clean-L2 contract detected a source build"
+          }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "TurboAgent Windows clean-L2 contract did not restore from NuGet"
+          }
+          if ($text -notmatch ("boringssl:" + $triplet)) {
+            throw "TurboAgent Windows cache is missing boringssl"
+          }
+          if ($text -notmatch ("sqlite3(?:\[[^\]]+\])?:" + $triplet)) {
+            throw "TurboAgent Windows cache is missing sqlite3"
+          }
+          "TurboAgent Windows v145 clean-L2 restore passed." >> $env:GITHUB_STEP_SUMMARY
+
   macos:
     name: macOS host
     runs-on: macos-15
