@@ -1,1 +1,3 @@
 ports/** text eol=lf
+triplets/** text eol=lf
+cmake/** text eol=lf

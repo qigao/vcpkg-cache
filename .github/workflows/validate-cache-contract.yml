@@ -189,6 +189,19 @@ jobs:
           if (-not (Test-Path -LiteralPath $triplet -PathType Leaf)) {
             throw "canonical Windows triplet is missing"
           }
+          $tripletBytes = [System.IO.File]::ReadAllBytes($triplet)
+          for ($i = 0; $i -lt ($tripletBytes.Length - 1); $i++) {
+            if ($tripletBytes[$i] -eq 13 -and $tripletBytes[$i + 1] -eq 10) {
+              throw "canonical Windows triplet must use LF line endings"
+            }
+          }
+          $toolchain = Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "cmake\QigaoVcpkgToolchain.cmake"
+          $toolchainBytes = [System.IO.File]::ReadAllBytes($toolchain)
+          for ($i = 0; $i -lt ($toolchainBytes.Length - 1); $i++) {
+            if ($toolchainBytes[$i] -eq 13 -and $toolchainBytes[$i + 1] -eq 10) {
+              throw "canonical vcpkg toolchain must use LF line endings"
+            }
+          }
           $tripletText = Get-Content -LiteralPath $triplet -Raw
           foreach ($required in @(
             'set(VCPKG_PLATFORM_TOOLSET v145)',
