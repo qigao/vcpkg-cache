@@ -91,6 +91,48 @@ jobs:
           set -euo pipefail
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet x64-linux
 
+      - name: Warm unversioned TurboWasm tooling cache
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mir_manifest="$RUNNER_TEMP/mir-jit-unversioned"
+          mir_root="$RUNNER_TEMP/mir-jit-unversioned-install"
+          rm -rf "$mir_manifest" "$mir_root"
+          mkdir -p "$mir_manifest"
+          cat > "$mir_manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-mir-jit-unversioned-cache",
+            "version-string": "1",
+            "dependencies": ["mir-jit"]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$mir_manifest" \
+            --x-install-root="$mir_root" \
+            --triplet x64-linux
+
+          wabt_manifest="$RUNNER_TEMP/wabt-tools-unversioned"
+          wabt_root="$RUNNER_TEMP/wabt-tools-unversioned-install"
+          rm -rf "$wabt_manifest" "$wabt_root"
+          mkdir -p "$wabt_manifest"
+          cat > "$wabt_manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-wabt-tools-unversioned-cache",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "wabt",
+                "features": ["tools"]
+              }
+            ]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$wabt_manifest" \
+            --x-install-root="$wabt_root" \
+            --triplet x64-linux
+
   linux-cache-contract:
     name: Linux x64 cache-only restore
     needs: linux
@@ -442,6 +484,26 @@ jobs:
           set -euo pipefail
           "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
 
+      - name: Warm unversioned MIR JIT cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mir-jit-unversioned"
+          install_root="$RUNNER_TEMP/mir-jit-unversioned-install"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-mir-jit-unversioned-cache",
+            "version-string": "1",
+            "dependencies": ["mir-jit"]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet "$VCPKG_WARM_TRIPLET"
+
 
   mir-jit-cache-contract:
     name: MIR JIT clean L2 / ${{ matrix.triplet }}
@@ -473,13 +535,11 @@ jobs:
           manifest="$RUNNER_TEMP/mir-jit-manifest"
           rm -rf "$manifest"
           mkdir -p "$manifest"
-          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
-          cat > "$manifest/vcpkg.json" <<EOF
+          cat > "$manifest/vcpkg.json" <<'EOF'
           {
             "name": "qigao-mir-jit-cache-contract",
             "version-string": "1",
-            "dependencies": ["mir-jit"],
-            "builtin-baseline": "$baseline"
+            "dependencies": ["mir-jit"]
           }
           EOF
           echo "MIR_JIT_MANIFEST_ROOT=$manifest" >> "$GITHUB_ENV"
@@ -513,6 +573,72 @@ jobs:
           grep -Fq 'mir-jit' "$log"
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
           printf 'mir-jit clean-L2 restore passed: %s\n' "${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
+
+  wabt-tools-cache-contract:
+    name: WABT tools clean L2 / x64-linux
+    needs: [linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-wabt-tools-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Create focused WABT tools manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/wabt-tools-manifest"
+          rm -rf "$manifest"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-wabt-tools-cache-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "wabt",
+                "features": ["tools"]
+              }
+            ]
+          }
+          EOF
+          echo "WABT_TOOLS_MANIFEST_ROOT=$manifest" >> "$GITHUB_ENV"
+      - name: Verify WABT tools cache-only restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/wabt-tools-install"
+          log="$RUNNER_TEMP/wabt-tools.log"
+          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$WABT_TOOLS_MANIFEST_ROOT" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            echo "wabt tools shared-cache restore failed" >&2
+            exit "$status"
+          fi
+          if grep -Eq '^Building wabt(?:\[[^]]+\])?:' "$log"; then
+            echo "wabt source build detected during cache-only qualification" >&2
+            exit 1
+          fi
+          grep -Fq 'wabt' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          test -x "$install_root/x64-linux/tools/wabt/wast2json"
+          echo "WABT tools clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
 
   android:
     name: Android arm64
