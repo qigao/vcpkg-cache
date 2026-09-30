@@ -339,6 +339,24 @@ runs:
         binary_cache="${VCPKG_BINARY_CACHE:-$GITHUB_WORKSPACE/build/vcpkg-binary-cache}"
         mkdir -p "$binary_cache"
 
+        # vcpkg package ABI records overlay paths. Self-use resolves this action
+        # from the repository checkout while external consumers resolve it from
+        # _actions, so materialize ABI-relevant assets at one canonical path.
+        contract_root="$RUNNER_TEMP/qigao-vcpkg-contract-v$contract_version-$revision"
+        marker="$contract_root/.qigao-cache-revision"
+        if [ ! -f "$marker" ] || [ "$(cat "$marker" 2>/dev/null || true)" != "$revision" ]; then
+          rm -rf "$contract_root"
+          mkdir -p "$contract_root"
+          cp -R "$action_root/ports" "$contract_root/ports"
+          cp -R "$action_root/triplets" "$contract_root/triplets"
+          mkdir -p "$contract_root/cmake"
+          cp "$action_root/cmake/QigaoVcpkgToolchain.cmake" "$contract_root/cmake/QigaoVcpkgToolchain.cmake"
+          printf '%s\n' "$revision" > "$marker"
+        fi
+        test -d "$contract_root/ports"
+        test -d "$contract_root/triplets"
+        test -f "$contract_root/cmake/QigaoVcpkgToolchain.cmake"
+
         cat > "$config" <<EOF
         <?xml version="1.0" encoding="utf-8"?>
         <configuration>
@@ -368,9 +386,9 @@ runs:
         echo "VCPKG_BINARY_CACHE=$binary_cache" >> "$GITHUB_ENV"
         echo "VCPKG_CACHE_CONTRACT_VERSION=$contract_version" >> "$GITHUB_ENV"
         echo "VCPKG_CACHE_REVISION=$revision" >> "$GITHUB_ENV"
-        echo "VCPKG_CACHE_REPOSITORY_ROOT=$action_root" >> "$GITHUB_ENV"
-        echo "VCPKG_OVERLAY_PORTS=$action_root/ports" >> "$GITHUB_ENV"
-        echo "VCPKG_OVERLAY_TRIPLETS=$action_root/triplets" >> "$GITHUB_ENV"
+        echo "VCPKG_CACHE_REPOSITORY_ROOT=$contract_root" >> "$GITHUB_ENV"
+        echo "VCPKG_OVERLAY_PORTS=$contract_root/ports" >> "$GITHUB_ENV"
+        echo "VCPKG_OVERLAY_TRIPLETS=$contract_root/triplets" >> "$GITHUB_ENV"
         echo "QIGAO_VCPKG_WINDOWS_TRIPLET=qigao-x64-windows-v145" >> "$GITHUB_ENV"
         echo "QIGAO_VCPKG_WINDOWS_HOST_TRIPLET=qigao-x64-windows-v145" >> "$GITHUB_ENV"
         echo "VCPKG_BINARY_SOURCES=$sources" >> "$GITHUB_ENV"
@@ -412,6 +430,37 @@ runs:
         }
         New-Item -ItemType Directory -Force -Path $binaryCache | Out-Null
 
+        # vcpkg package ABI records overlay paths. Self-use resolves this action
+        # from the repository checkout while external consumers resolve it from
+        # _actions, so materialize ABI-relevant assets at one canonical path.
+        $contractRoot = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-contract-v$contractVersion-$revision"
+        $marker = Join-Path $contractRoot ".qigao-cache-revision"
+        $materialize = $true
+        if (Test-Path -LiteralPath $marker -PathType Leaf) {
+          $existingRevision = (Get-Content -LiteralPath $marker -Raw).Trim()
+          $materialize = $existingRevision -ne $revision
+        }
+        if ($materialize) {
+          if (Test-Path -LiteralPath $contractRoot) {
+            Remove-Item -LiteralPath $contractRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $contractRoot | Out-Null
+          Copy-Item -LiteralPath (Join-Path $actionRoot "ports") -Destination (Join-Path $contractRoot "ports") -Recurse
+          Copy-Item -LiteralPath (Join-Path $actionRoot "triplets") -Destination (Join-Path $contractRoot "triplets") -Recurse
+          New-Item -ItemType Directory -Force -Path (Join-Path $contractRoot "cmake") | Out-Null
+          Copy-Item -LiteralPath (Join-Path $actionRoot "cmake\QigaoVcpkgToolchain.cmake") -Destination (Join-Path $contractRoot "cmake\QigaoVcpkgToolchain.cmake")
+          Set-Content -LiteralPath $marker -Value $revision -NoNewline
+        }
+        foreach ($required in @(
+          (Join-Path $contractRoot "ports"),
+          (Join-Path $contractRoot "triplets"),
+          (Join-Path $contractRoot "cmake\QigaoVcpkgToolchain.cmake")
+        )) {
+          if (-not (Test-Path -LiteralPath $required)) {
+            throw "canonical vcpkg contract asset is unavailable: $required"
+          }
+        }
+
         @"
         <?xml version="1.0" encoding="utf-8"?>
         <configuration>
@@ -440,9 +489,9 @@ runs:
         "VCPKG_BINARY_CACHE=$binaryCache" >> $env:GITHUB_ENV
         "VCPKG_CACHE_CONTRACT_VERSION=$contractVersion" >> $env:GITHUB_ENV
         "VCPKG_CACHE_REVISION=$revision" >> $env:GITHUB_ENV
-        "VCPKG_CACHE_REPOSITORY_ROOT=$actionRoot" >> $env:GITHUB_ENV
-        "VCPKG_OVERLAY_PORTS=$(Join-Path $actionRoot 'ports')" >> $env:GITHUB_ENV
-        "VCPKG_OVERLAY_TRIPLETS=$(Join-Path $actionRoot 'triplets')" >> $env:GITHUB_ENV
+        "VCPKG_CACHE_REPOSITORY_ROOT=$contractRoot" >> $env:GITHUB_ENV
+        "VCPKG_OVERLAY_PORTS=$(Join-Path $contractRoot 'ports')" >> $env:GITHUB_ENV
+        "VCPKG_OVERLAY_TRIPLETS=$(Join-Path $contractRoot 'triplets')" >> $env:GITHUB_ENV
         "QIGAO_VCPKG_WINDOWS_TRIPLET=qigao-x64-windows-v145" >> $env:GITHUB_ENV
         "QIGAO_VCPKG_WINDOWS_HOST_TRIPLET=qigao-x64-windows-v145" >> $env:GITHUB_ENV
         "VCPKG_BINARY_SOURCES=$sources" >> $env:GITHUB_ENV
