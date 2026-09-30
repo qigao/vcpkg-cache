@@ -155,6 +155,24 @@ jobs:
           $expectedContract = (Get-Content cache-contract-version.txt -Raw).Trim()
           if ($env:OUTPUT_CONTRACT -ne $expectedContract) { throw "contract output mismatch" }
           if ($env:OUTPUT_REVISION -ne $expectedRevision) { throw "revision output mismatch" }
+          if ($env:QIGAO_VCPKG_WINDOWS_TRIPLET -ne "qigao-x64-windows-v145") {
+            throw "canonical Windows triplet env mismatch"
+          }
+          $triplet = Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "triplets\qigao-x64-windows-v145.cmake"
+          if (-not (Test-Path -LiteralPath $triplet -PathType Leaf)) {
+            throw "canonical Windows triplet is missing"
+          }
+          $tripletText = Get-Content -LiteralPath $triplet -Raw
+          foreach ($required in @(
+            'set(VCPKG_PLATFORM_TOOLSET v145)',
+            'set(VCPKG_PLATFORM_TOOLSET_VERSION "14.51.36231")',
+            'set(VCPKG_CMAKE_SYSTEM_VERSION "10.0.26100.0")',
+            'set(VCPKG_DISABLE_COMPILER_TRACKING ON)'
+          )) {
+            if (-not $tripletText.Contains($required)) {
+              throw "canonical Windows triplet missing: $required"
+            }
+          }
 
   consistent:
     name: Contract identity is cross-platform stable

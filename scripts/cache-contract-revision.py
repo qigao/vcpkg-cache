@@ -8,7 +8,7 @@ import sys
 
 def contract_files(root: pathlib.Path) -> list[pathlib.Path]:
     files: list[pathlib.Path] = []
-    for directory in ("ports", "versions"):
+    for directory in ("ports", "triplets", "versions"):
         path = root / directory
         if path.is_dir():
             files.extend(p for p in path.rglob("*") if p.is_file())
