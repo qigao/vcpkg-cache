@@ -63,6 +63,11 @@ jobs:
             fi
           done
 
+          if grep -Eiq 'TurboAgent|TurboMedia|TurboDB|MongoDB|mongo-c-driver|qigao-mongodb' .github/workflows/warm-cache.yml; then
+            echo "product-specific cache production is forbidden in warm-cache.yml" >&2
+            exit 1
+          fi
+
       - name: Verify canonical contract identity
         shell: bash
         env:
