@@ -146,8 +146,8 @@ jobs:
           test -f "$expected_root/cmake/QigaoVcpkgToolchain.cmake"
 
   windows:
-    name: Contract / windows-2022
-    runs-on: windows-2022
+    name: Contract / windows-2025
+    runs-on: windows-2025
     outputs:
       revision: ${{ steps.cache.outputs.cache_revision }}
       contract: ${{ steps.cache.outputs.contract_version }}
@@ -213,6 +213,27 @@ jobs:
               throw "canonical Windows triplet missing: $required"
             }
           }
+
+      - name: Verify canonical Windows runner toolset
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if ([string]::IsNullOrWhiteSpace($vsInstall)) {
+            throw "Visual Studio C++ installation not found"
+          }
+          $toolsetRoot = Join-Path $vsInstall "VC\Tools\MSVC\14.51.36231"
+          $compiler = Join-Path $toolsetRoot "bin\Hostx64\x64\cl.exe"
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw "canonical v145 compiler is unavailable: $compiler"
+          }
+          $sdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\Include\10.0.26100.0"
+          if (-not (Test-Path -LiteralPath $sdkRoot -PathType Container)) {
+            throw "canonical Windows SDK is unavailable: $sdkRoot"
+          }
+          Write-Host "canonical compiler=$compiler"
+          Write-Host "canonical sdk=$sdkRoot"
 
   consistent:
     name: Contract identity is cross-platform stable
