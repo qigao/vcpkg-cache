@@ -66,7 +66,7 @@ The shared cache exposes a machine-readable contract identity.
 Current semantic contract:
 
 ```text
-v4
+v6
 ```
 
 `setup-vcpkg-cache` exports:
@@ -96,11 +96,11 @@ Consumer L1 caches should include both the central cache revision and their own 
       ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 ```
 
-## Consumer-manifest cache warm
+## Product-owned cache production
 
-`warm-consumer-cache.yml` is an infrastructure producer for exact consumer ABI closures. It reads the consumer repository's own `vcpkg.json` at the requested ref, so this repository does not copy or redefine product dependency policy.
+Product-specific dependency closures and binary-cache producers belong in the product repository. For example, TurboMedia owns its media overlays and media binary-cache production rather than delegating those packages back to this infrastructure repository.
 
-The workflow deliberately ignores the consumer's repository-local overlay configuration and uses the canonical shared `ports/` overlays from this repository. It currently warms and then verifies clean-L2 restores for Windows x64 and Android arm64. The clean-L2 jobs run with `--only-binarycaching`, so a successful run proves that the exact consumer ABI closure is present in GitHub Packages rather than being hidden by a local source build.
+`vcpkg-cache` provides the canonical vcpkg tool/scripts identity, shared infrastructure overlays, and GitHub Packages transport. It must not reconstruct or warm a product dependency graph from another repository.
 
 ## re2c binary
 
@@ -123,7 +123,6 @@ Consumers restore it with:
 Allowed workflows in this repository are infrastructure workflows only:
 
 - `warm-cache.yml` — produces the generic cross-platform vcpkg binary cache.
-- `warm-consumer-cache.yml` — produces exact ABI closures from a consumer-owned manifest without copying product dependency policy into this repository.
 - `validate-cache-contract.yml` — validates the shared vcpkg contract and cross-platform identity.
 - vcpkg port-specific validation workflows, where the subject is a central overlay port rather than a product.
 - `re2c-tools-package.yml` — builds and publishes `Qigao.Re2c.Binary`.
