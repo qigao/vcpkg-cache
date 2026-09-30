@@ -214,8 +214,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [windows-2022, windows-2025]
+        include:
+          - runner: windows-2022
+            triplet: x64-windows
+          - runner: windows-2025
+            triplet: qigao-x64-windows-v145
     runs-on: ${{ matrix.runner }}
+    env:
+      VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
@@ -228,7 +234,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet x64-windows
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET
           if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
 
   windows-cache-contract:
@@ -237,8 +243,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [windows-2022, windows-2025]
+        include:
+          - runner: windows-2022
+            triplet: x64-windows
+          - runner: windows-2025
+            triplet: qigao-x64-windows-v145
     runs-on: ${{ matrix.runner }}
+    env:
+      VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
@@ -261,10 +273,10 @@ jobs:
           $installRoot = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows"
           $log = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows.log"
           if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
-          & "$env:VCPKG_ROOT\vcpkg.exe" install             "--x-manifest-root=$env:GITHUB_WORKSPACE"             "--x-install-root=$installRoot"             "--triplet=x64-windows"             --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          & "$env:VCPKG_ROOT\vcpkg.exe" install             "--x-manifest-root=$env:GITHUB_WORKSPACE"             "--x-install-root=$installRoot"             "--triplet=$env:VCPKG_WARM_TRIPLET"             --only-binarycaching 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { throw "vcpkg cache-only restore failed" }
           $text = Get-Content -LiteralPath $log -Raw
-          if ($text -match "(?m)^Building [^:]+:x64-windows") {
+          if ($text -match ("(?m)^Building [^:]+:" + [regex]::Escape($env:VCPKG_WARM_TRIPLET))) {
             throw "generic Windows shared-cache miss detected"
           }
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
