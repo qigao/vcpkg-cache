@@ -234,7 +234,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET --host-triplet $env:VCPKG_WARM_TRIPLET
           if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
 
   windows-cache-contract:
@@ -273,7 +273,7 @@ jobs:
           $installRoot = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows"
           $log = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows.log"
           if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
-          & "$env:VCPKG_ROOT\vcpkg.exe" install             "--x-manifest-root=$env:GITHUB_WORKSPACE"             "--x-install-root=$installRoot"             "--triplet=$env:VCPKG_WARM_TRIPLET"             --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          & "$env:VCPKG_ROOT\vcpkg.exe" install             "--x-manifest-root=$env:GITHUB_WORKSPACE"             "--x-install-root=$installRoot"             "--triplet=$env:VCPKG_WARM_TRIPLET"             "--host-triplet=$env:VCPKG_WARM_TRIPLET"             --only-binarycaching 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { throw "vcpkg cache-only restore failed" }
           $text = Get-Content -LiteralPath $log -Raw
           if ($text -match ("(?m)^Building [^:]+:" + [regex]::Escape($env:VCPKG_WARM_TRIPLET))) {
@@ -331,7 +331,8 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
             "--x-manifest-root=$env:TURBOAGENT_WINDOWS_MANIFEST" `
             "--x-install-root=$installed" `
-            "--triplet=$env:QIGAO_VCPKG_WINDOWS_TRIPLET"
+            "--triplet=$env:QIGAO_VCPKG_WINDOWS_TRIPLET" `
+            "--host-triplet=$env:QIGAO_VCPKG_WINDOWS_HOST_TRIPLET"
           if ($LASTEXITCODE -ne 0) { throw "TurboAgent Windows v145 cache warm failed" }
 
   turboagent-windows-cache-contract:
@@ -395,6 +396,7 @@ jobs:
             "--x-manifest-root=$env:TURBOAGENT_WINDOWS_MANIFEST" `
             "--x-install-root=$installed" `
             "--triplet=$env:QIGAO_VCPKG_WINDOWS_TRIPLET" `
+            "--host-triplet=$env:QIGAO_VCPKG_WINDOWS_HOST_TRIPLET" `
             --only-binarycaching 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) {
             throw "TurboAgent Windows clean-L2 restore failed"
