@@ -41,14 +41,25 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/gmssl-install/x64-linux"
-          cat > "$RUNNER_TEMP/gmssl-consumer.c" <<'EOF'
+          src="$RUNNER_TEMP/gmssl-consumer-src"
+          build="$RUNNER_TEMP/gmssl-consumer-build"
+          mkdir -p "$src"
+          cat > "$src/main.c" <<'EOF'
           #include <gmssl/tls.h>
           int main(void) {
             return tls_protocol_name(TLS_protocol_tls13) == 0;
           }
           EOF
-          cc "$RUNNER_TEMP/gmssl-consumer.c" -I"$root/include" -L"$root/lib" -lgmssl -o "$RUNNER_TEMP/gmssl-consumer"
-          "$RUNNER_TEMP/gmssl-consumer"
+          cat > "$src/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.16)
+          project(gmssl_consumer C)
+          find_package(GmSSL CONFIG REQUIRED)
+          add_executable(gmssl-consumer main.c)
+          target_link_libraries(gmssl-consumer PRIVATE GmSSL::GmSSL)
+          EOF
+          cmake -S "$src" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
+          cmake --build "$build"
+          "$build/gmssl-consumer"
 
   macos:
     name: GmSSL / macos-15
@@ -81,14 +92,25 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/gmssl-install/arm64-osx"
-          cat > "$RUNNER_TEMP/gmssl-consumer.c" <<'EOF'
+          src="$RUNNER_TEMP/gmssl-consumer-src"
+          build="$RUNNER_TEMP/gmssl-consumer-build"
+          mkdir -p "$src"
+          cat > "$src/main.c" <<'EOF'
           #include <gmssl/tls.h>
           int main(void) {
             return tls_protocol_name(TLS_protocol_tls13) == 0;
           }
           EOF
-          cc "$RUNNER_TEMP/gmssl-consumer.c" -I"$root/include" -L"$root/lib" -lgmssl -o "$RUNNER_TEMP/gmssl-consumer"
-          "$RUNNER_TEMP/gmssl-consumer"
+          cat > "$src/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.16)
+          project(gmssl_consumer C)
+          find_package(GmSSL CONFIG REQUIRED)
+          add_executable(gmssl-consumer main.c)
+          target_link_libraries(gmssl-consumer PRIVATE GmSSL::GmSSL)
+          EOF
+          cmake -S "$src" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
+          cmake --build "$build"
+          "$build/gmssl-consumer"
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -124,20 +146,26 @@ jobs:
           $ErrorActionPreference = "Stop"
           $triplet = "qigao-x64-windows-v145"
           $root = Join-Path (Join-Path $env:RUNNER_TEMP "gmssl-install") $triplet
-          $source = Join-Path $env:RUNNER_TEMP "gmssl-consumer.c"
+          $src = Join-Path $env:RUNNER_TEMP "gmssl-consumer-src"
+          $build = Join-Path $env:RUNNER_TEMP "gmssl-consumer-build"
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
           @'
           #include <gmssl/tls.h>
           int main(void) {
             return tls_protocol_name(TLS_protocol_tls13) == 0;
           }
-          '@ | Set-Content -LiteralPath $source -Encoding ascii
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-          $vs = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
-          $devcmd = Join-Path $vs "Common7\Tools\VsDevCmd.bat"
-          $out = Join-Path $env:RUNNER_TEMP "gmssl-consumer.exe"
-          $cmd = '"'+$devcmd+'" -arch=x64 && cl /nologo /TC /I"'+$root+'\include" "'+$source+'" /link /LIBPATH:"'+$root+'\lib" gmssl.lib ws2_32.lib advapi32.lib /OUT:"'+$out+'"'
-          cmd /d /s /c $cmd
-          if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer link failed" }
+          '@ | Set-Content -LiteralPath (Join-Path $src "main.c") -Encoding ascii
+          @'
+          cmake_minimum_required(VERSION 3.16)
+          project(gmssl_consumer C)
+          find_package(GmSSL CONFIG REQUIRED)
+          add_executable(gmssl-consumer main.c)
+          target_link_libraries(gmssl-consumer PRIVATE GmSSL::GmSSL)
+          '@ | Set-Content -LiteralPath (Join-Path $src "CMakeLists.txt") -Encoding ascii
+          cmake -S $src -B $build "-DCMAKE_PREFIX_PATH=$root" -A x64 -T v145
+          if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer configure failed" }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer build failed" }
           $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
-          & $out
+          & (Join-Path $build "Release\gmssl-consumer.exe")
           if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer failed" }
