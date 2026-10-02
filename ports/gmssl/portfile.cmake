@@ -22,6 +22,9 @@ if(NOT VCPKG_TARGET_IS_IOS)
     vcpkg_copy_tools(TOOL_NAMES gmssl AUTO_CLEAN)
 endif()
 
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/GmSSLConfig.cmake"
+     DESTINATION "${CURRENT_PACKAGES_DIR}/share/gmssl")
+
 file(REMOVE_RECURSE
     "${CURRENT_PACKAGES_DIR}/debug/include"
     "${CURRENT_PACKAGES_DIR}/debug/share"
