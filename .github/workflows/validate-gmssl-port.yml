@@ -46,8 +46,19 @@ jobs:
           mkdir -p "$src"
           cat > "$src/main.c" <<'EOF'
           #include <gmssl/tls.h>
+          static tls_ret_t probe_send(void *user, const void *buf, size_t len, int flags) {
+            (void)user; (void)buf; (void)len; (void)flags;
+            return TLS_ERROR_SEND_AGAIN;
+          }
+          static tls_ret_t probe_recv(void *user, void *buf, size_t len, int flags) {
+            (void)user; (void)buf; (void)len; (void)flags;
+            return TLS_ERROR_RECV_AGAIN;
+          }
           int main(void) {
-            return tls_protocol_name(TLS_protocol_tls13) == 0;
+            TLS_CONNECT conn = {0};
+            TLS_IO io = {0, probe_send, probe_recv};
+            if (tls_protocol_name(TLS_protocol_tls13) == 0) return 1;
+            return tls_set_io(&conn, &io) == 1 ? 0 : 2;
           }
           EOF
           cat > "$src/CMakeLists.txt" <<'EOF'
@@ -97,8 +108,19 @@ jobs:
           mkdir -p "$src"
           cat > "$src/main.c" <<'EOF'
           #include <gmssl/tls.h>
+          static tls_ret_t probe_send(void *user, const void *buf, size_t len, int flags) {
+            (void)user; (void)buf; (void)len; (void)flags;
+            return TLS_ERROR_SEND_AGAIN;
+          }
+          static tls_ret_t probe_recv(void *user, void *buf, size_t len, int flags) {
+            (void)user; (void)buf; (void)len; (void)flags;
+            return TLS_ERROR_RECV_AGAIN;
+          }
           int main(void) {
-            return tls_protocol_name(TLS_protocol_tls13) == 0;
+            TLS_CONNECT conn = {0};
+            TLS_IO io = {0, probe_send, probe_recv};
+            if (tls_protocol_name(TLS_protocol_tls13) == 0) return 1;
+            return tls_set_io(&conn, &io) == 1 ? 0 : 2;
           }
           EOF
           cat > "$src/CMakeLists.txt" <<'EOF'
@@ -151,8 +173,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path $src | Out-Null
           @'
           #include <gmssl/tls.h>
+          static tls_ret_t probe_send(void *user, const void *buf, size_t len, int flags) {
+            (void)user; (void)buf; (void)len; (void)flags;
+            return TLS_ERROR_SEND_AGAIN;
+          }
+          static tls_ret_t probe_recv(void *user, void *buf, size_t len, int flags) {
+            (void)user; (void)buf; (void)len; (void)flags;
+            return TLS_ERROR_RECV_AGAIN;
+          }
           int main(void) {
-            return tls_protocol_name(TLS_protocol_tls13) == 0;
+            TLS_CONNECT conn = {0};
+            TLS_IO io = {0, probe_send, probe_recv};
+            if (tls_protocol_name(TLS_protocol_tls13) == 0) return 1;
+            return tls_set_io(&conn, &io) == 1 ? 0 : 2;
           }
           '@ | Set-Content -LiteralPath (Join-Path $src "main.c") -Encoding ascii
           @'
