@@ -1,0 +1,139 @@
+name: TurboMedia media binary cache
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/turbomedia-media-cache.yml"
+      - "producers/turbomedia.ref"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: turbomedia-media-cache
+  cancel-in-progress: false
+
+env:
+  X_VCPKG_NUGET_ID_PREFIX: vcpkg-cache
+
+jobs:
+  media:
+    name: TurboMedia / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: Linux x64, os: ubuntu-24.04, triplet: x64-linux}
+          - {platform: Windows x64, os: windows-2022, triplet: x64-windows}
+          - {platform: Android arm64-v8a, os: ubuntu-24.04, triplet: arm64-android}
+          - {platform: macOS arm64, os: macos-15, triplet: arm64-osx}
+
+    steps:
+      - name: Checkout cache infrastructure
+        uses: actions/checkout@v4
+
+      - name: Resolve exact TurboMedia recipe source
+        id: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$(tr -d '\r\n' < producers/turbomedia.ref)"
+          [[ "$ref" =~ ^[0-9a-f]{40}$ ]]
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact TurboMedia recipe
+        uses: actions/checkout@v4
+        with:
+          repository: qigao/turbomedia
+          ref: ${{ steps.product.outputs.ref }}
+          path: product/turbomedia
+          persist-credentials: false
+
+      - name: Configure central vcpkg cache producer
+        uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+
+      - name: Prepare Linux and Android tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm autoconf automake libtool
+          if [[ "${{ matrix.triplet }}" == "arm64-android" ]]; then
+            test -n "${ANDROID_NDK_HOME:-}"
+            test -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          fi
+
+      - name: Prepare Windows tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ninja nasm strawberryperl -y --no-progress
+
+      - name: Prepare macOS tools
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          brew install ninja nasm autoconf automake autoconf-archive libtool
+
+      - name: Produce TurboMedia media ABI set
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:GITHUB_WORKSPACE "product/turbomedia"
+          $installed = Join-Path $env:RUNNER_TEMP "turbomedia-media-installed-${{ matrix.triplet }}"
+          $vcpkg = Join-Path $env:VCPKG_ROOT $(if ($IsWindows) { "vcpkg.exe" } else { "vcpkg" })
+          if (Test-Path -LiteralPath $installed) { Remove-Item -LiteralPath $installed -Recurse -Force }
+          if (Test-Path -LiteralPath $env:VCPKG_BINARY_CACHE) { Remove-Item -LiteralPath $env:VCPKG_BINARY_CACHE -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_BINARY_CACHE | Out-Null
+          $args = @(
+            "install",
+            "--x-manifest-root=$manifest",
+            "--x-install-root=$installed",
+            "--triplet=${{ matrix.triplet }}"
+          )
+          & $vcpkg @args
+          if ($LASTEXITCODE -ne 0) { throw "TurboMedia media cache production failed for ${{ matrix.triplet }}" }
+
+      - name: Verify clean central L2 restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:GITHUB_WORKSPACE "product/turbomedia"
+          $installed = Join-Path $env:RUNNER_TEMP "turbomedia-media-clean-${{ matrix.triplet }}"
+          $log = Join-Path $env:RUNNER_TEMP "turbomedia-media-clean-${{ matrix.triplet }}.log"
+          $vcpkg = Join-Path $env:VCPKG_ROOT $(if ($IsWindows) { "vcpkg.exe" } else { "vcpkg" })
+          foreach ($path in @($installed, $env:VCPKG_BINARY_CACHE)) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+          }
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_BINARY_CACHE | Out-Null
+          $args = @(
+            "install",
+            "--x-manifest-root=$manifest",
+            "--x-install-root=$installed",
+            "--triplet=${{ matrix.triplet }}",
+            "--only-binarycaching"
+          )
+          & $vcpkg @args 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "clean central L2 restore failed for ${{ matrix.triplet }}" }
+          $text = Get-Content -LiteralPath $log -Raw
+          if ($text -match "(?m)^Building ") { throw "source build detected during central L2 qualification for ${{ matrix.triplet }}" }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "clean restore did not use central NuGet L2 for ${{ matrix.triplet }}"
+          }
+
+      - name: Summarize producer identity
+        shell: pwsh
+        run: |
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "TurboMedia recipe: ${{ steps.product.outputs.ref }}"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Triplet: ${{ matrix.triplet }}"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "NuGet namespace: vcpkg-cache"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Cache owner: qigao/vcpkg-cache"
