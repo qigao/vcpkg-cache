@@ -9,3 +9,8 @@ set_target_properties(gmssl-tls12-alpn-contract PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED ON
     C_EXTENSIONS OFF)
+
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-tls12-alpn-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-tls12-alpn-contract PRIVATE -fsanitize=address)
+endif()
