@@ -1,11 +1,9 @@
 # Centralized TLS provider contract for the libpq overlay.
 #
-# Keep this file provider-specific and keep the rest of the port provider-neutral.
-# BoringSSL remains the active provider in this behavior-preserving slice.
+# GmSSL is the only provider in this branch. PostgreSQL still consumes its
+# OpenSSL-shaped TLS API through the dedicated GmSSL compatibility layer.
 
-set(LIBPQ_TLS_PROVIDER "boringssl")
+set(LIBPQ_TLS_PROVIDER "gmssl-openssl-compat")
 set(LIBPQ_TLS_CONFIGURE_NAME "openssl")
-set(LIBPQ_TLS_OPENSSL_COMPAT_VERSION "1.1.1")
-set(LIBPQ_TLS_WINDOWS_PATCHES
-    windows/boringssl.patch
-    windows/boringssl-libpq.patch)
+set(LIBPQ_TLS_OPENSSL_COMPAT_VERSION "3.0.0")
+set(LIBPQ_TLS_WINDOWS_PATCHES)
