@@ -1,3 +1,5 @@
+include("${CMAKE_CURRENT_LIST_DIR}/tls-provider.cmake")
+
 vcpkg_download_distfile(ARCHIVE
     URLS "https://ftp.postgresql.org/pub/source/v${VERSION}/postgresql-${VERSION}.tar.bz2"
          "https://www.mirrorservice.org/sites/ftp.postgresql.org/source/v${VERSION}/postgresql-${VERSION}.tar.bz2"
@@ -18,8 +20,7 @@ vcpkg_extract_source_archive(
         windows/macro-def.patch
         windows/win_bison_flex.patch
         windows/msbuild.patch
-        windows/boringssl.patch
-        windows/boringssl-libpq.patch
+        ${LIBPQ_TLS_WINDOWS_PATCHES}
         windows/spin_delay.patch
         windows/tcl-9.0-alpha.patch
         android/unversioned_so.patch
@@ -94,7 +95,7 @@ else()
             list(APPEND BUILD_OPTS --without-${option})
         endif()
     endforeach()
-    list(APPEND BUILD_OPTS --with-ssl=openssl)
+    list(APPEND BUILD_OPTS --with-ssl=${LIBPQ_TLS_CONFIGURE_NAME})
     if("nls" IN_LIST FEATURES)
         set(ENV{MSGFMT} "${CURRENT_HOST_INSTALLED_DIR}/tools/gettext/bin/msgfmt${VCPKG_HOST_EXECUTABLE_SUFFIX}")
     endif()
