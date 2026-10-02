@@ -30,7 +30,7 @@ jobs:
         include:
           - {platform: Linux x64, os: ubuntu-24.04, triplet: x64-linux}
           - {platform: Windows x64, os: windows-2022, triplet: x64-windows}
-          - {platform: Android arm64-v8a, os: ubuntu-24.04, triplet: arm64-android}
+          - {platform: Android arm64-v8a API26, os: ubuntu-24.04, triplet: arm64-android-api26}
           - {platform: macOS arm64, os: macos-15, triplet: arm64-osx}
 
     steps:
@@ -131,12 +131,12 @@ jobs:
           }
 
       - name: Verify Android FFmpeg package config
-        if: matrix.triplet == 'arm64-android'
+        if: matrix.triplet == 'arm64-android-api26'
         shell: bash
         run: |
           set -euo pipefail
           contract="$RUNNER_TEMP/turbomedia-ffmpeg-android-contract"
-          installed="$RUNNER_TEMP/turbomedia-media-clean-arm64-android"
+          installed="$RUNNER_TEMP/turbomedia-media-clean-arm64-android-api26"
           rm -rf "$contract"
           mkdir -p "$contract"
           cat > "$contract/CMakeLists.txt" <<'EOF'
@@ -150,7 +150,7 @@ jobs:
           cmake -S "$contract" -B "$contract/build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$QIGAO_VCPKG_TOOLCHAIN_FILE" \
-            -DVCPKG_TARGET_TRIPLET=arm64-android \
+            -DVCPKG_TARGET_TRIPLET=arm64-android-api26 \
             -DVCPKG_MANIFEST_MODE=OFF \
             -DVCPKG_INSTALLED_DIR="$installed" \
             -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
