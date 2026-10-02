@@ -80,6 +80,8 @@ jobs:
           cmake -S ports/gmssl/tests -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
           cmake --build "$build"
           "$build/gmssl-tls12-alpn-contract"
+          "$build/gmssl-tls-version-range-contract"
+          "$build/gmssl-tls-version-range-dispatch-contract"
 
   macos:
     name: GmSSL / macos-15
@@ -151,6 +153,8 @@ jobs:
           cmake -S ports/gmssl/tests -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
           cmake --build "$build"
           "$build/gmssl-tls12-alpn-contract"
+          "$build/gmssl-tls-version-range-contract"
+          "$build/gmssl-tls-version-range-dispatch-contract"
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -234,3 +238,7 @@ jobs:
           $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
           & (Join-Path $build "Release\gmssl-tls12-alpn-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN wire contract failed" }
+          & (Join-Path $build "Release\gmssl-tls-version-range-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "TLS version-range contract failed" }
+          & (Join-Path $build "Release\gmssl-tls-version-range-dispatch-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "TLS version-range dispatch contract failed" }
