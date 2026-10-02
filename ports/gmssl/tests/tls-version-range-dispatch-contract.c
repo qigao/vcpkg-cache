@@ -113,13 +113,15 @@ static int build_tls12_server_hello(uint8_t *record, size_t *record_len)
 	char *selected_alpn = "h2";
 
 	random[31] = 7;
+	memset(record, 0, TLS_MAX_RECORD_SIZE);
 	if (tls_application_layer_protocol_negotiation_selected_ext_to_bytes(
 			selected_alpn, &p, &exts_len) != 1) return -1;
-	if (tls_record_set_handshake_server_hello(
+	if (tls_record_set_protocol(record, TLS_protocol_tls12) != 1
+		|| tls_record_set_handshake_server_hello(
 			record, record_len, TLS_protocol_tls12, random, NULL, 0,
 			TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256,
-			exts, exts_len) != 1) return -1;
-	if (tls_record_set_protocol(record, TLS_protocol_tls12) != 1) return -1;
+			exts, exts_len) != 1
+		|| tls_record_set_protocol(record, TLS_protocol_tls12) != 1) return -1;
 	return 1;
 }
 
