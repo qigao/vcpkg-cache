@@ -148,6 +148,12 @@ int main(void)
     size_t server_hello_len = 0;
     int rc = 1;
 
+    fprintf(stderr, "alpn-probe: abi ctx=%zu/%zu conn=%zu/%zu\n",
+            sizeof(TLS_CTX), tls_ctx_sizeof(), sizeof(TLS_CONNECT), tls_connect_sizeof());
+    if (sizeof(TLS_CTX) != tls_ctx_sizeof() || sizeof(TLS_CONNECT) != tls_connect_sizeof()) {
+        return 9;
+    }
+
     fprintf(stderr, "alpn-probe: configure ctx\n");
     if (configure_tls12_client(&ctx) != 1) {
         return 10;
