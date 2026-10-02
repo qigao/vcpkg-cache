@@ -85,6 +85,7 @@ jobs:
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
           "$build/gmssl-x509-rsa-contract"
+          "$build/gmssl-rsa-private-contract"
 
   macos:
     name: GmSSL / macos-15
@@ -161,6 +162,7 @@ jobs:
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
           "$build/gmssl-x509-rsa-contract"
+          "$build/gmssl-rsa-private-contract"
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -254,3 +256,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RSA signature verification contract failed" }
           & (Join-Path $build "Release\gmssl-x509-rsa-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "X.509 RSA verification contract failed" }
+          & (Join-Path $build "Release\gmssl-rsa-private-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "RSA private parser contract failed" }
