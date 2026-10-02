@@ -17,6 +17,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/version-range.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-verify.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-signatures.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/rsa-private.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 
