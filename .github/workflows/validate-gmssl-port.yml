@@ -71,6 +71,15 @@ jobs:
           cmake -S "$src" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
           cmake --build "$build"
           "$build/gmssl-consumer"
+      - name: Verify TLS 1.2 ALPN wire contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          build="$RUNNER_TEMP/gmssl-tls12-alpn-build"
+          cmake -S ports/gmssl/tests -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
+          cmake --build "$build"
+          "$build/gmssl-tls12-alpn-contract"
 
   macos:
     name: GmSSL / macos-15
@@ -133,6 +142,15 @@ jobs:
           cmake -S "$src" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
           cmake --build "$build"
           "$build/gmssl-consumer"
+      - name: Verify TLS 1.2 ALPN wire contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
+          build="$RUNNER_TEMP/gmssl-tls12-alpn-build"
+          cmake -S ports/gmssl/tests -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
+          cmake --build "$build"
+          "$build/gmssl-tls12-alpn-contract"
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -202,3 +220,17 @@ jobs:
           $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
           & (Join-Path $build "Release\gmssl-consumer.exe")
           if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer failed" }
+      - name: Verify TLS 1.2 ALPN wire contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $triplet = "qigao-x64-windows-v145"
+          $root = Join-Path (Join-Path $env:RUNNER_TEMP "gmssl-install") $triplet
+          $build = Join-Path $env:RUNNER_TEMP "gmssl-tls12-alpn-build"
+          cmake -S ports/gmssl/tests -B $build "-DCMAKE_PREFIX_PATH=$root" -A x64 -T v145
+          if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN contract configure failed" }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN contract build failed" }
+          $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
+          & (Join-Path $build "Release\gmssl-tls12-alpn-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN wire contract failed" }
