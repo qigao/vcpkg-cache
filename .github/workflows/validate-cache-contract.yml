@@ -17,6 +17,7 @@ on:
       - ".github/workflows/**"
       - "packaging/**"
       - "manifests/**"
+      - "producers/**"
 
 permissions:
   contents: read
@@ -66,6 +67,23 @@ jobs:
           if grep -Eiq 'TurboAgent|TurboMedia|TurboDB|MongoDB|mongo-c-driver|qigao-mongodb' .github/workflows/warm-cache.yml; then
             echo "product-specific cache production is forbidden in warm-cache.yml" >&2
             exit 1
+          fi
+
+          if [[ -e producers/turbomedia.ref ]]; then
+            ref="$(tr -d '\r\n' < producers/turbomedia.ref)"
+            if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "producers/turbomedia.ref must contain one exact 40-hex source commit" >&2
+              exit 1
+            fi
+            test -f .github/workflows/turbomedia-media-cache.yml
+            grep -Fq 'repository: qigao/turbomedia' .github/workflows/turbomedia-media-cache.yml
+            grep -Fq 'X_VCPKG_NUGET_ID_PREFIX: vcpkg-cache' .github/workflows/turbomedia-media-cache.yml
+            grep -Fq 'mode: readwrite' .github/workflows/turbomedia-media-cache.yml
+            grep -Fq -- '--only-binarycaching' .github/workflows/turbomedia-media-cache.yml
+            if find producers -mindepth 1 -type f ! -name '*.ref' -print -quit | grep -q .; then
+              echo "producer state must be source refs only; product manifests/overlays stay in product repositories" >&2
+              exit 1
+            fi
           fi
 
       - name: Verify canonical contract identity
