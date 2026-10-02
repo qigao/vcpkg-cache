@@ -84,6 +84,7 @@ jobs:
           "$build/gmssl-tls-version-range-dispatch-contract"
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
+          "$build/gmssl-x509-rsa-contract"
 
   macos:
     name: GmSSL / macos-15
@@ -159,6 +160,7 @@ jobs:
           "$build/gmssl-tls-version-range-dispatch-contract"
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
+          "$build/gmssl-x509-rsa-contract"
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -250,3 +252,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RSA public operation contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-signature-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA signature verification contract failed" }
+          & (Join-Path $build "Release\gmssl-x509-rsa-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "X.509 RSA verification contract failed" }
