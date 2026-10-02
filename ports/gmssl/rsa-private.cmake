@@ -37,12 +37,12 @@ typedef struct {
 gmssl_replace_once(
     "${_gmssl_rsa_h}"
 [==[
-int rsa_public_key_to_der(const RSA_PUBLIC_KEY *key, uint8_t **out, size_t *outlen);
+int rsa_public_key_from_der(RSA_PUBLIC_KEY *key, const uint8_t **in, size_t *inlen);
 ]==]
 [==[
 int rsa_private_key_from_der(RSA_PRIVATE_KEY *key, const uint8_t **in, size_t *inlen);
 void rsa_private_key_cleanup(RSA_PRIVATE_KEY *key);
-int rsa_public_key_to_der(const RSA_PUBLIC_KEY *key, uint8_t **out, size_t *outlen);
+int rsa_public_key_from_der(RSA_PUBLIC_KEY *key, const uint8_t **in, size_t *inlen);
 ]==]
 )
 
