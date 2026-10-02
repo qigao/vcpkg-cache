@@ -1,0 +1,142 @@
+name: Validate libpq GmSSL provider
+
+on:
+  pull_request:
+    paths:
+      - "ports/libpq/**"
+      - "ports/gmssl-openssl-compat/**"
+      - ".github/workflows/validate-libpq-gmssl.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  linux:
+    name: libpq + GmSSL / ubuntu-24.04
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Install TurboDB libpq profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/libpq-gmssl-manifest"
+          install="$RUNNER_TEMP/libpq-gmssl-install"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "libpq-gmssl-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install             --x-manifest-root="$manifest"             --x-install-root="$install"             --triplet x64-linux
+          "$VCPKG_ROOT/vcpkg" list --x-install-root="$install" > "$RUNNER_TEMP/libpq-packages.txt"
+          cat "$RUNNER_TEMP/libpq-packages.txt"
+          if grep -qi '^boringssl:' "$RUNNER_TEMP/libpq-packages.txt"; then
+            echo "BoringSSL unexpectedly remains in libpq closure" >&2
+            exit 1
+          fi
+          grep -qi '^gmssl:' "$RUNNER_TEMP/libpq-packages.txt"
+          grep -qi '^gmssl-openssl-compat:' "$RUNNER_TEMP/libpq-packages.txt"
+          echo "LIBPQ_INSTALL_ROOT=$install" >> "$GITHUB_ENV"
+      - name: Compile and run libpq consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$LIBPQ_INSTALL_ROOT/x64-linux"
+          src="$RUNNER_TEMP/libpq-consumer-src"
+          build="$RUNNER_TEMP/libpq-consumer-build"
+          mkdir -p "$src"
+          cat > "$src/main.c" <<'EOF'
+          #include <libpq-fe.h>
+          int main(void) {
+            return PQlibVersion() >= 160000 ? 0 : 1;
+          }
+          EOF
+          cat > "$src/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(libpq_consumer C)
+          find_package(PostgreSQL REQUIRED)
+          add_executable(libpq-consumer main.c)
+          target_link_libraries(libpq-consumer PRIVATE PostgreSQL::PostgreSQL)
+          EOF
+          cmake -S "$src" -B "$build" -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_PREFIX_PATH="$root"
+          cmake --build "$build"
+          LD_LIBRARY_PATH="$root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"             "$build/libpq-consumer"
+
+  windows:
+    name: libpq + GmSSL / windows-2025 v145
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Install TurboDB libpq profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "libpq-gmssl-manifest"
+          $install = Join-Path $env:RUNNER_TEMP "libpq-gmssl-install"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          @'
+          {
+            "name": "libpq-gmssl-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ]
+          }
+          '@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install             "--x-manifest-root=$manifest"             "--x-install-root=$install"             "--triplet=$env:QIGAO_VCPKG_WINDOWS_TRIPLET"             "--host-triplet=$env:QIGAO_VCPKG_WINDOWS_TRIPLET"
+          if ($LASTEXITCODE -ne 0) { throw "libpq GmSSL install failed" }
+          $packages = & "$env:VCPKG_ROOT\vcpkg.exe" list "--x-install-root=$install"
+          $packages | Write-Host
+          if ($packages -match "(?im)^boringssl:") { throw "BoringSSL unexpectedly remains in libpq closure" }
+          if ($packages -notmatch "(?im)^gmssl:") { throw "gmssl missing from libpq closure" }
+          if ($packages -notmatch "(?im)^gmssl-openssl-compat:") { throw "gmssl-openssl-compat missing from libpq closure" }
+          "LIBPQ_INSTALL_ROOT=$install" >> $env:GITHUB_ENV
+      - name: Compile and run libpq consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $triplet = $env:QIGAO_VCPKG_WINDOWS_TRIPLET
+          $root = Join-Path $env:LIBPQ_INSTALL_ROOT $triplet
+          $src = Join-Path $env:RUNNER_TEMP "libpq-consumer-src"
+          $build = Join-Path $env:RUNNER_TEMP "libpq-consumer-build"
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
+          @'
+          #include <libpq-fe.h>
+          int main(void) {
+            return PQlibVersion() >= 160000 ? 0 : 1;
+          }
+          '@ | Set-Content -LiteralPath (Join-Path $src "main.c") -Encoding ascii
+          @'
+          cmake_minimum_required(VERSION 3.20)
+          project(libpq_consumer C)
+          find_package(PostgreSQL REQUIRED)
+          add_executable(libpq-consumer main.c)
+          target_link_libraries(libpq-consumer PRIVATE PostgreSQL::PostgreSQL)
+          '@ | Set-Content -LiteralPath (Join-Path $src "CMakeLists.txt") -Encoding ascii
+          cmake -S $src -B $build "-DCMAKE_PREFIX_PATH=$root" -A x64 -T v145
+          if ($LASTEXITCODE -ne 0) { throw "libpq consumer configure failed" }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "libpq consumer build failed" }
+          $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
+          & (Join-Path $build "Release\libpq-consumer.exe")
+          if ($LASTEXITCODE -ne 0) { throw "libpq consumer failed" }
