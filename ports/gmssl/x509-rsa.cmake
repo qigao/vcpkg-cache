@@ -219,10 +219,32 @@ int x509_public_key_to_bytes(const X509_KEY *key, uint8_t **out, size_t *outlen)
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+int x509_public_key_from_bytes(X509_KEY *key, int algor, int algor_param, const uint8_t **in, size_t *inlen)
+{
+	if (!key || !in || !(*in) || !inlen) {
+		error_print();
+		return -1;
+	}
+
+	memset(key, 0, sizeof(X509_KEY));
+	key->algor = algor;
+	key->algor_param = algor_param;
+
 	switch (algor) {
 	case OID_ec_public_key:
 ]==]
 [==[
+int x509_public_key_from_bytes(X509_KEY *key, int algor, int algor_param, const uint8_t **in, size_t *inlen)
+{
+	if (!key || !in || !(*in) || !inlen) {
+		error_print();
+		return -1;
+	}
+
+	memset(key, 0, sizeof(X509_KEY));
+	key->algor = algor;
+	key->algor_param = algor_param;
+
 	switch (algor) {
 	case OID_rsa_encryption:
 		if (algor_param != OID_undef
@@ -352,11 +374,25 @@ int x509_key_get_sign_algor(const X509_KEY *key, int *algor)
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+int x509_key_get_sign_algor(const X509_KEY *key, int *algor)
+{
+	if (!key || !algor) {
+		error_print();
+		return -1;
+	}
+
 	switch (key->algor) {
 	case OID_ec_public_key:
 		switch (key->algor_param) {
 ]==]
 [==[
+int x509_key_get_sign_algor(const X509_KEY *key, int *algor)
+{
+	if (!key || !algor) {
+		error_print();
+		return -1;
+	}
+
 	switch (key->algor) {
 	case OID_rsa_encryption:
 		*algor = OID_rsasign_with_sha256;
