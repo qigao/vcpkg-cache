@@ -66,7 +66,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm autoconf automake libtool
-          if [[ "${{ matrix.triplet }}" == "arm64-android" ]]; then
+          if [[ "${{ matrix.triplet }}" == "arm64-android-api26" ]]; then
             test -n "${ANDROID_NDK_HOME:-}"
             test -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
           fi
