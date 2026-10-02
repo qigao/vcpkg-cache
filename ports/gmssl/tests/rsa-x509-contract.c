@@ -49,6 +49,7 @@ int main(void)
 	size_t spki_len = 0;
 	size_t encoded_len = 0;
 	const uint8_t *p;
+	uint8_t *outp;
 	size_t len;
 	X509_KEY key;
 	X509_KEY reparsed;
@@ -62,8 +63,8 @@ int main(void)
 	if (key.u.rsa_public_key.modulus_size != 256
 		|| key.u.rsa_public_key.public_exponent != 65537u) return 4;
 
-	p = encoded;
-	if (x509_public_key_info_to_der(&key, (uint8_t **)&p, &encoded_len) != 1) return 5;
+	outp = encoded;
+	if (x509_public_key_info_to_der(&key, &outp, &encoded_len) != 1) return 5;
 	if (encoded_len != spki_len || memcmp(encoded, spki, spki_len) != 0) return 6;
 
 	p = encoded;
