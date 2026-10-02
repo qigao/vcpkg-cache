@@ -11,6 +11,7 @@ vcpkg_replace_string(
     "# CMAKE_INSTALL_PREFIX is provided by vcpkg"
 )
 
+include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
