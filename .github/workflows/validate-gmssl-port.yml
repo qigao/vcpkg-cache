@@ -88,6 +88,7 @@ jobs:
           "$build/gmssl-tls13-rsa-pss-contract"
           "$build/gmssl-rsa-private-contract"
           "$build/gmssl-rsa-private-op-contract"
+          "$build/gmssl-rsa-pkcs8-contract"
 
   macos:
     name: GmSSL / macos-15
@@ -167,6 +168,7 @@ jobs:
           "$build/gmssl-tls13-rsa-pss-contract"
           "$build/gmssl-rsa-private-contract"
           "$build/gmssl-rsa-private-op-contract"
+          "$build/gmssl-rsa-pkcs8-contract"
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -266,3 +268,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RSA private parser contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-private-op-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA private operation contract failed" }
+          & (Join-Path $build "Release\gmssl-rsa-pkcs8-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "RSA PKCS8 identity contract failed" }
