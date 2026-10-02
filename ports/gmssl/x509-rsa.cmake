@@ -438,12 +438,62 @@ int x509_verify_init_ex(X509_SIGN_CTX *ctx, const X509_KEY *key, int sign_algor,
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+int x509_verify_init_ex(X509_SIGN_CTX *ctx, const X509_KEY *key, int sign_algor,
+	const void *args, size_t argslen, const uint8_t *sig, size_t siglen)
+{
+	if (!ctx || !key || !sig || !siglen) {
+		error_print();
+		return -1;
+	}
+	switch (key->algor) {
+#ifdef ENABLE_SM9
+	case OID_sm9:
+		if (!args || !argslen) {
+			error_print();
+			return -1;
+		}
+		break;
+#endif
+	case OID_ec_public_key:
+		break;
+	default:
+		if (args) {
+			error_print();
+			return -1;
+		}
+	}
+
 	memset(ctx, 0, sizeof(X509_SIGN_CTX));
 
 	switch (key->algor) {
 	case OID_ec_public_key:
 ]==]
 [==[
+int x509_verify_init_ex(X509_SIGN_CTX *ctx, const X509_KEY *key, int sign_algor,
+	const void *args, size_t argslen, const uint8_t *sig, size_t siglen)
+{
+	if (!ctx || !key || !sig || !siglen) {
+		error_print();
+		return -1;
+	}
+	switch (key->algor) {
+#ifdef ENABLE_SM9
+	case OID_sm9:
+		if (!args || !argslen) {
+			error_print();
+			return -1;
+		}
+		break;
+#endif
+	case OID_ec_public_key:
+		break;
+	default:
+		if (args) {
+			error_print();
+			return -1;
+		}
+	}
+
 	memset(ctx, 0, sizeof(X509_SIGN_CTX));
 
 	if (x509_key_supports_sign_algor(key, sign_algor) != 1) {
@@ -543,11 +593,27 @@ gmssl_replace_once(
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+int x509_verify(X509_SIGN_CTX *ctx, const uint8_t *data, size_t datalen)
+{
+	int ret;
+
+	if (!ctx) {
+		error_print();
+		return -1;
+	}
 	switch (ctx->sign_algor) {
 	case OID_sm2sign_with_sm3:
 #ifdef ENABLE_SECP256R1
 ]==]
 [==[
+int x509_verify(X509_SIGN_CTX *ctx, const uint8_t *data, size_t datalen)
+{
+	int ret;
+
+	if (!ctx) {
+		error_print();
+		return -1;
+	}
 	switch (ctx->sign_algor) {
 	case OID_rsasign_with_sha256:
 	case OID_sm2sign_with_sm3:
@@ -558,10 +624,16 @@ gmssl_replace_once(
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+void x509_sign_ctx_cleanup(X509_SIGN_CTX *ctx)
+{
+	if (ctx) {
 		switch (ctx->sign_algor) {
 		case OID_sm2sign_with_sm3:
 ]==]
 [==[
+void x509_sign_ctx_cleanup(X509_SIGN_CTX *ctx)
+{
+	if (ctx) {
 		switch (ctx->sign_algor) {
 		case OID_rsasign_with_sha256:
 			gmssl_secure_clear(&ctx->u.rsa_verify_ctx, sizeof(SHA256_CTX));
