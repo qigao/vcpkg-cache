@@ -14,6 +14,7 @@ vcpkg_replace_string(
 include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/version-range.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 
 vcpkg_cmake_configure(
