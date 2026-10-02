@@ -11,6 +11,8 @@ vcpkg_replace_string(
     "# CMAKE_INSTALL_PREFIX is provided by vcpkg"
 )
 
+include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
+
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
 )
