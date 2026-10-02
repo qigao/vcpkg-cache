@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 typedef struct probe_io {
     uint8_t input[TLS_MAX_RECORD_SIZE];
@@ -147,23 +148,28 @@ int main(void)
     size_t server_hello_len = 0;
     int rc = 1;
 
+    fprintf(stderr, "alpn-probe: configure ctx\n");
     if (configure_tls12_client(&ctx) != 1) {
         return 10;
     }
+    fprintf(stderr, "alpn-probe: init conn\n");
     if (tls_init(&conn, &ctx) != 1 || tls_set_io(&conn, &callbacks) != 1) {
         tls_ctx_cleanup(&ctx);
         return 11;
     }
 
+    fprintf(stderr, "alpn-probe: send client hello\n");
     if (tls_send_client_hello(&conn) != 1) {
         rc = 12;
         goto end;
     }
+    fprintf(stderr, "alpn-probe: parse client hello bytes=%zu\n", io.output_len);
     if (!client_hello_contains_h2(io.output)) {
         rc = 13;
         goto end;
     }
 
+    fprintf(stderr, "alpn-probe: build server hello\n");
     if (build_server_hello(io.input, &server_hello_len) != 1) {
         rc = 14;
         goto end;
@@ -171,10 +177,12 @@ int main(void)
     io.input_len = server_hello_len;
     io.input_off = 0;
 
+    fprintf(stderr, "alpn-probe: recv server hello bytes=%zu\n", server_hello_len);
     if (tls_recv_server_hello(&conn) != 1) {
         rc = 15;
         goto end;
     }
+    fprintf(stderr, "alpn-probe: validate selected alpn\n");
     if (!conn.alpn_selected || strcmp(conn.alpn_selected, "h2") != 0
         || !conn.application_layer_protocol_negotiation) {
         rc = 16;
@@ -184,6 +192,7 @@ int main(void)
     rc = 0;
 
 end:
+    fprintf(stderr, "alpn-probe: cleanup rc=%d\n", rc);
     tls_cleanup(&conn);
     tls_ctx_cleanup(&ctx);
     return rc;
