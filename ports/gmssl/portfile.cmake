@@ -16,6 +16,24 @@ include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DENABLE_TLS=ON
+        -DENABLE_SECP256R1=ON
+        -DENABLE_SHA2=ON
+        -DENABLE_AES=ON
+        -DENABLE_AES_CCM=OFF
+        -DENABLE_SHA1=OFF
+        -DENABLE_CHACHA20=OFF
+        -DENABLE_GHASH=OFF
+        -DENABLE_SM9=OFF
+        -DENABLE_CMS=OFF
+        -DENABLE_LMS=OFF
+        -DENABLE_XMSS=OFF
+        -DENABLE_SPHINCS=OFF
+        -DENABLE_KYBER=OFF
+        -DENABLE_ZUC=OFF
+        -DENABLE_SKF=OFF
+        -DENABLE_SDF=OFF
 )
 
 vcpkg_cmake_install()
