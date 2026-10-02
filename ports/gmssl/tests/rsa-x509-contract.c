@@ -1,4 +1,5 @@
 #include <gmssl/x509_key.h>
+#include <gmssl/tls.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -54,6 +55,7 @@ int main(void)
 	X509_KEY key;
 	X509_KEY reparsed;
 
+	if (sizeof(TLS_CTX) != tls_ctx_sizeof() || sizeof(TLS_CONNECT) != tls_connect_sizeof()) return 10;
 	if (hex_to_bytes(spki_hex, spki, sizeof(spki), &spki_len) != 1) return 1;
 
 	p = spki;
