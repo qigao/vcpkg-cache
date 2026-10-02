@@ -1,0 +1,14 @@
+{
+  "name": "gmssl-openssl-compat",
+  "version-string": "0.8.1+4c9b076",
+  "description": "OpenSSL-compatible libssl/libcrypto surface backed by GmSSL",
+  "homepage": "https://github.com/GmSSL/OpenSSL-Compatibility-Layer",
+  "license": "Apache-2.0",
+  "dependencies": [
+    "gmssl",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}
