@@ -214,7 +214,7 @@ jobs:
           if (-not (Test-Path (Join-Path $root "include\libpq-fe.h"))) { throw "libpq-fe.h missing" }
           if (-not (Test-Path (Join-Path $root "lib\libpq.lib"))) { throw "libpq.lib missing" }
 
-      - name: Configure installed static CMake consumer
+      - name: Configure installed dynamic CMake consumer
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -236,11 +236,9 @@ jobs:
           if(NOT TARGET PostgreSQL::PostgreSQL)
             message(FATAL_ERROR "PostgreSQL::PostgreSQL target missing")
           endif()
-          get_target_property(_pg_links PostgreSQL::PostgreSQL INTERFACE_LINK_LIBRARIES)
-          message(STATUS "PostgreSQL::PostgreSQL links: ${_pg_links}")
-          if(NOT "${_pg_links}" MATCHES "OpenSSL::SSL")
-            message(FATAL_ERROR "static PostgreSQL target does not propagate OpenSSL::SSL")
-          endif()
+          # The canonical Windows triplet is dynamically linked. OpenSSL is a
+          # private libpq runtime dependency there, so the imported target must
+          # not be required to expose OpenSSL::SSL as a static transitive edge.
           add_executable(libpq-cmake-consumer main.c)
           target_link_libraries(libpq-cmake-consumer PRIVATE PostgreSQL::PostgreSQL)
           '@ | Set-Content -LiteralPath (Join-Path $source "CMakeLists.txt") -Encoding utf8
