@@ -223,6 +223,8 @@ gmssl_replace_once(
 int tls13_do_server_handshake(TLS_CONNECT *conn)
 ]==]
 [==[
+int tls12_server_handshake(TLS_CONNECT *conn);
+
 static int tls_server_client_hello_protocol(TLS_CONNECT *conn, int *selected_protocol)
 {
 	int ret;
