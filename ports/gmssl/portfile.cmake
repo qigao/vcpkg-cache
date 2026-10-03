@@ -15,8 +15,8 @@ vcpkg_replace_string(
 # Force a static provider regardless of the triplet's default library linkage.
 vcpkg_replace_string(
     "${SOURCE_PATH}/CMakeLists.txt"
-    "add_library(gmssl ${src})"
-    "add_library(gmssl STATIC ${src})"
+    "add_library(gmssl \${src})"
+    "add_library(gmssl STATIC \${src})"
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
