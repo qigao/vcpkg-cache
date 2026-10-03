@@ -169,6 +169,44 @@ jobs:
           trap - EXIT
 
 
+      - name: Verify callback-only TLS transport contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          work="$RUNNER_TEMP/gmssl-external-io-e2e"
+          rm -rf "$work"
+          mkdir -p "$work"
+
+          openssl ecparam -name prime256v1 -genkey -noout -out "$work/ca-key.pem"
+          openssl req -x509 -new -key "$work/ca-key.pem" -sha256 -days 1 \
+            -subj "/CN=GmSSL Callback Test CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign" \
+            -out "$work/ca-cert.pem"
+
+          openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+            -aes-256-cbc -pass pass:callback-pass -out "$work/server-key.pem"
+          openssl req -new -key "$work/server-key.pem" -passin pass:callback-pass \
+            -subj "/CN=localhost" -out "$work/server.csr"
+          cat > "$work/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:localhost
+          EOF
+          openssl x509 -req -in "$work/server.csr" \
+            -CA "$work/ca-cert.pem" -CAkey "$work/ca-key.pem" -CAcreateserial \
+            -out "$work/server-cert.pem" -days 1 -sha256 -extfile "$work/server.ext"
+
+          build="$RUNNER_TEMP/gmssl-external-io-e2e-build"
+          cmake -S ports/gmssl/tests -B "$build" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
+          cmake --build "$build" --target gmssl-tls-external-io-e2e-contract
+          "$build/gmssl-tls-external-io-e2e-contract" \
+            "$work/ca-cert.pem" "$work/server-cert.pem" \
+            "$work/server-key.pem" callback-pass
+
   macos:
     name: GmSSL / macos-15
     runs-on: macos-15
@@ -326,6 +364,44 @@ jobs:
           kill "$server_pid" 2>/dev/null || true
           wait "$server_pid" 2>/dev/null || true
           trap - EXIT
+
+      - name: Verify callback-only TLS transport contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
+          work="$RUNNER_TEMP/gmssl-external-io-e2e"
+          rm -rf "$work"
+          mkdir -p "$work"
+
+          openssl ecparam -name prime256v1 -genkey -noout -out "$work/ca-key.pem"
+          openssl req -x509 -new -key "$work/ca-key.pem" -sha256 -days 1 \
+            -subj "/CN=GmSSL Callback Test CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign" \
+            -out "$work/ca-cert.pem"
+
+          openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+            -aes-256-cbc -pass pass:callback-pass -out "$work/server-key.pem"
+          openssl req -new -key "$work/server-key.pem" -passin pass:callback-pass \
+            -subj "/CN=localhost" -out "$work/server.csr"
+          cat > "$work/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:localhost
+          EOF
+          openssl x509 -req -in "$work/server.csr" \
+            -CA "$work/ca-cert.pem" -CAkey "$work/ca-key.pem" -CAcreateserial \
+            -out "$work/server-cert.pem" -days 1 -sha256 -extfile "$work/server.ext"
+
+          build="$RUNNER_TEMP/gmssl-external-io-e2e-build"
+          cmake -S ports/gmssl/tests -B "$build" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
+          cmake --build "$build" --target gmssl-tls-external-io-e2e-contract
+          "$build/gmssl-tls-external-io-e2e-contract" \
+            "$work/ca-cert.pem" "$work/server-cert.pem" \
+            "$work/server-key.pem" callback-pass
 
   windows:
     name: GmSSL / windows-2025 v145
