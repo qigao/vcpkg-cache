@@ -98,6 +98,10 @@ jobs:
           "$build/gmssl-tls-inspection-contract"
           "$build/gmssl-tls12-ecdhe-rsa-contract"
           "$build/gmssl-x509-basic-constraints-contract"
+          "$build/gmssl-tls13-external-io-contract"
+          "$build/gmssl-tls12-external-io-contract"
+          "$build/gmssl-tls13-external-io-contract"
+          "$build/gmssl-tls12-external-io-contract"
       - name: Interoperate with OpenSSL TLS 1.2 ECDHE_RSA
         shell: bash
         run: |
@@ -613,6 +617,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ECDHE_RSA contract failed" }
           & (Join-Path $build "Release\gmssl-x509-basic-constraints-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "X.509 BasicConstraints contract failed" }
+          & (Join-Path $build "Release\gmssl-tls13-external-io-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "callback-only TLS 1.3 external-I/O contract failed" }
+          & (Join-Path $build "Release\gmssl-tls12-external-io-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "callback-only TLS 1.2 external-I/O contract failed" }
+
 
   android:
     name: GmSSL / Android arm64 API24 link
@@ -663,4 +672,3 @@ jobs:
             echo "Android API24 consumer still depends on getentropy" >&2
             exit 1
           fi
-
