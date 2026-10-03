@@ -213,6 +213,66 @@ vcpkg_replace_string(
 ]==]
 )
 
+
+# CNet's canonical ALPN contract is server-preferred. Upstream scans the peer
+# list first, which makes client order win. Scan the complete peer list once
+# for each local protocol instead, preserving local/server preference.
+gmssl_replace_once(
+    "${_gmssl_tls_alpn_c}"
+[==[
+	while (protocol_name_list_len) {
+		const uint8_t *peer_protocol;
+		size_t peer_protocol_len;
+
+		if (tls_uint8array_from_bytes(&peer_protocol, &peer_protocol_len,
+				&protocol_name_list, &protocol_name_list_len) != 1) {
+			error_print();
+			return -1;
+		}
+		if (!peer_protocol || !peer_protocol_len) {
+			error_print();
+			return -1;
+		}
+
+		for (i = 0; i < local_protocols_cnt; i++) {
+			if (tls_application_layer_protocol_negotiation_match(
+					peer_protocol, peer_protocol_len,
+					local_protocols[i]) == 1) {
+				*selected = local_protocols[i];
+				return 1;
+			}
+		}
+	}
+]==]
+[==[
+	for (i = 0; i < local_protocols_cnt; i++) {
+		const uint8_t *peer_list = protocol_name_list;
+		size_t peer_list_len = protocol_name_list_len;
+
+		while (peer_list_len) {
+			const uint8_t *peer_protocol;
+			size_t peer_protocol_len;
+
+			if (tls_uint8array_from_bytes(&peer_protocol, &peer_protocol_len,
+					&peer_list, &peer_list_len) != 1) {
+				error_print();
+				return -1;
+			}
+			if (!peer_protocol || !peer_protocol_len) {
+				error_print();
+				return -1;
+			}
+			if (tls_application_layer_protocol_negotiation_match(
+					peer_protocol, peer_protocol_len,
+					local_protocols[i]) == 1) {
+				*selected = local_protocols[i];
+				return 1;
+			}
+		}
+	}
+]==]
+)
+
 unset(_gmssl_tls_h)
 unset(_gmssl_tls_c)
 unset(_gmssl_tls_alpn_c)
