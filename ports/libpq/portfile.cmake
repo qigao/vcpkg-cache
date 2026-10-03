@@ -1,5 +1,11 @@
 include("${CMAKE_CURRENT_LIST_DIR}/tls-provider.cmake")
 
+if("ssl" IN_LIST FEATURES)
+    set(LIBPQ_WITH_SSL ON)
+else()
+    set(LIBPQ_WITH_SSL OFF)
+endif()
+
 vcpkg_download_distfile(ARCHIVE
     URLS "https://ftp.postgresql.org/pub/source/v${VERSION}/postgresql-${VERSION}.tar.bz2"
          "https://www.mirrorservice.org/sites/ftp.postgresql.org/source/v${VERSION}/postgresql-${VERSION}.tar.bz2"
@@ -95,7 +101,11 @@ else()
             list(APPEND BUILD_OPTS --without-${option})
         endif()
     endforeach()
-    list(APPEND BUILD_OPTS --with-ssl=${LIBPQ_TLS_CONFIGURE_NAME})
+    if(LIBPQ_WITH_SSL)
+        list(APPEND BUILD_OPTS --with-ssl=${LIBPQ_TLS_CONFIGURE_NAME})
+    else()
+        list(APPEND BUILD_OPTS --without-ssl)
+    endif()
     if("nls" IN_LIST FEATURES)
         set(ENV{MSGFMT} "${CURRENT_HOST_INSTALLED_DIR}/tools/gettext/bin/msgfmt${VCPKG_HOST_EXECUTABLE_SUFFIX}")
     endif()
