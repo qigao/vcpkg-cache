@@ -34,12 +34,12 @@ int main(void)
 		|| ctx.signature_algorithms[1] != TLS_sig_rsa_pkcs1_sha256
 		|| ctx.signature_algorithms[2] != TLS_sig_ecdsa_secp256r1_sha256) return 8;
 	if (tls_init(&conn, &ctx) != 1) return 9;
-	if (conn.protocol != TLS_protocol_tls13) return 13;
+	if (conn.protocol != TLS_protocol_tls13) return 10;
 	tls_cleanup(&conn);
 	tls_ctx_cleanup(&ctx);
 
-	if (tls_ctx_init(&server_ctx, TLS_protocol_tls13, TLS_server_mode) != 1) return 10;
-	if (tls_ctx_set_protocol_range(&server_ctx, TLS_protocol_tls12, TLS_protocol_tls13) == 1) return 11;
+	if (tls_ctx_init(&server_ctx, TLS_protocol_tls13, TLS_server_mode) != 1) return 11;
+	if (tls_ctx_set_protocol_range(&server_ctx, TLS_protocol_tls12, TLS_protocol_tls13) == 1) return 12;
 	tls_ctx_cleanup(&server_ctx);
 
 	puts("GmSSL TLS client version-range contract: PASS");
