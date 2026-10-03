@@ -533,6 +533,7 @@ jobs:
           $root = Join-Path $install $triplet
           if (-not (Test-Path (Join-Path $root "include\gmssl\tls.h"))) { throw "tls.h missing" }
           if (-not (Test-Path (Join-Path $root "lib\gmssl.lib"))) { throw "gmssl.lib missing" }
+          if (Test-Path (Join-Path $root "bin\gmssl.dll")) { throw "GmSSL provider must be packaged statically" }
       - name: Compile and link consumer
         shell: pwsh
         run: |
@@ -570,9 +571,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer configure failed" }
           cmake --build $build --config Release
           if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer build failed" }
-          $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
+          if (Test-Path (Join-Path $root "bin\gmssl.dll")) { throw "unexpected GmSSL runtime DLL" }
           & (Join-Path $build "Release\gmssl-consumer.exe")
-          if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer failed" }
+          if ($LASTEXITCODE -ne 0) { throw "static GmSSL consumer failed without provider runtime on PATH" }
       - name: Verify TLS 1.2 ALPN wire contract
         shell: pwsh
         run: |
