@@ -1,6 +1,12 @@
 name: TurboMedia media binary cache
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/turbomedia-media-cache.yml"
+      - "producers/turbomedia.ref"
+      - "triplets/arm64-ios.cmake"
+      - "triplets/arm64-ios-simulator.cmake"
   push:
     branches: [master]
     paths:
