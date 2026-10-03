@@ -85,3 +85,49 @@ jobs:
           test -f "$install_root/x64-linux/include/openssl/ssl.h"
           test -f "$install_root/x64-linux/lib/libssl.a"
           test -f "$install_root/x64-linux/lib/libcrypto.a"
+
+  ios:
+    name: iOS cold source build / ${{ matrix.name }}
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: device arm64, triplet: arm64-ios}
+          - {name: simulator arm64, triplet: arm64-ios-simulator}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+
+      - name: Prepare BoringSSL iOS host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          brew install ninja nasm
+
+      - name: Cold-build library-only BoringSSL for iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/boringssl-${{ matrix.triplet }}"
+          rm -rf "$install_root"
+
+          (
+            cd "$RUNNER_TEMP"
+            VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
+              "boringssl:${{ matrix.triplet }}" \
+              --classic \
+              --overlay-ports="$GITHUB_WORKSPACE/ports" \
+              --x-install-root="$install_root"
+          )
+
+          prefix="$install_root/${{ matrix.triplet }}"
+          test -f "$prefix/include/openssl/ssl.h"
+          test -f "$prefix/lib/libssl.a"
+          test -f "$prefix/lib/libcrypto.a"
+          test ! -e "$prefix/tools/boringssl/bssl"
+          test ! -e "$prefix/bin/bssl"
