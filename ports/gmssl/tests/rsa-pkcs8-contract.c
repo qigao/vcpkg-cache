@@ -4,6 +4,7 @@
 #include <gmssl/pem.h>
 #include <gmssl/x509_alg.h>
 #include <gmssl/x509_key.h>
+#include <gmssl/tls.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -79,6 +80,7 @@ int main(void)
 	X509_SIGN_CTX sign_ctx;
 	static const uint8_t message[] = "Salts GmSSL X509 RSA identity contract";
 	SHA256_CTX sha;
+	DIGEST_CTX transcript;
 	uint8_t dgst[SHA256_DIGEST_SIZE];
 	uint8_t sig[RSA_MAX_MODULUS_SIZE];
 	size_t siglen = 0;
@@ -88,6 +90,7 @@ int main(void)
 	memset(&x509_key, 0, sizeof(x509_key));
 	memset(&sign_ctx, 0, sizeof(sign_ctx));
 	memset(&sha, 0, sizeof(sha));
+	memset(&transcript, 0, sizeof(transcript));
 
 	if (hex_to_bytes(rsa_private_der_hex, pkcs1, sizeof(pkcs1), &pkcs1_len) != 1) return 1;
 
@@ -141,6 +144,26 @@ int main(void)
 	sha256_finish(&sha, dgst);
 	if (rsa_verify_pkcs1_v15_sha256(&x509_key.u.rsa_public_key,
 		dgst, sig, siglen) != 1) goto end;
+
+	siglen = 0;
+	if (digest_init(&transcript, DIGEST_sha256()) != 1
+		|| digest_update(&transcript, message, sizeof(message) - 1) != 1
+		|| tls13_sign_certificate_verify(TLS_server_mode,
+			TLS_sig_rsa_pss_rsae_sha256, &x509_key, &transcript, sig, &siglen) != 1
+		|| siglen != x509_key.u.rsa_public_key.modulus_size
+		|| tls13_verify_certificate_verify(TLS_server_mode,
+			TLS_sig_rsa_pss_rsae_sha256, &x509_key, &transcript, sig, siglen) != 1) goto end;
+
+	sig[0] ^= 1u;
+	if (tls13_verify_certificate_verify(TLS_server_mode,
+		TLS_sig_rsa_pss_rsae_sha256, &x509_key, &transcript, sig, siglen) == 1) goto end;
+	sig[0] ^= 1u;
+
+	siglen = 0;
+	if (tls13_sign_certificate_verify(TLS_client_mode,
+			TLS_sig_rsa_pss_rsae_sha256, &x509_key, &transcript, sig, &siglen) != 1
+		|| tls13_verify_certificate_verify(TLS_client_mode,
+			TLS_sig_rsa_pss_rsae_sha256, &x509_key, &transcript, sig, siglen) != 1) goto end;
 
 	rc = 0;
 end:
