@@ -195,13 +195,13 @@ gmssl_add_external_io_contract(
     gmssl-tls13-external-io-contract
     TLS_protocol_tls13
     TLS_cipher_aes_128_gcm_sha256
-    TLS_sig_rsa_pss_rsae_sha256
+    TLS_sig_ecdsa_secp256r1_sha256
     "TLS 1.3")
 gmssl_add_external_io_contract(
     gmssl-tls12-external-io-contract
     TLS_protocol_tls12
-    TLS_cipher_ecdhe_rsa_with_aes_128_gcm_sha256
-    TLS_sig_rsa_pkcs1_sha256
+    TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256
+    TLS_sig_ecdsa_secp256r1_sha256
     "TLS 1.2")
 
 unset(_gmssl_external_io_ca)
