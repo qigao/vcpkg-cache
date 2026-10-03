@@ -93,6 +93,7 @@ int main(void)
 	const int offered[] = {
 		TLS_sig_ecdsa_secp256r1_sha256,
 		TLS_sig_rsa_pss_rsae_sha256,
+		TLS_sig_rsa_pkcs1_sha256,
 	};
 	int selected = 0;
 	int ret;
@@ -110,9 +111,17 @@ int main(void)
 		|| key.u.rsa_public_key.modulus_size != sig_len) return 6;
 
 	{
-		const int pss_sig_alg = TLS_sig_rsa_pss_rsae_sha256;
+		const int rsa_sig_algs[] = {
+			TLS_sig_rsa_pss_rsae_sha256,
+			TLS_sig_rsa_pkcs1_sha256,
+		};
 		if (tls_ctx_init(&tls_ctx, TLS_protocol_tls13, TLS_client_mode) != 1) return 7;
-		if (tls_ctx_set_signature_algorithms(&tls_ctx, &pss_sig_alg, 1) != 1) return 16;
+		if (tls_ctx_set_signature_algorithms(
+				&tls_ctx, rsa_sig_algs,
+				sizeof(rsa_sig_algs)/sizeof(rsa_sig_algs[0])) != 1) return 16;
+		if (tls_ctx.signature_algorithms_cnt != 2
+			|| tls_ctx.signature_algorithms[0] != TLS_sig_rsa_pss_rsae_sha256
+			|| tls_ctx.signature_algorithms[1] != TLS_sig_rsa_pkcs1_sha256) return 17;
 		tls_ctx_cleanup(&tls_ctx);
 	}
 	if (tls_signature_scheme_from_algorithm_and_group_oid(
