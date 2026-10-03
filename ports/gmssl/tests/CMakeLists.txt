@@ -158,3 +158,69 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(gmssl-x509-basic-constraints-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
   target_link_options(gmssl-x509-basic-constraints-contract PRIVATE -fsanitize=address)
 endif()
+
+get_target_property(_gmssl_release_library GmSSL::GmSSL IMPORTED_LOCATION_RELEASE)
+get_filename_component(_gmssl_lib_dir "${_gmssl_release_library}" DIRECTORY)
+get_filename_component(_gmssl_prefix "${_gmssl_lib_dir}" DIRECTORY)
+find_program(GMSSL_TEST_CLI
+    NAMES gmssl gmssl.exe
+    HINTS "${_gmssl_prefix}/tools/gmssl"
+    NO_DEFAULT_PATH
+    REQUIRED)
+
+if(WIN32)
+    set(ENV{PATH} "${_gmssl_prefix}/bin;$ENV{PATH}")
+endif()
+
+set(_gmssl_external_io_fixture "${CMAKE_CURRENT_BINARY_DIR}/external-io-fixture")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}"
+        "-DGMSSL_CLI=${GMSSL_TEST_CLI}"
+        "-DOUT_DIR=${_gmssl_external_io_fixture}"
+        -P "${CMAKE_CURRENT_LIST_DIR}/generate-external-io-fixture.cmake"
+    RESULT_VARIABLE _gmssl_fixture_rc
+)
+if(NOT _gmssl_fixture_rc EQUAL 0)
+    message(FATAL_ERROR "failed to generate GmSSL external-I/O fixture")
+endif()
+
+file(TO_CMAKE_PATH "${_gmssl_external_io_fixture}/ca-cert.pem" _gmssl_external_io_ca)
+file(TO_CMAKE_PATH "${_gmssl_external_io_fixture}/server-cert.pem" _gmssl_external_io_cert)
+file(TO_CMAKE_PATH "${_gmssl_external_io_fixture}/server-key.pem" _gmssl_external_io_key)
+
+function(gmssl_add_external_io_contract target protocol cipher label)
+    add_executable(${target} tls-external-io-contract.c)
+    target_link_libraries(${target} PRIVATE GmSSL::GmSSL)
+    target_compile_definitions(${target} PRIVATE
+        "GMSSL_EXTERNAL_IO_CA_CERT=\"${_gmssl_external_io_ca}\""
+        "GMSSL_EXTERNAL_IO_SERVER_CERT=\"${_gmssl_external_io_cert}\""
+        "GMSSL_EXTERNAL_IO_SERVER_KEY=\"${_gmssl_external_io_key}\""
+        "GMSSL_EXTERNAL_IO_PROTOCOL=${protocol}"
+        "GMSSL_EXTERNAL_IO_CIPHER=${cipher}"
+        "GMSSL_EXTERNAL_IO_LABEL=\"${label}\"")
+    set_target_properties(${target} PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+        target_compile_options(${target} PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(${target} PRIVATE -fsanitize=address)
+    endif()
+endfunction()
+
+gmssl_add_external_io_contract(
+    gmssl-tls13-external-io-contract
+    TLS_protocol_tls13
+    TLS_cipher_aes_128_gcm_sha256
+    "TLS 1.3")
+gmssl_add_external_io_contract(
+    gmssl-tls12-external-io-contract
+    TLS_protocol_tls12
+    TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256
+    "TLS 1.2")
+
+unset(_gmssl_release_library)
+unset(_gmssl_lib_dir)
+unset(_gmssl_prefix)
+unset(_gmssl_external_io_fixture)
+unset(_gmssl_external_io_ca)
+unset(_gmssl_external_io_cert)
+unset(_gmssl_external_io_key)
