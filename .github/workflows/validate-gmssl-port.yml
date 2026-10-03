@@ -200,6 +200,7 @@ jobs:
             -port 9444 -cert "$work/server-cert.pem" -key "$work/server-key.pem" -pass "" \
             -cipher_suite TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
             -supported_group prime256v1 -sig_alg rsa_pkcs1_sha256 \
+            -renegotiation_info \
             >"$work/server.out" 2>"$work/server.err" &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
@@ -413,6 +414,7 @@ jobs:
             -port 9444 -cert "$work/server-cert.pem" -key "$work/server-key.pem" -pass "" \
             -cipher_suite TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
             -supported_group prime256v1 -sig_alg rsa_pkcs1_sha256 \
+            -renegotiation_info \
             >"$work/server.out" 2>"$work/server.err" &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
