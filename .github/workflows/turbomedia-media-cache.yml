@@ -32,6 +32,8 @@ jobs:
           - {platform: Windows x64, os: windows-2022, triplet: x64-windows}
           - {platform: Android arm64-v8a API26, os: ubuntu-24.04, triplet: arm64-android-api26}
           - {platform: macOS arm64, os: macos-15, triplet: arm64-osx}
+          - {platform: iOS device arm64, os: macos-15, triplet: arm64-ios}
+          - {platform: iOS simulator arm64, os: macos-15, triplet: arm64-ios-simulator}
 
     steps:
       - name: Checkout cache infrastructure
@@ -158,6 +160,32 @@ jobs:
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared
+
+      - name: Verify iOS FFmpeg package config
+        if: startsWith(matrix.triplet, 'arm64-ios')
+        shell: bash
+        run: |
+          set -euo pipefail
+          contract="$RUNNER_TEMP/turbomedia-ffmpeg-${{ matrix.triplet }}-contract"
+          installed="$RUNNER_TEMP/turbomedia-media-clean-${{ matrix.triplet }}"
+          rm -rf "$contract"
+          mkdir -p "$contract"
+          cat > "$contract/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.25)
+          project(turbomedia_ffmpeg_ios_contract C)
+          find_package(FFMPEG REQUIRED)
+          if(NOT FFMPEG_LIBRARIES)
+            message(FATAL_ERROR "FFMPEG_LIBRARIES is empty")
+          endif()
+          EOF
+          cmake -S "$contract" -B "$contract/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$QIGAO_VCPKG_TOOLCHAIN_FILE" \
+            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
+            -DVCPKG_MANIFEST_MODE=OFF \
+            -DVCPKG_INSTALLED_DIR="$installed" \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
 
       - name: Summarize producer identity
         shell: pwsh
