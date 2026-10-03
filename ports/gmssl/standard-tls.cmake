@@ -186,3 +186,44 @@ gmssl_replace_once(
 )
 
 unset(_gmssl_tls12_c)
+
+# TLS 1.3 client: CertificateRequest must ignore unknown extensions for
+# forward compatibility. Keep all known extension validation strict.
+set(_gmssl_tls13_c "${SOURCE_PATH}/src/tls13.c")
+gmssl_replace_once(
+    "${_gmssl_tls13_c}"
+[==[
+		case TLS_extension_signed_certificate_timestamp:
+			if (signed_certificate_timestamp) {
+				error_print();
+				tls13_send_alert(conn, TLS_alert_illegal_parameter);
+				return -1;
+			}
+			signed_certificate_timestamp = 1;
+			break;
+
+		default:
+			error_print();
+			tls13_send_alert(conn, TLS_alert_illegal_parameter);
+			return -1;
+		}
+]==]
+[==[
+		case TLS_extension_signed_certificate_timestamp:
+			if (signed_certificate_timestamp) {
+				error_print();
+				tls13_send_alert(conn, TLS_alert_illegal_parameter);
+				return -1;
+			}
+			signed_certificate_timestamp = 1;
+			break;
+
+		default:
+			/* RFC 8446 extension processing requires unknown extensions to be
+			 * ignored. They do not participate in client-certificate selection. */
+			break;
+		}
+]==]
+)
+unset(_gmssl_tls13_c)
+
