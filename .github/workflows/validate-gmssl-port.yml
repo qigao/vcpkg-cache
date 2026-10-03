@@ -85,6 +85,7 @@ jobs:
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
           "$build/gmssl-x509-rsa-contract"
+          "$build/gmssl-tls-exporter-contract"
           "$build/gmssl-tls13-rsa-pss-contract"
           "$build/gmssl-rsa-private-contract"
           "$build/gmssl-rsa-private-op-contract"
@@ -166,6 +167,7 @@ jobs:
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
           "$build/gmssl-x509-rsa-contract"
+          "$build/gmssl-tls-exporter-contract"
           "$build/gmssl-tls13-rsa-pss-contract"
           "$build/gmssl-rsa-private-contract"
           "$build/gmssl-rsa-private-op-contract"
@@ -264,6 +266,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RSA signature verification contract failed" }
           & (Join-Path $build "Release\gmssl-x509-rsa-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "X.509 RSA verification contract failed" }
+          & (Join-Path $build "Release\gmssl-tls-exporter-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "TLS exporter contract failed" }
           & (Join-Path $build "Release\gmssl-tls13-rsa-pss-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.3 RSA-PSS contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-private-contract.exe")
