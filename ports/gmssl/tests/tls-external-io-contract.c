@@ -27,6 +27,9 @@
 #ifndef GMSSL_EXTERNAL_IO_LABEL
 #define GMSSL_EXTERNAL_IO_LABEL "TLS"
 #endif
+#ifndef GMSSL_EXTERNAL_IO_PLATFORM_TRUST
+#define GMSSL_EXTERNAL_IO_PLATFORM_TRUST 0
+#endif
 
 #define PIPE_CAPACITY 1024u
 #define SEND_LIMIT 73u
@@ -253,9 +256,16 @@ int main(void)
 	client_ctx_ready = 1;
 	if (tls_ctx_set_cipher_suites(&client_ctx, &cipher_suite, 1u) != 1
 		|| tls_ctx_set_supported_groups(&client_ctx, &group, 1u) != 1
-		|| tls_ctx_set_signature_algorithms(&client_ctx, sig_algs, sig_algs_cnt) != 1
-		|| tls_ctx_set_ca_certificates(&client_ctx, GMSSL_EXTERNAL_IO_CA_CERT, 4) != 1) {
+		|| tls_ctx_set_signature_algorithms(&client_ctx, sig_algs, sig_algs_cnt) != 1) {
 		rc = 3; goto cleanup;
+	}
+	if (GMSSL_EXTERNAL_IO_PLATFORM_TRUST) {
+		if (tls_ctx_set_external_peer_trust(&client_ctx, 1) != 1) {
+			rc = 17; goto cleanup;
+		}
+	} else if (tls_ctx_set_ca_certificates(
+			&client_ctx, GMSSL_EXTERNAL_IO_CA_CERT, 4) != 1) {
+		rc = 18; goto cleanup;
 	}
 
 	if (tls_ctx_init(&server_ctx, GMSSL_EXTERNAL_IO_PROTOCOL, TLS_server_mode) != 1) {
@@ -298,6 +308,14 @@ int main(void)
 	}
 	if (client.protocol != GMSSL_EXTERNAL_IO_PROTOCOL || server.protocol != GMSSL_EXTERNAL_IO_PROTOCOL) {
 		rc = 11; goto cleanup;
+	}
+	if (GMSSL_EXTERNAL_IO_PLATFORM_TRUST) {
+		const uint8_t *peer_chain = NULL;
+		size_t peer_chain_len = 0;
+		if (tls_get_peer_certificate_chain(&client, &peer_chain, &peer_chain_len) != 1
+			|| !peer_chain || !peer_chain_len) {
+			rc = 19; goto cleanup;
+		}
 	}
 
 	client_io.force_send_again = 1;
