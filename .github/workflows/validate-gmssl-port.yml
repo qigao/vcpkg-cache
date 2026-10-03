@@ -90,6 +90,8 @@ jobs:
           "$build/gmssl-rsa-private-contract"
           "$build/gmssl-rsa-private-op-contract"
           "$build/gmssl-rsa-pkcs8-contract"
+          "$build/gmssl-rsa-encrypted-pkcs8-contract"
+          "$build/gmssl-rsa-encrypted-pkcs8-contract"
           "$build/gmssl-rsa-private-signatures-contract"
           "$build/gmssl-tls-inspection-contract"
           "$build/gmssl-tls12-ecdhe-rsa-contract"
@@ -601,6 +603,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RSA private operation contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-pkcs8-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA PKCS8 identity contract failed" }
+          & (Join-Path $build "Release\gmssl-rsa-encrypted-pkcs8-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "encrypted RSA PKCS8 key_password contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-private-signatures-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA private signing contract failed" }
           & (Join-Path $build "Release\gmssl-tls-inspection-contract.exe")
