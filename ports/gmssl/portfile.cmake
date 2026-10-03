@@ -55,7 +55,7 @@ vcpkg_cmake_configure(
         -DENABLE_SHA2=ON
         -DENABLE_AES=ON
         -DENABLE_AES_CCM=OFF
-        -DENABLE_SHA1=OFF
+        -DENABLE_SHA1=ON
         -DENABLE_CHACHA20=OFF
         -DENABLE_GHASH=OFF
         -DENABLE_SM9=OFF

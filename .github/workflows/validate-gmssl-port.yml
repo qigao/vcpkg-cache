@@ -79,6 +79,7 @@ jobs:
           build="$RUNNER_TEMP/gmssl-tls12-alpn-build"
           cmake -S ports/gmssl/tests -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
           cmake --build "$build"
+          "$build/gmssl-sha1-contract"
           "$build/gmssl-tls12-alpn-contract"
           "$build/gmssl-tls-version-range-contract"
           "$build/gmssl-tls-version-range-dispatch-contract"
