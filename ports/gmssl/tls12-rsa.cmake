@@ -426,80 +426,20 @@ gmssl_replace_once(
 )
 
 
-# The handshake key schedule already shares the AES-GCM path. Application-data
-# record dispatch must also recognize the ECDHE_RSA suite explicitly.
+# tls12_send() dispatches application data directly instead of using
+# tls_record_encrypt(), so add ECDHE_RSA to its AES-GCM path explicitly.
 gmssl_replace_once(
-    "${_gmssl_tls_c}"
+    "${_gmssl_tls12_c}"
 [==[
-int tls_record_encrypt(int cipher_suite,
-	const HMAC_CTX *hmac_ctx, const BLOCK_CIPHER_KEY *key, const uint8_t fixed_iv[4],
-	const uint8_t seq_num[8], const uint8_t *in, size_t inlen,
-	uint8_t *out, size_t *outlen)
-{
-	switch (cipher_suite) {
-	case TLS_cipher_ecc_sm4_cbc_sm3:
+		case TLS_cipher_ecdhe_sm4_gcm_sm3:
+		case TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256:
+			if (tls_gcm_encrypt(enc_key, fixed_iv, seq_num, conn->databuf,
 ]==]
 [==[
-int tls_record_encrypt(int cipher_suite,
-	const HMAC_CTX *hmac_ctx, const BLOCK_CIPHER_KEY *key, const uint8_t fixed_iv[4],
-	const uint8_t seq_num[8], const uint8_t *in, size_t inlen,
-	uint8_t *out, size_t *outlen)
-{
-	switch (cipher_suite) {
-	case TLS_cipher_ecc_sm4_cbc_sm3:
-]==]
-)
-gmssl_replace_once(
-    "${_gmssl_tls_c}"
-[==[
-	case TLS_cipher_ecc_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256:
-		if (tls_gcm_encrypt(key, fixed_iv, seq_num, in,
-]==]
-[==[
-	case TLS_cipher_ecc_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256:
-	case TLS_cipher_ecdhe_rsa_with_aes_128_gcm_sha256:
-		if (tls_gcm_encrypt(key, fixed_iv, seq_num, in,
-]==]
-)
-gmssl_replace_once(
-    "${_gmssl_tls_c}"
-[==[
-int tls_record_decrypt(int cipher_suite, const HMAC_CTX *hmac_ctx,
-	const BLOCK_CIPHER_KEY *key, const uint8_t fixed_iv[4],
-	const uint8_t seq_num[8], const uint8_t *in, size_t inlen,
-	uint8_t *out, size_t *outlen)
-{
-	switch (cipher_suite) {
-	case TLS_cipher_ecc_sm4_cbc_sm3:
-]==]
-[==[
-int tls_record_decrypt(int cipher_suite, const HMAC_CTX *hmac_ctx,
-	const BLOCK_CIPHER_KEY *key, const uint8_t fixed_iv[4],
-	const uint8_t seq_num[8], const uint8_t *in, size_t inlen,
-	uint8_t *out, size_t *outlen)
-{
-	switch (cipher_suite) {
-	case TLS_cipher_ecc_sm4_cbc_sm3:
-]==]
-)
-gmssl_replace_once(
-    "${_gmssl_tls_c}"
-[==[
-	case TLS_cipher_ecc_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256:
-		if (tls_gcm_decrypt(key, fixed_iv, seq_num, in,
-]==]
-[==[
-	case TLS_cipher_ecc_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_sm4_gcm_sm3:
-	case TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256:
-	case TLS_cipher_ecdhe_rsa_with_aes_128_gcm_sha256:
-		if (tls_gcm_decrypt(key, fixed_iv, seq_num, in,
+		case TLS_cipher_ecdhe_sm4_gcm_sm3:
+		case TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256:
+		case TLS_cipher_ecdhe_rsa_with_aes_128_gcm_sha256:
+			if (tls_gcm_encrypt(enc_key, fixed_iv, seq_num, conn->databuf,
 ]==]
 )
 
