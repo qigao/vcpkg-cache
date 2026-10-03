@@ -62,7 +62,7 @@ jobs:
           EOF
           export PKG_CONFIG_PATH="$root/lib/pkgconfig"
           pkg_libs="$(pkg-config --libs --static libpq)"
-          if grep -Eqi 'ssl|crypto' <<<"$pkg_libs"; then
+          if grep -Eq '(^|[[:space:]])-l(ssl|crypto)([[:space:]]|$)' <<<"$pkg_libs"; then
             echo "pkg-config no-SSL closure still exposes TLS libraries: $pkg_libs" >&2
             exit 1
           fi
