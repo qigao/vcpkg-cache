@@ -215,6 +215,24 @@ gmssl_add_external_io_contract(
     TLS_sig_rsa_pkcs1_sha256
     "TLS 1.2")
 
+add_executable(gmssl-tls13-external-trust-contract tls-external-io-contract.c)
+target_link_libraries(gmssl-tls13-external-trust-contract PRIVATE GmSSL::GmSSL)
+target_compile_definitions(gmssl-tls13-external-trust-contract PRIVATE
+    "GMSSL_EXTERNAL_IO_CA_CERT=\"${_gmssl_external_io_ca}\""
+    "GMSSL_EXTERNAL_IO_SERVER_CERT=\"${_gmssl_external_io_cert}\""
+    "GMSSL_EXTERNAL_IO_SERVER_KEY=\"${_gmssl_external_io_key}\""
+    "GMSSL_EXTERNAL_IO_PROTOCOL=TLS_protocol_tls13"
+    "GMSSL_EXTERNAL_IO_CIPHER=TLS_cipher_aes_128_gcm_sha256"
+    "GMSSL_EXTERNAL_IO_SIGALG=TLS_sig_rsa_pss_rsae_sha256"
+    "GMSSL_EXTERNAL_IO_LABEL=\"TLS 1.3 external trust\""
+    "GMSSL_EXTERNAL_IO_PLATFORM_TRUST=1")
+set_target_properties(gmssl-tls13-external-trust-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-tls13-external-trust-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-tls13-external-trust-contract PRIVATE -fsanitize=address)
+endif()
+
 unset(_gmssl_external_io_ca)
 unset(_gmssl_external_io_cert)
 unset(_gmssl_external_io_key)
