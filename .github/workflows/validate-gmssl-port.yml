@@ -211,7 +211,21 @@ jobs:
             -CAfile "$work/ca-cert.pem" -verify_hostname localhost \
             -tls1_2 -cipher ECDHE-RSA-AES128-GCM-SHA256 \
             -sigalgs rsa_pkcs1_sha256 -quiet \
-            >"$work/client.out" 2>"$work/client.err" || client_rc=$?
+            >"$work/client.out" 2>"$work/client.err" &
+          client_pid=$!
+          for _ in $(seq 1 100); do
+            if ! kill -0 "$client_pid" 2>/dev/null; then
+              wait "$client_pid" || client_rc=$?
+              client_pid=""
+              break
+            fi
+            sleep 0.1
+          done
+          if [ -n "$client_pid" ]; then
+            kill "$client_pid" 2>/dev/null || true
+            wait "$client_pid" 2>/dev/null || true
+            client_rc=124
+          fi
           cat "$work/server.err"
           cat "$work/server.out"
           cat "$work/client.err"
@@ -425,7 +439,21 @@ jobs:
             -CAfile "$work/ca-cert.pem" -verify_hostname localhost \
             -tls1_2 -cipher ECDHE-RSA-AES128-GCM-SHA256 \
             -sigalgs rsa_pkcs1_sha256 -quiet \
-            >"$work/client.out" 2>"$work/client.err" || client_rc=$?
+            >"$work/client.out" 2>"$work/client.err" &
+          client_pid=$!
+          for _ in $(seq 1 100); do
+            if ! kill -0 "$client_pid" 2>/dev/null; then
+              wait "$client_pid" || client_rc=$?
+              client_pid=""
+              break
+            fi
+            sleep 0.1
+          done
+          if [ -n "$client_pid" ]; then
+            kill "$client_pid" 2>/dev/null || true
+            wait "$client_pid" 2>/dev/null || true
+            client_rc=124
+          fi
           cat "$work/server.err"
           cat "$work/server.out"
           cat "$work/client.err"
