@@ -22,12 +22,12 @@
       "name": "vcpkg-pkgconfig-get-modules",
       "host": true,
       "platform": "windows & !mingw"
-    },
-    "openssl"
+    }
   ],
   "default-features": [
     "lz4",
-    "zlib"
+    "zlib",
+    "ssl"
   ],
   "features": {
     "all": {
@@ -181,6 +181,12 @@
       "description": "Use zstd",
       "dependencies": [
         "zstd"
+      ]
+    },
+    "ssl": {
+      "description": "Enable PostgreSQL libpq TLS with OpenSSL",
+      "dependencies": [
+        "openssl"
       ]
     }
   }
