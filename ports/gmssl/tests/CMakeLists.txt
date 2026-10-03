@@ -168,6 +168,17 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_link_options(gmssl-x509-basic-constraints-contract PRIVATE -fsanitize=address)
 endif()
 
+add_executable(gmssl-tls-version-range-server-dispatch-contract tls-version-range-server-dispatch-contract.c)
+target_link_libraries(gmssl-tls-version-range-server-dispatch-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-version-range-server-dispatch-contract PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-tls-version-range-server-dispatch-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-tls-version-range-server-dispatch-contract PRIVATE -fsanitize=address)
+endif()
+
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_LIST_DIR}/fixtures/external-io-ca-cert.pem" _gmssl_external_io_ca)
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_LIST_DIR}/fixtures/external-io-server-cert.pem" _gmssl_external_io_cert)
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_LIST_DIR}/fixtures/external-io-server-key.pem" _gmssl_external_io_key)
