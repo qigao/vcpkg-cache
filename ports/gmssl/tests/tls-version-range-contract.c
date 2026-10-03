@@ -30,9 +30,14 @@ int main(void)
 	tls_ctx_cleanup(&ctx);
 
 	if (tls_ctx_init(&server_ctx, TLS_protocol_tls13, TLS_server_mode) != 1) return 10;
-	if (tls_ctx_set_protocol_range(&server_ctx, TLS_protocol_tls12, TLS_protocol_tls13) == 1) return 11;
+	if (tls_ctx_set_protocol_range(&server_ctx, TLS_protocol_tls12, TLS_protocol_tls13) != 1) return 11;
+	if (server_ctx.min_protocol != TLS_protocol_tls12
+		|| server_ctx.max_protocol != TLS_protocol_tls13
+		|| server_ctx.supported_versions_cnt != 2
+		|| server_ctx.supported_versions[0] != TLS_protocol_tls13
+		|| server_ctx.supported_versions[1] != TLS_protocol_tls12) return 12;
 	tls_ctx_cleanup(&server_ctx);
 
-	puts("GmSSL TLS client version-range contract: PASS");
+	puts("GmSSL TLS client/server version-range contract: PASS");
 	return 0;
 }
