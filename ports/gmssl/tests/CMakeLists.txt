@@ -125,3 +125,15 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(gmssl-rsa-private-signatures-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
     target_link_options(gmssl-rsa-private-signatures-contract PRIVATE -fsanitize=address)
 endif()
+
+add_executable(gmssl-tls-exporter-contract tls-exporter-contract.c)
+target_link_libraries(gmssl-tls-exporter-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-exporter-contract PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF)
+
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-tls-exporter-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-tls-exporter-contract PRIVATE -fsanitize=address)
+endif()
