@@ -1,0 +1,110 @@
+name: Validate libpq OpenSSL provider
+
+on:
+  pull_request:
+    paths:
+      - "ports/libpq/**"
+      - "vcpkg.json"
+      - "cache-contract-version.txt"
+      - ".github/workflows/validate-libpq-openssl.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  linux:
+    name: libpq OpenSSL / ubuntu-24.04
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Build isolated libpq profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config
+          manifest="$RUNNER_TEMP/libpq-manifest"
+          install="$RUNNER_TEMP/libpq-install"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "libpq-openssl-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install --x-manifest-root="$manifest" --x-install-root="$install" --triplet x64-linux
+          status="$install/vcpkg/status"
+          grep -q '^Package: openssl$' "$status"
+          if grep -q '^Package: boringssl$' "$status"; then
+            echo "BoringSSL leaked into libpq dependency closure" >&2
+            exit 1
+          fi
+          test -f "$install/x64-linux/include/libpq-fe.h"
+          test -f "$install/x64-linux/lib/libpq.a"
+      - name: Compile static libpq consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libpq-install/x64-linux"
+          cat > "$RUNNER_TEMP/libpq-consumer.c" <<'EOF'
+          #include <libpq-fe.h>
+          int main(void) {
+            return PQlibVersion() <= 0;
+          }
+          EOF
+          export PKG_CONFIG_PATH="$root/lib/pkgconfig"
+          cc "$RUNNER_TEMP/libpq-consumer.c" $(pkg-config --cflags --libs --static libpq) -o "$RUNNER_TEMP/libpq-consumer"
+          "$RUNNER_TEMP/libpq-consumer"
+
+  windows:
+    name: libpq OpenSSL / windows-2025 v145
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Build isolated libpq profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $triplet = "qigao-x64-windows-v145"
+          $manifest = Join-Path $env:RUNNER_TEMP "libpq-manifest"
+          $install = Join-Path $env:RUNNER_TEMP "libpq-install"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          @"
+          {
+            "name": "libpq-openssl-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          "@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$install" "--triplet=$triplet" "--host-triplet=$triplet"
+          if ($LASTEXITCODE -ne 0) { throw "libpq vcpkg install failed" }
+          $status = Get-Content -LiteralPath (Join-Path $install "vcpkg\status") -Raw
+          if ($status -notmatch '(?m)^Package: openssl$') { throw "OpenSSL missing from libpq closure" }
+          if ($status -match '(?m)^Package: boringssl$') { throw "BoringSSL leaked into libpq closure" }
+          $root = Join-Path $install $triplet
+          if (-not (Test-Path (Join-Path $root "include\libpq-fe.h"))) { throw "libpq-fe.h missing" }
+          if (-not (Test-Path (Join-Path $root "lib\libpq.lib"))) { throw "libpq.lib missing" }
