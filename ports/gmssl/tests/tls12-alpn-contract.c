@@ -139,6 +139,42 @@ static int build_server_hello(uint8_t *record, size_t *record_len)
     return 1;
 }
 
+static int validate_alpn_wire_bound(void)
+{
+    TLS_CTX ctx;
+    char long_name[256];
+    char *protocols[256];
+    size_t i;
+
+    memset(long_name, 'a', sizeof(long_name) - 1u);
+    long_name[sizeof(long_name) - 1u] = '\0';
+    for (i = 0; i < sizeof(protocols)/sizeof(protocols[0]); ++i)
+        protocols[i] = long_name;
+
+    memset(&ctx, 0, sizeof(ctx));
+    if (tls_ctx_init(&ctx, TLS_protocol_tls12, TLS_client_mode) != 1)
+        return -1;
+    if (tls_ctx_set_application_layer_protocol_negotiation(&ctx, protocols, 255u) != 1) {
+        tls_ctx_cleanup(&ctx);
+        return -2;
+    }
+    if (ctx.alpn_protocols != protocols || ctx.alpn_protocols_cnt != 255u) {
+        tls_ctx_cleanup(&ctx);
+        return -3;
+    }
+    tls_ctx_cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    if (tls_ctx_init(&ctx, TLS_protocol_tls12, TLS_client_mode) != 1)
+        return -4;
+    if (tls_ctx_set_application_layer_protocol_negotiation(&ctx, protocols, 256u) == 1) {
+        tls_ctx_cleanup(&ctx);
+        return -5;
+    }
+    tls_ctx_cleanup(&ctx);
+    return 1;
+}
+
 int main(void)
 {
     TLS_CTX ctx;
@@ -147,6 +183,10 @@ int main(void)
     TLS_IO callbacks = {&io, probe_send, probe_recv};
     size_t server_hello_len = 0;
     int rc = 1;
+
+    if (validate_alpn_wire_bound() != 1) {
+        return 17;
+    }
 
     fprintf(stderr, "alpn-probe: abi ctx=%zu/%zu conn=%zu/%zu\n",
             sizeof(TLS_CTX), tls_ctx_sizeof(), sizeof(TLS_CONNECT), tls_connect_sizeof());
