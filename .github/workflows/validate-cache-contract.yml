@@ -5,6 +5,7 @@ on:
     paths:
       - ".gitattributes"
       - "ports/**"
+      - "triplets/**"
       - "versions/**"
       - "cache-contract-version.txt"
       - "cmake/**"
