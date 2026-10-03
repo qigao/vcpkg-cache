@@ -51,5 +51,37 @@ gmssl_replace_once(
 ]==]
 )
 
+# tls_ctx_check() must validate the same TLS 1.2/1.3 union accepted by
+# tls_ctx_set_signature_algorithms() for a standard version-range context.
+gmssl_replace_once(
+    "${_gmssl_tls_c}"
+[==[
+	for (i = 0; i < ctx->signature_algorithms_cnt; i++) {
+		if (!tls_type_is_in_list(ctx->signature_algorithms[i],
+			supported_sig_algs, supported_sig_algs_cnt)) {
+			error_print();
+			return -1;
+		}
+	}
+]==]
+[==[
+	for (i = 0; i < ctx->signature_algorithms_cnt; i++) {
+		if (standard_tls_range) {
+			if (!tls_type_is_in_list(ctx->signature_algorithms[i],
+					tls13_signature_algorithms, tls13_signature_algorithms_cnt)
+				&& !tls_type_is_in_list(ctx->signature_algorithms[i],
+					tls12_signature_algorithms, tls12_signature_algorithms_cnt)) {
+				error_print();
+				return -1;
+			}
+		} else if (!tls_type_is_in_list(ctx->signature_algorithms[i],
+				supported_sig_algs, supported_sig_algs_cnt)) {
+			error_print();
+			return -1;
+		}
+	}
+]==]
+)
+
 unset(_gmssl_tls_h)
 unset(_gmssl_tls_c)
