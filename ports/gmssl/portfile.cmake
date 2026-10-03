@@ -25,6 +25,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-signatures.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa-signing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa-signing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 
 vcpkg_cmake_configure(
