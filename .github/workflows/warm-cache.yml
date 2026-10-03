@@ -6,6 +6,7 @@ on:
     paths:
       - ".gitattributes"
       - "ports/**"
+      - "triplets/**"
       - "versions/**"
       - "cache-contract-version.txt"
       - "scripts/cache-contract-revision.py"
