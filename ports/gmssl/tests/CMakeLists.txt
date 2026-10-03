@@ -158,3 +158,12 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(gmssl-x509-basic-constraints-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
   target_link_options(gmssl-x509-basic-constraints-contract PRIVATE -fsanitize=address)
 endif()
+
+add_executable(gmssl-tls-probe-contract tls-probe-contract.c)
+target_link_libraries(gmssl-tls-probe-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-probe-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+  target_compile_options(gmssl-tls-probe-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+  target_link_options(gmssl-tls-probe-contract PRIVATE -fsanitize=address)
+endif()
