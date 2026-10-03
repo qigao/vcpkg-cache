@@ -1,6 +1,7 @@
 #include <gmssl/hex.h>
 #include <gmssl/x509_cer.h>
 #include <gmssl/x509_key.h>
+#include <gmssl/tls.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -68,7 +69,11 @@ int main(void)
 	X509_KEY key2;
 	X509_KEY cert_key;
 	X509_SIGN_CTX verify_ctx;
+	TLS_CTX client_trust_ctx;
+	TLS_CTX server_trust_ctx;
+	TLS_CTX bad_trust_ctx;
 	int sig_alg = OID_undef;
+	uint8_t cert_first_byte;
 
 	if (decode(spki_hex, spki, sizeof(spki), &spki_len) != 1) return 1;
 	if (decode(signature_hex, sig, sizeof(sig), &sig_len) != 1) return 2;
@@ -109,6 +114,40 @@ int main(void)
 	if (x509_cert_is_signed_by_root_ca_cert(
 			bad_cert, cert_len, cert, cert_len, NULL, 0) != 0) return 13;
 
+	memset(&client_trust_ctx, 0, sizeof(client_trust_ctx));
+	memset(&server_trust_ctx, 0, sizeof(server_trust_ctx));
+	memset(&bad_trust_ctx, 0, sizeof(bad_trust_ctx));
+
+	if (tls_ctx_init(&client_trust_ctx, TLS_protocol_tls12, TLS_client_mode) != 1
+		|| tls_ctx_set_ca_certificates_der(&client_trust_ctx, cert, cert_len, 4) != 1) return 14;
+	if (client_trust_ctx.cacerts == cert
+		|| client_trust_ctx.cacertslen != cert_len
+		|| memcmp(client_trust_ctx.cacerts, cert, cert_len) != 0
+		|| client_trust_ctx.verify_depth != 4
+		|| client_trust_ctx.ca_names_len != 0
+		|| client_trust_ctx.trusted_authorities_len != 0) return 15;
+
+	cert_first_byte = cert[0];
+	cert[0] ^= 1u;
+	if (client_trust_ctx.cacerts[0] != cert_first_byte) return 16;
+	cert[0] = cert_first_byte;
+
+	if (tls_ctx_set_ca_certificates_der(&client_trust_ctx, cert, cert_len, 4) == 1) return 17;
+
+	if (tls_ctx_init(&server_trust_ctx, TLS_protocol_tls12, TLS_server_mode) != 1
+		|| tls_ctx_set_ca_certificates_der(&server_trust_ctx, cert, cert_len, 3) != 1) return 18;
+	if (server_trust_ctx.cacerts == cert
+		|| server_trust_ctx.cacertslen != cert_len
+		|| server_trust_ctx.verify_depth != 3
+		|| server_trust_ctx.ca_names_len == 0
+		|| server_trust_ctx.trusted_authorities_len == 0) return 19;
+
+	if (tls_ctx_init(&bad_trust_ctx, TLS_protocol_tls12, TLS_client_mode) != 1) return 20;
+	if (tls_ctx_set_ca_certificates_der(&bad_trust_ctx, cert, cert_len - 1, 4) == 1) return 21;
+
+	tls_ctx_cleanup(&bad_trust_ctx);
+	tls_ctx_cleanup(&server_trust_ctx);
+	tls_ctx_cleanup(&client_trust_ctx);
 	x509_key_cleanup(&cert_key);
 	x509_key_cleanup(&key2);
 	x509_key_cleanup(&key);
