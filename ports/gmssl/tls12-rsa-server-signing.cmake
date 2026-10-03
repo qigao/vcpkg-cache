@@ -65,8 +65,8 @@ static int tls12_cert_chain_get_end_entity_group(const uint8_t *cert_chain, size
 ]==]
 )
 
-# RSA certs are selected explicitly without teaching generic EC helpers about
-# a synthetic group.
+# Keep RSA selection local to tls12_select_parameters(); generic EC helpers
+# continue to describe real named groups only.
 gmssl_replace_once(
     "${_gmssl_tls12_c}"
 [==[
