@@ -227,3 +227,13 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(gmssl-p256-plain-pkcs8-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
     target_link_options(gmssl-p256-plain-pkcs8-contract PRIVATE -fsanitize=address)
 endif()
+ 
+add_executable(gmssl-tls-cleanup-contract tls-cleanup-contract.c)
+target_link_libraries(gmssl-tls-cleanup-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-cleanup-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-tls-cleanup-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-tls-cleanup-contract PRIVATE -fsanitize=address)
+endif()
+
