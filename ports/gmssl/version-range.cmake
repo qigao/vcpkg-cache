@@ -61,7 +61,7 @@ void tls_ctx_cleanup(TLS_CTX *ctx)
 [==[
 int tls_ctx_set_protocol_range(TLS_CTX *ctx, int min_protocol, int max_protocol)
 {
-	if (!ctx || !ctx->is_client
+	if (!ctx
 		|| min_protocol != TLS_protocol_tls12
 		|| max_protocol != TLS_protocol_tls13) {
 		error_print();
@@ -152,7 +152,7 @@ gmssl_replace_once(
 		ctx->min_protocol == TLS_protocol_tls12
 		&& ctx->max_protocol == TLS_protocol_tls13;
 	if (ctx->min_protocol > ctx->max_protocol
-		|| (standard_tls_range && (!ctx->is_client || ctx->protocol != TLS_protocol_tls13))) {
+		|| (standard_tls_range && ctx->protocol != TLS_protocol_tls13)) {
 		error_print();
 		return -1;
 	}
@@ -200,6 +200,164 @@ gmssl_replace_once(
 		return -1;
 	}
 	if (ctx->is_client && ctx->certificate_request) {
+]==]
+)
+
+# Server-side range dispatch peeks one ClientHello and keeps the same record
+# buffered for the selected TLS 1.2 or TLS 1.3 state machine.
+gmssl_replace_once(
+    "${_gmssl_tls13_c}"
+[==[
+int tls13_do_server_handshake(TLS_CONNECT *conn)
+]==]
+[==[
+static int tls_server_client_hello_protocol(TLS_CONNECT *conn, int *selected_protocol)
+{
+	int ret;
+	int legacy_version;
+	const uint8_t *random;
+	const uint8_t *legacy_session_id;
+	size_t legacy_session_id_len;
+	const uint8_t *cipher_suites;
+	size_t cipher_suites_len;
+	const uint8_t *exts;
+	size_t extslen;
+	const uint8_t *supported_versions = NULL;
+	size_t supported_versions_len = 0;
+	int common_versions[4];
+	size_t common_versions_cnt = 0;
+
+	if (!conn || !selected_protocol) {
+		error_print();
+		return -1;
+	}
+	if ((ret = tls_recv_record(conn)) != 1) {
+		return ret;
+	}
+	if ((tls_record_protocol(conn->record) != TLS_protocol_tls1
+			&& tls_record_protocol(conn->record) != TLS_protocol_tls12)
+		|| tls_record_get_handshake_client_hello(conn->record,
+			&legacy_version, &random,
+			&legacy_session_id, &legacy_session_id_len,
+			&cipher_suites, &cipher_suites_len,
+			&exts, &extslen) != 1) {
+		error_print();
+		return -1;
+	}
+	while (extslen) {
+		int ext_type;
+		const uint8_t *ext_data;
+		size_t ext_datalen;
+		if (tls_ext_from_bytes(&ext_type, &ext_data, &ext_datalen, &exts, &extslen) != 1) {
+			error_print();
+			return -1;
+		}
+		if (ext_type == TLS_extension_supported_versions) {
+			if (supported_versions || !ext_data) {
+				error_print();
+				return -1;
+			}
+			supported_versions = ext_data;
+			supported_versions_len = ext_datalen;
+		}
+	}
+	if (!supported_versions) {
+		if (legacy_version != TLS_protocol_tls12) {
+			error_print();
+			return -1;
+		}
+		*selected_protocol = TLS_protocol_tls12;
+		return 1;
+	}
+	ret = tls13_process_client_supported_versions(
+		supported_versions, supported_versions_len,
+		conn->ctx->supported_versions, conn->ctx->supported_versions_cnt,
+		common_versions, &common_versions_cnt,
+		sizeof(common_versions)/sizeof(common_versions[0]));
+	if (ret != 1 || common_versions_cnt == 0) {
+		return ret;
+	}
+	*selected_protocol = common_versions[0];
+	return 1;
+}
+
+int tls13_do_server_handshake(TLS_CONNECT *conn)
+]==]
+)
+
+gmssl_replace_once(
+    "${_gmssl_tls13_c}"
+[==[
+	case TLS_state_client_hello:
+		ret = tls13_recv_client_hello(conn);
+		if (conn->early_data)
+			next_state = TLS_state_early_data;
+		else if (conn->hello_retry_request)
+			next_state = TLS_state_hello_retry_request;
+		else	next_state = TLS_state_server_hello;
+		break;
+]==]
+[==[
+	case TLS_state_client_hello:
+		if (conn->ctx->min_protocol == TLS_protocol_tls12
+			&& conn->ctx->max_protocol == TLS_protocol_tls13) {
+			int selected_protocol = 0;
+			ret = tls_server_client_hello_protocol(conn, &selected_protocol);
+			if (ret != 1) return ret;
+			if (selected_protocol == TLS_protocol_tls12) {
+				conn->protocol = TLS_protocol_tls12;
+				next_state = TLS_state_client_hello;
+				break;
+			}
+			if (selected_protocol != TLS_protocol_tls13) {
+				error_print();
+				return -1;
+			}
+		}
+		ret = tls13_recv_client_hello(conn);
+		if (conn->early_data)
+			next_state = TLS_state_early_data;
+		else if (conn->hello_retry_request)
+			next_state = TLS_state_hello_retry_request;
+		else	next_state = TLS_state_server_hello;
+		break;
+]==]
+)
+
+gmssl_replace_once(
+    "${_gmssl_tls13_c}"
+[==[
+	if (!(state == TLS_state_client_change_cipher_spec && ret == 0)) {
+		tls_clean_record(conn);
+	}
+]==]
+[==[
+	if (!(state == TLS_state_client_change_cipher_spec && ret == 0)
+		&& !(state == TLS_state_client_hello
+			&& conn->protocol == TLS_protocol_tls12
+			&& conn->ctx->min_protocol == TLS_protocol_tls12
+			&& conn->ctx->max_protocol == TLS_protocol_tls13)) {
+		tls_clean_record(conn);
+	}
+]==]
+)
+
+gmssl_replace_once(
+    "${_gmssl_tls13_c}"
+[==[
+	while (conn->handshake_state != TLS_state_handshake_over) {
+
+		ret = tls13_do_server_handshake(conn);
+]==]
+[==[
+	while (conn->handshake_state != TLS_state_handshake_over) {
+
+		if (conn->ctx->min_protocol == TLS_protocol_tls12
+			&& conn->ctx->max_protocol == TLS_protocol_tls13
+			&& conn->protocol == TLS_protocol_tls12) {
+			return tls12_server_handshake(conn);
+		}
+		ret = tls13_do_server_handshake(conn);
 ]==]
 )
 
