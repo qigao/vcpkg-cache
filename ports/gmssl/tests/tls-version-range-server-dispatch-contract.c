@@ -57,10 +57,10 @@ int main(void)
 	if (tls_set_io(&conn, &callbacks) != 1) return 3;
 
 	random[31] = 0x42;
+	if (tls_record_set_protocol(io.input, TLS_protocol_tls1) != 1) return 4;
 	if (tls_record_set_handshake_client_hello(
 			io.input, &record_len, TLS_protocol_tls12, random,
-			NULL, 0, &cipher_suite, 1, NULL, 0) != 1) return 4;
-	if (tls_record_set_protocol(io.input, TLS_protocol_tls1) != 1) return 5;
+			NULL, 0, &cipher_suite, 1, NULL, 0) != 1) return 5;
 	io.input_len = record_len;
 
 	ret = tls13_do_server_handshake(&conn);
