@@ -22,16 +22,18 @@ gmssl_replace_once(
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
-	case OID_rsa_encryption:
-		gmssl_secure_clear(&key->u.rsa_public_key, sizeof(RSA_PUBLIC_KEY));
-		break;
+void x509_key_cleanup(X509_KEY *key)
+{
+	if (key) {
 ]==]
 [==[
-	case OID_rsa_encryption:
-		gmssl_secure_clear(&key->u.rsa_public_key, sizeof(RSA_PUBLIC_KEY));
-		rsa_private_key_cleanup(&key->rsa_private_key);
-		key->has_private_key = 0;
-		break;
+void x509_key_cleanup(X509_KEY *key)
+{
+	if (key) {
+		if (key->algor == OID_rsa_encryption && key->has_private_key) {
+			rsa_private_key_cleanup(&key->rsa_private_key);
+			key->has_private_key = 0;
+		}
 ]==]
 )
 
