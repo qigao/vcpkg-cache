@@ -20,6 +20,7 @@ vcpkg_from_github(
     0001-static-gtest.patch
     0002-remove-WX-Werror.patch
     0003-fix-shared-symbol-visibility.patch
+    0004-ios-library-only-install.patch
 )
 
 if(VCPKG_TARGET_IS_WINDOWS)
@@ -38,7 +39,9 @@ vcpkg_copy_pdbs()
 vcpkg_cmake_config_fixup(PACKAGE_NAME OpenSSL CONFIG_PATH lib/cmake/OpenSSL)
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
-vcpkg_copy_tools(TOOL_NAMES bssl AUTO_CLEAN)
+if(NOT VCPKG_TARGET_IS_IOS)
+  vcpkg_copy_tools(TOOL_NAMES bssl AUTO_CLEAN)
+endif()
 if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
   file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/bin" "${CURRENT_PACKAGES_DIR}/debug/bin")
 endif()
