@@ -182,6 +182,11 @@ static int validate_server_preferred_selection(void)
     uint8_t extension[64];
     uint8_t *p = extension;
     size_t extension_len = 0;
+    const uint8_t *encoded = extension;
+    size_t encoded_len;
+    const uint8_t *ext_data = NULL;
+    size_t ext_data_len = 0;
+    int ext_type = 0;
     char *selected = NULL;
 
     if (tls_application_layer_protocol_negotiation_ext_to_bytes(
@@ -189,14 +194,20 @@ static int validate_server_preferred_selection(void)
             sizeof(client_protocols)/sizeof(client_protocols[0]),
             &p, &extension_len) != 1)
         return -1;
+    encoded_len = extension_len;
+    if (tls_ext_from_bytes(&ext_type, &ext_data, &ext_data_len,
+                           &encoded, &encoded_len) != 1
+        || ext_type != TLS_extension_application_layer_protocol_negotiation
+        || encoded_len != 0)
+        return -2;
     if (tls_application_layer_protocol_negotiation_select(
-            extension, extension_len,
+            ext_data, ext_data_len,
             server_protocols,
             sizeof(server_protocols)/sizeof(server_protocols[0]),
             &selected) != 1)
-        return -2;
-    if (selected != server_protocols[0] || strcmp(selected, "h2") != 0)
         return -3;
+    if (selected != server_protocols[0] || strcmp(selected, "h2") != 0)
+        return -4;
     return 1;
 }
 
