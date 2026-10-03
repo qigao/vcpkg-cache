@@ -613,3 +613,54 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ECDHE_RSA contract failed" }
           & (Join-Path $build "Release\gmssl-x509-basic-constraints-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "X.509 BasicConstraints contract failed" }
+
+  android:
+    name: GmSSL / Android arm64 API24 link
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Build overlay and link Android API24 consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_NDK_HOME:-}"
+          manifest="$RUNNER_TEMP/gmssl-android-manifest"
+          install="$RUNNER_TEMP/gmssl-android-install"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "gmssl-android-contract",
+            "version-string": "1",
+            "dependencies": ["gmssl"]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install             --x-manifest-root="$manifest"             --x-install-root="$install"             --triplet arm64-android
+          root="$install/arm64-android"
+          test -f "$root/include/gmssl/rand.h"
+          test -f "$root/lib/libgmssl.a"
+
+          src="$RUNNER_TEMP/gmssl-android-rng.c"
+          cat > "$src" <<'EOF'
+          #include <gmssl/rand.h>
+          #include <stdint.h>
+          int main(void) {
+            uint8_t bytes[32];
+            return rand_bytes(bytes, sizeof(bytes)) == 1 ? 0 : 1;
+          }
+          EOF
+
+          prebuilt="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt"             -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$prebuilt"
+          cc="$prebuilt/bin/aarch64-linux-android24-clang"
+          nm="$prebuilt/bin/llvm-nm"
+          test -x "$cc"
+          test -x "$nm"
+          "$cc" -I"$root/include" "$src" "$root/lib/libgmssl.a"             -pthread -latomic -lm -o "$RUNNER_TEMP/gmssl-android-rng"
+          if "$nm" -u "$RUNNER_TEMP/gmssl-android-rng" | grep -q 'getentropy'; then
+            echo "Android API24 consumer still depends on getentropy" >&2
+            exit 1
+          fi
+
