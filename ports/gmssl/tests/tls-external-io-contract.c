@@ -21,6 +21,9 @@
 #ifndef GMSSL_EXTERNAL_IO_CIPHER
 #define GMSSL_EXTERNAL_IO_CIPHER TLS_cipher_aes_128_gcm_sha256
 #endif
+#ifndef GMSSL_EXTERNAL_IO_SIGALG
+#define GMSSL_EXTERNAL_IO_SIGALG TLS_sig_rsa_pss_rsae_sha256
+#endif
 #ifndef GMSSL_EXTERNAL_IO_LABEL
 #define GMSSL_EXTERNAL_IO_LABEL "TLS"
 #endif
@@ -225,7 +228,7 @@ int main(void)
 	TLS_IO server_callbacks = {&server_io, memory_send, memory_recv};
 	const int cipher_suite = GMSSL_EXTERNAL_IO_CIPHER;
 	const int group = TLS_curve_secp256r1;
-	const int sig_alg = TLS_sig_ecdsa_secp256r1_sha256;
+	const int sig_alg = GMSSL_EXTERNAL_IO_SIGALG;
 	int client_ctx_ready = 0;
 	int server_ctx_ready = 0;
 	int client_ready = 0;
@@ -261,7 +264,7 @@ int main(void)
 			&server_ctx,
 			GMSSL_EXTERNAL_IO_SERVER_CERT,
 			GMSSL_EXTERNAL_IO_SERVER_KEY,
-			"P@ssw0rd") != 1) {
+			"") != 1) {
 		rc = 5; goto cleanup;
 	}
 
