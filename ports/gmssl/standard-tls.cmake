@@ -225,5 +225,14 @@ gmssl_replace_once(
 		}
 ]==]
 )
+file(READ "${_gmssl_tls13_c}" _gmssl_tls13_after)
+string(FIND "${_gmssl_tls13_after}"
+    "RFC 8446 extension processing requires unknown extensions to be"
+    _gmssl_tls13_unknown_ext_offset)
+if(_gmssl_tls13_unknown_ext_offset EQUAL -1)
+    message(FATAL_ERROR "GmSSL TLS 1.3 CertificateRequest unknown-extension contract missing")
+endif()
+unset(_gmssl_tls13_unknown_ext_offset)
+unset(_gmssl_tls13_after)
 unset(_gmssl_tls13_c)
 
