@@ -247,6 +247,16 @@ jobs:
           wait "$server_pid" 2>/dev/null || true
           trap - EXIT
 
+      - name: Interoperate TLS 1.2 RSA mutual authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          bash ports/gmssl/tests/tls12-rsa-mtls-interop.sh \
+            "$gmssl_bin" "$RUNNER_TEMP/gmssl-tls12-rsa-mtls" 9450
+
   macos:
     name: GmSSL / macos-15
     runs-on: macos-15
@@ -478,6 +488,16 @@ jobs:
           kill "$server_pid" 2>/dev/null || true
           wait "$server_pid" 2>/dev/null || true
           trap - EXIT
+
+      - name: Interoperate TLS 1.2 RSA mutual authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          bash ports/gmssl/tests/tls12-rsa-mtls-interop.sh \
+            "$gmssl_bin" "$RUNNER_TEMP/gmssl-tls12-rsa-mtls" 9450
 
   windows:
     name: GmSSL / windows-2025 v145
