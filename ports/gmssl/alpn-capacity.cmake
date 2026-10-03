@@ -159,6 +159,8 @@ gmssl_replace_once(
 ]==]
 [==[
 #define TLS_ALPN_PROTOCOL_NAME_LIST_MAX_SIZE 65535
+#define tls_application_layer_protocol_negotiation_max_count() \
+	(TLS_ALPN_PROTOCOL_NAME_LIST_MAX_SIZE / 2u)
 
 
 ]==]
