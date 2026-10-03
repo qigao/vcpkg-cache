@@ -92,6 +92,82 @@ jobs:
           "$build/gmssl-rsa-pkcs8-contract"
           "$build/gmssl-rsa-private-signatures-contract"
           "$build/gmssl-tls-inspection-contract"
+          "$build/gmssl-tls12-ecdhe-rsa-contract"
+          "$build/gmssl-x509-basic-constraints-contract"
+      - name: Interoperate with OpenSSL TLS 1.2 ECDHE_RSA
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          work="$RUNNER_TEMP/gmssl-tls12-rsa-interop"
+          rm -rf "$work"
+          mkdir -p "$work"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/ca-key.pem" \
+            -out "$work/ca-cert.pem" \
+            -days 1 \
+            -subj "/CN=GmSSL Test CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign"
+          openssl req -new -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/server-key.pem" \
+            -out "$work/server.csr" \
+            -subj "/CN=localhost"
+          cat > "$work/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:localhost
+          EOF
+          openssl x509 -req \
+            -in "$work/server.csr" \
+            -CA "$work/ca-cert.pem" \
+            -CAkey "$work/ca-key.pem" \
+            -CAcreateserial \
+            -out "$work/server-cert.pem" \
+            -days 1 \
+            -sha256 \
+            -extfile "$work/server.ext"
+          openssl s_server \
+            -accept 9443 \
+            -cert "$work/server-cert.pem" \
+            -key "$work/server-key.pem" \
+            -tls1_2 \
+            -cipher ECDHE-RSA-AES128-GCM-SHA256 \
+            -sigalgs rsa_pkcs1_sha256 \
+            -www \
+            >"$work/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          client_rc=0
+          "$gmssl_bin" tls12_client \
+            -host 127.0.0.1 \
+            -port 9443 \
+            -server_name localhost \
+            -cacert "$work/ca-cert.pem" \
+            -cipher_suite TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
+            -supported_group prime256v1 \
+            -sig_alg rsa_pkcs1_sha256 \
+            -get / \
+            -verbose \
+            >"$work/client.out" 2>"$work/client.err" || client_rc=$?
+          cat "$work/client.err"
+          cat "$work/client.out"
+          cat "$work/server.log"
+          if [ "$client_rc" -ne 0 ]; then
+            echo "GmSSL TLS 1.2 client failed with rc=$client_rc" >&2
+            exit "$client_rc"
+          fi
+          grep -q "Protocol: TLS1.2" "$work/client.err"
+          grep -q "CipherSuite: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" "$work/client.err"
+          grep -q "HTTP/1.0 200 ok" "$work/client.out"
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          trap - EXIT
+
 
   macos:
     name: GmSSL / macos-15
@@ -175,6 +251,81 @@ jobs:
           "$build/gmssl-rsa-pkcs8-contract"
           "$build/gmssl-rsa-private-signatures-contract"
           "$build/gmssl-tls-inspection-contract"
+          "$build/gmssl-tls12-ecdhe-rsa-contract"
+          "$build/gmssl-x509-basic-constraints-contract"
+      - name: Interoperate with OpenSSL TLS 1.2 ECDHE_RSA
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
+          work="$RUNNER_TEMP/gmssl-tls12-rsa-interop"
+          rm -rf "$work"
+          mkdir -p "$work"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/ca-key.pem" \
+            -out "$work/ca-cert.pem" \
+            -days 1 \
+            -subj "/CN=GmSSL Test CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign"
+          openssl req -new -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/server-key.pem" \
+            -out "$work/server.csr" \
+            -subj "/CN=localhost"
+          cat > "$work/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:localhost
+          EOF
+          openssl x509 -req \
+            -in "$work/server.csr" \
+            -CA "$work/ca-cert.pem" \
+            -CAkey "$work/ca-key.pem" \
+            -CAcreateserial \
+            -out "$work/server-cert.pem" \
+            -days 1 \
+            -sha256 \
+            -extfile "$work/server.ext"
+          openssl s_server \
+            -accept 9443 \
+            -cert "$work/server-cert.pem" \
+            -key "$work/server-key.pem" \
+            -tls1_2 \
+            -cipher ECDHE-RSA-AES128-GCM-SHA256 \
+            -sigalgs rsa_pkcs1_sha256 \
+            -www \
+            >"$work/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          client_rc=0
+          "$gmssl_bin" tls12_client \
+            -host 127.0.0.1 \
+            -port 9443 \
+            -server_name localhost \
+            -cacert "$work/ca-cert.pem" \
+            -cipher_suite TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
+            -supported_group prime256v1 \
+            -sig_alg rsa_pkcs1_sha256 \
+            -get / \
+            -verbose \
+            >"$work/client.out" 2>"$work/client.err" || client_rc=$?
+          cat "$work/client.err"
+          cat "$work/client.out"
+          cat "$work/server.log"
+          if [ "$client_rc" -ne 0 ]; then
+            echo "GmSSL TLS 1.2 client failed with rc=$client_rc" >&2
+            exit "$client_rc"
+          fi
+          grep -q "Protocol: TLS1.2" "$work/client.err"
+          grep -q "CipherSuite: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" "$work/client.err"
+          grep -q "HTTP/1.0 200 ok" "$work/client.out"
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          trap - EXIT
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -282,3 +433,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RSA private signing contract failed" }
           & (Join-Path $build "Release\gmssl-tls-inspection-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS inspection contract failed" }
+          & (Join-Path $build "Release\gmssl-tls12-ecdhe-rsa-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ECDHE_RSA contract failed" }
+          & (Join-Path $build "Release\gmssl-x509-basic-constraints-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "X.509 BasicConstraints contract failed" }
