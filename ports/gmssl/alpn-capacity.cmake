@@ -178,46 +178,36 @@ gmssl_replace_once(
 
 
 # tls_ctx_check() must validate the same borrowed-list wire bound as the setter.
-gmssl_replace_once(
+vcpkg_replace_string(
     "${_gmssl_tls_c}"
 [==[
 	if (ctx->alpn_protocols_cnt > sizeof(ctx->alpn_protocols)/sizeof(ctx->alpn_protocols[0])) {
 		error_print();
 		return -1;
 	}
-	for (i = 0; i < ctx->alpn_protocols_cnt; i++) {
-		size_t protocol_len;
+]==]
+[==[
+	size_t alpn_wire_len = 0;
+]==]
+)
 
-		if (!ctx->alpn_protocols[i]) {
-			error_print();
-			return -1;
-		}
+vcpkg_replace_string(
+    "${_gmssl_tls_c}"
+[==[
 		protocol_len = strlen(ctx->alpn_protocols[i]);
 		if (protocol_len < 1 || protocol_len > 255) {
 			error_print();
 			return -1;
 		}
-	}
 ]==]
 [==[
-	{
-		size_t alpn_wire_len = 0;
-		for (i = 0; i < ctx->alpn_protocols_cnt; i++) {
-			size_t protocol_len;
-
-			if (!ctx->alpn_protocols[i]) {
-				error_print();
-				return -1;
-			}
-			protocol_len = strlen(ctx->alpn_protocols[i]);
-			if (protocol_len < 1 || protocol_len > 255
-				|| alpn_wire_len > 65535 - 1 - protocol_len) {
-				error_print();
-				return -1;
-			}
-			alpn_wire_len += 1 + protocol_len;
+		protocol_len = strlen(ctx->alpn_protocols[i]);
+		if (protocol_len < 1 || protocol_len > 255
+			|| alpn_wire_len > 65535 - 1 - protocol_len) {
+			error_print();
+			return -1;
 		}
-	}
+		alpn_wire_len += 1 + protocol_len;
 ]==]
 )
 
