@@ -18,6 +18,7 @@
       "name": "boringssl",
       "platform": "!linux"
     },
+    "gmssl",
     "miniaudio",
     "lua",
     {
