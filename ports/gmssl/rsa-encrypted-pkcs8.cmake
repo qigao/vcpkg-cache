@@ -205,7 +205,6 @@ end:
 	gmssl_secure_clear(raw_key, sizeof(raw_key));
 	gmssl_secure_clear(plaintext, sizeof(plaintext));
 	gmssl_secure_clear(encoded, sizeof(encoded));
-	if (ret != 1) rsa_private_key_cleanup(private_key);
 	return ret;
 }
 
