@@ -23,6 +23,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-op.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-pkcs8.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-signatures.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa-signing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 

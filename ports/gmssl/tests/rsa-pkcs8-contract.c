@@ -1,7 +1,9 @@
 #include <gmssl/rsa.h>
+#include <gmssl/sha2.h>
 #include <gmssl/asn1.h>
 #include <gmssl/pem.h>
 #include <gmssl/x509_alg.h>
+#include <gmssl/x509_key.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -73,8 +75,19 @@ int main(void)
 	size_t attrslen = 0;
 	RSA_PRIVATE_KEY key;
 	RSA_PRIVATE_KEY pem_key;
+	X509_KEY x509_key;
+	X509_SIGN_CTX sign_ctx;
+	static const uint8_t message[] = "Salts GmSSL X509 RSA identity contract";
+	SHA256_CTX sha;
+	uint8_t dgst[SHA256_DIGEST_SIZE];
+	uint8_t sig[RSA_MAX_MODULUS_SIZE];
+	size_t siglen = 0;
 	FILE *fp = NULL;
 	int rc = 1;
+
+	memset(&x509_key, 0, sizeof(x509_key));
+	memset(&sign_ctx, 0, sizeof(sign_ctx));
+	memset(&sha, 0, sizeof(sha));
 
 	if (hex_to_bytes(rsa_private_der_hex, pkcs1, sizeof(pkcs1), &pkcs1_len) != 1) return 1;
 
@@ -106,11 +119,38 @@ int main(void)
 		|| memcmp(pem_key.prime1, key.prime1, key.prime_size) != 0
 		|| memcmp(pem_key.prime2, key.prime2, key.prime_size) != 0) goto end;
 
+	rewind(fp);
+	if (x509_private_key_from_file(&x509_key, OID_rsa_encryption, "", fp) != 1) goto end;
+	if (x509_key.algor != OID_rsa_encryption
+		|| x509_key.algor_param != OID_undef
+		|| x509_key.has_private_key != 1
+		|| x509_key.u.rsa_public_key.modulus_size != key.public_key.modulus_size
+		|| x509_key.u.rsa_public_key.public_exponent != key.public_key.public_exponent
+		|| memcmp(x509_key.u.rsa_public_key.modulus,
+			key.public_key.modulus, key.public_key.modulus_size) != 0
+		|| x509_key.rsa_private_key.public_key.modulus_size != key.public_key.modulus_size
+		|| x509_key.rsa_private_key.public_key.public_exponent != key.public_key.public_exponent) goto end;
+
+	if (x509_sign_init(&sign_ctx, &x509_key, NULL, 0) != 1
+		|| x509_sign_update(&sign_ctx, message, sizeof(message) - 1) != 1
+		|| x509_sign_finish(&sign_ctx, sig, &siglen) != 1
+		|| siglen != x509_key.u.rsa_public_key.modulus_size) goto end;
+
+	sha256_init(&sha);
+	sha256_update(&sha, message, sizeof(message) - 1);
+	sha256_finish(&sha, dgst);
+	if (rsa_verify_pkcs1_v15_sha256(&x509_key.u.rsa_public_key,
+		dgst, sig, siglen) != 1) goto end;
+
 	rc = 0;
 end:
 	if (fp) fclose(fp);
+	x509_sign_ctx_cleanup(&sign_ctx);
+	x509_key_cleanup(&x509_key);
 	rsa_private_key_cleanup(&key);
 	rsa_private_key_cleanup(&pem_key);
-	if (rc == 0) puts("GmSSL RSA PKCS#8 PRIVATE KEY contract: PASS");
+	memset(dgst, 0, sizeof(dgst));
+	memset(sig, 0, sizeof(sig));
+	if (rc == 0) puts("GmSSL RSA PKCS#8/X509 identity signing contract: PASS");
 	return rc;
 }
