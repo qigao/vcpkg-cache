@@ -1,11 +1,10 @@
 # Centralized TLS provider contract for the libpq overlay.
 #
-# Keep this file provider-specific and keep the rest of the port provider-neutral.
-# BoringSSL remains the active provider in this behavior-preserving slice.
+# PostgreSQL 16.9 natively targets the OpenSSL API. Keep that contract intact
+# and use the vcpkg OpenSSL port rather than carrying BoringSSL compatibility
+# patches.
 
-set(LIBPQ_TLS_PROVIDER "boringssl")
+set(LIBPQ_TLS_PROVIDER "openssl")
 set(LIBPQ_TLS_CONFIGURE_NAME "openssl")
-set(LIBPQ_TLS_OPENSSL_COMPAT_VERSION "1.1.1")
-set(LIBPQ_TLS_WINDOWS_PATCHES
-    windows/boringssl.patch
-    windows/boringssl-libpq.patch)
+set(LIBPQ_TLS_OPENSSL_COMPAT_VERSION "3.5.2")
+set(LIBPQ_TLS_WINDOWS_PATCHES)
