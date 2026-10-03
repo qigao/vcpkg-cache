@@ -1,0 +1,171 @@
+name: Validate libpq no-SSL profile
+
+on:
+  pull_request:
+    paths:
+      - "ports/libpq/**"
+      - "vcpkg.json"
+      - ".github/workflows/validate-libpq-no-ssl.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  linux:
+    name: libpq no-SSL / ubuntu-24.04
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Build no-SSL profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/libpq-no-ssl-manifest"
+          install="$RUNNER_TEMP/libpq-no-ssl-install"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "libpq-no-ssl-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install --x-manifest-root="$manifest" --x-install-root="$install" --triplet x64-linux
+          status="$install/vcpkg/status"
+          if grep -Eq '^Package: (openssl|boringssl)$' "$status"; then
+            echo "TLS provider leaked into no-SSL libpq closure" >&2
+            cat "$status" >&2
+            exit 1
+          fi
+          test -f "$install/x64-linux/lib/libpq.a"
+
+      - name: Link installed no-SSL consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libpq-no-ssl-install/x64-linux"
+          cat > "$RUNNER_TEMP/libpq-no-ssl.c" <<'EOF'
+          #include <libpq-fe.h>
+          int main(void) { return PQlibVersion() <= 0; }
+          EOF
+          export PKG_CONFIG_PATH="$root/lib/pkgconfig"
+          pkg_libs="$(pkg-config --libs --static libpq)"
+          if grep -Eq '(^|[[:space:]])-l(ssl|crypto)([[:space:]]|$)' <<<"$pkg_libs"; then
+            echo "pkg-config no-SSL closure still exposes TLS libraries: $pkg_libs" >&2
+            exit 1
+          fi
+          cc "$RUNNER_TEMP/libpq-no-ssl.c" $(pkg-config --cflags --libs --static libpq) -o "$RUNNER_TEMP/libpq-no-ssl"
+          "$RUNNER_TEMP/libpq-no-ssl"
+
+          src="$RUNNER_TEMP/libpq-no-ssl-cmake-src"
+          build="$RUNNER_TEMP/libpq-no-ssl-cmake-build"
+          mkdir -p "$src"
+          cp "$RUNNER_TEMP/libpq-no-ssl.c" "$src/main.c"
+          cat > "$src/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.24)
+          project(libpq_no_ssl_contract C)
+          find_package(PostgreSQL REQUIRED)
+          if(NOT TARGET PostgreSQL::PostgreSQL)
+            message(FATAL_ERROR "PostgreSQL::PostgreSQL target missing")
+          endif()
+          get_target_property(_pg_links PostgreSQL::PostgreSQL INTERFACE_LINK_LIBRARIES)
+          message(STATUS "PostgreSQL::PostgreSQL links: ${_pg_links}")
+          if("${_pg_links}" MATCHES "OpenSSL::")
+            message(FATAL_ERROR "no-SSL target unexpectedly propagates OpenSSL")
+          endif()
+          add_executable(libpq-no-ssl-cmake main.c)
+          target_link_libraries(libpq-no-ssl-cmake PRIVATE PostgreSQL::PostgreSQL)
+          EOF
+          cmake -S "$src" -B "$build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_MODE=OFF \
+            -DVCPKG_INSTALLED_DIR="$RUNNER_TEMP/libpq-no-ssl-install" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux
+          cmake --build "$build"
+          "$build/libpq-no-ssl-cmake"
+
+  windows:
+    name: libpq no-SSL / windows-2025 v145
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Build no-SSL profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $triplet = "qigao-x64-windows-v145"
+          $manifest = Join-Path $env:RUNNER_TEMP "libpq-no-ssl-manifest"
+          $install = Join-Path $env:RUNNER_TEMP "libpq-no-ssl-install"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          @"
+          {
+            "name": "libpq-no-ssl-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "libpq",
+                "default-features": false,
+                "features": ["zstd"]
+              }
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          "@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$install" "--triplet=$triplet" "--host-triplet=$triplet"
+          if ($LASTEXITCODE -ne 0) { throw "libpq no-SSL vcpkg install failed" }
+          $status = Get-Content -LiteralPath (Join-Path $install "vcpkg\status") -Raw
+          if ($status -match '(?m)^Package: (openssl|boringssl)$') { throw "TLS provider leaked into no-SSL libpq closure" }
+          $root = Join-Path $install $triplet
+          if (-not (Test-Path (Join-Path $root "lib\libpq.lib"))) { throw "libpq.lib missing" }
+
+      - name: Configure installed no-SSL consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $triplet = "qigao-x64-windows-v145"
+          $install = Join-Path $env:RUNNER_TEMP "libpq-no-ssl-install"
+          $source = Join-Path $env:RUNNER_TEMP "libpq-no-ssl-cmake-src"
+          $build = Join-Path $env:RUNNER_TEMP "libpq-no-ssl-cmake-build"
+          New-Item -ItemType Directory -Force -Path $source | Out-Null
+          @'
+          #include <libpq-fe.h>
+          int main(void) { return PQlibVersion() <= 0; }
+          '@ | Set-Content -LiteralPath (Join-Path $source "main.c") -Encoding utf8
+          @'
+          cmake_minimum_required(VERSION 3.24)
+          project(libpq_no_ssl_contract C)
+          find_package(PostgreSQL REQUIRED)
+          if(NOT TARGET PostgreSQL::PostgreSQL)
+            message(FATAL_ERROR "PostgreSQL::PostgreSQL target missing")
+          endif()
+          get_target_property(_pg_links PostgreSQL::PostgreSQL INTERFACE_LINK_LIBRARIES)
+          message(STATUS "PostgreSQL::PostgreSQL links: ${_pg_links}")
+          if("${_pg_links}" MATCHES "OpenSSL::")
+            message(FATAL_ERROR "no-SSL target unexpectedly propagates OpenSSL")
+          endif()
+          add_executable(libpq-no-ssl-cmake main.c)
+          target_link_libraries(libpq-no-ssl-cmake PRIVATE PostgreSQL::PostgreSQL)
+          '@ | Set-Content -LiteralPath (Join-Path $source "CMakeLists.txt") -Encoding utf8
+          cmake -S $source -B $build -A x64 -T v145 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" "-DVCPKG_MANIFEST_MODE=OFF" "-DVCPKG_INSTALLED_DIR=$install" "-DVCPKG_TARGET_TRIPLET=$triplet"
+          if ($LASTEXITCODE -ne 0) { throw "CMake consumer configure failed" }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "CMake consumer build failed" }
+          & (Join-Path $build "Release\libpq-no-ssl-cmake.exe")
+          if ($LASTEXITCODE -ne 0) { throw "no-SSL consumer failed" }

@@ -39,7 +39,7 @@ jobs:
               {
                 "name": "libpq",
                 "default-features": false,
-                "features": ["zstd"]
+                "features": ["ssl", "zstd"]
               }
             ],
             "builtin-baseline": "$baseline"
@@ -203,7 +203,7 @@ jobs:
               {
                 "name": "libpq",
                 "default-features": false,
-                "features": ["zstd"]
+                "features": ["ssl", "zstd"]
               }
             ],
             "builtin-baseline": "$baseline"
