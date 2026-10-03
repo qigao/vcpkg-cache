@@ -11,6 +11,14 @@ vcpkg_replace_string(
     "# CMAKE_INSTALL_PREFIX is provided by vcpkg"
 )
 
+# GmSSL is a private implementation dependency for consumers such as CNet.
+# Force a static provider regardless of the triplet's default library linkage.
+vcpkg_replace_string(
+    "${SOURCE_PATH}/CMakeLists.txt"
+    "add_library(gmssl ${src})"
+    "add_library(gmssl STATIC ${src})"
+)
+
 include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
@@ -41,7 +49,6 @@ include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
-        -DBUILD_SHARED_LIBS=OFF
         -DENABLE_TLS=ON
         -DENABLE_SECP256R1=ON
         -DENABLE_SHA2=ON
