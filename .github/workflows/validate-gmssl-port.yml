@@ -82,6 +82,8 @@ jobs:
           "$build/gmssl-tls12-alpn-contract"
           "$build/gmssl-tls-version-range-contract"
           "$build/gmssl-tls-version-range-dispatch-contract"
+          "$build/gmssl-tls-version-range-server-dispatch-contract"
+          "$build/gmssl-tls-version-range-server-dispatch-contract"
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
           "$build/gmssl-x509-rsa-contract"
@@ -583,6 +585,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "TLS version-range contract failed" }
           & (Join-Path $build "Release\gmssl-tls-version-range-dispatch-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS version-range dispatch contract failed" }
+          & (Join-Path $build "Release\gmssl-tls-version-range-server-dispatch-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "TLS server version-range dispatch contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-public-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA public operation contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-signature-contract.exe")
