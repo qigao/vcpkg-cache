@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config
+          sudo apt-get install -y --no-install-recommends pkg-config postgresql openssl
           manifest="$RUNNER_TEMP/libpq-manifest"
           install="$RUNNER_TEMP/libpq-install"
           mkdir -p "$manifest"
@@ -69,6 +69,111 @@ jobs:
           cc "$RUNNER_TEMP/libpq-consumer.c" $(pkg-config --cflags --libs --static libpq) -o "$RUNNER_TEMP/libpq-consumer"
           "$RUNNER_TEMP/libpq-consumer"
 
+      - name: Configure installed static CMake consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          install="$RUNNER_TEMP/libpq-install"
+          source="$RUNNER_TEMP/libpq-cmake-consumer"
+          build="$RUNNER_TEMP/libpq-cmake-build"
+          mkdir -p "$source"
+          cat > "$source/main.c" <<'EOF'
+          #include <libpq-fe.h>
+          int main(void) {
+            return PQlibVersion() <= 0;
+          }
+          EOF
+          cat > "$source/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.24)
+          project(libpq_cmake_contract C)
+          find_package(PostgreSQL REQUIRED)
+          if(NOT TARGET PostgreSQL::PostgreSQL)
+            message(FATAL_ERROR "PostgreSQL::PostgreSQL target missing")
+          endif()
+          get_target_property(_pg_links PostgreSQL::PostgreSQL INTERFACE_LINK_LIBRARIES)
+          message(STATUS "PostgreSQL::PostgreSQL links: ${_pg_links}")
+          if(NOT "${_pg_links}" MATCHES "OpenSSL::SSL")
+            message(FATAL_ERROR "static PostgreSQL target does not propagate OpenSSL::SSL")
+          endif()
+          add_executable(libpq-cmake-consumer main.c)
+          target_link_libraries(libpq-cmake-consumer PRIVATE PostgreSQL::PostgreSQL)
+          EOF
+          cmake -S "$source" -B "$build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_MODE=OFF \
+            -DVCPKG_INSTALLED_DIR="$install" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux
+          cmake --build "$build"
+          "$build/libpq-cmake-consumer"
+
+      - name: Verify real PostgreSQL TLS with sslmode verify-full
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libpq-install/x64-linux"
+          work="$RUNNER_TEMP/libpq-verify-full"
+          data="$work/data"
+          mkdir -p "$work"
+
+          openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
+            -subj "/CN=libpq-test-root" \
+            -keyout "$work/ca.key" -out "$work/ca.crt" >/dev/null 2>&1
+          openssl req -new -newkey rsa:2048 -nodes -sha256 \
+            -subj "/CN=localhost" \
+            -keyout "$work/server.key" -out "$work/server.csr" >/dev/null 2>&1
+          cat > "$work/server.ext" <<'EOF'
+          subjectAltName=DNS:localhost
+          extendedKeyUsage=serverAuth
+          keyUsage=digitalSignature,keyEncipherment
+          EOF
+          openssl x509 -req -sha256 -days 1 \
+            -in "$work/server.csr" \
+            -CA "$work/ca.crt" -CAkey "$work/ca.key" -CAcreateserial \
+            -extfile "$work/server.ext" -out "$work/server.crt" >/dev/null 2>&1
+          chmod 600 "$work/server.key"
+
+          pgbin="$(dirname "$(find /usr/lib/postgresql -type f -name initdb | sort -V | tail -n 1)")"
+          test -x "$pgbin/initdb"
+          test -x "$pgbin/pg_ctl"
+          "$pgbin/initdb" -D "$data" -A trust --no-locale >/dev/null
+          cat >> "$data/postgresql.conf" <<EOF
+          listen_addresses = '127.0.0.1'
+          port = 55432
+          ssl = on
+          ssl_cert_file = '$work/server.crt'
+          ssl_key_file = '$work/server.key'
+          EOF
+          echo "hostssl all all 127.0.0.1/32 trust" >> "$data/pg_hba.conf"
+          "$pgbin/pg_ctl" -D "$data" -l "$work/postgres.log" -w start
+          trap '"$pgbin/pg_ctl" -D "$data" -m fast -w stop >/dev/null 2>&1 || true' EXIT
+
+          cat > "$work/verify-full.c" <<'EOF'
+          #include <libpq-fe.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          int main(void) {
+            const char *conninfo = getenv("LIBPQ_TEST_CONNINFO");
+            PGconn *conn = PQconnectdb(conninfo);
+            if (!conn || PQstatus(conn) != CONNECTION_OK) {
+              fprintf(stderr, "connect failed: %s\n", conn ? PQerrorMessage(conn) : "null connection");
+              if (conn) PQfinish(conn);
+              return 1;
+            }
+            if (PQsslInUse(conn) != 1) {
+              fprintf(stderr, "connection did not negotiate TLS\n");
+              PQfinish(conn);
+              return 2;
+            }
+            PQfinish(conn);
+            return 0;
+          }
+          EOF
+          export PKG_CONFIG_PATH="$root/lib/pkgconfig"
+          cc "$work/verify-full.c" $(pkg-config --cflags --libs --static libpq) -o "$work/verify-full"
+          export LIBPQ_TEST_CONNINFO="host=localhost hostaddr=127.0.0.1 port=55432 dbname=postgres user=$(id -un) sslmode=verify-full sslrootcert=$work/ca.crt"
+          "$work/verify-full"
+
   windows:
     name: libpq OpenSSL / windows-2025 v145
     runs-on: windows-2025
@@ -108,3 +213,40 @@ jobs:
           $root = Join-Path $install $triplet
           if (-not (Test-Path (Join-Path $root "include\libpq-fe.h"))) { throw "libpq-fe.h missing" }
           if (-not (Test-Path (Join-Path $root "lib\libpq.lib"))) { throw "libpq.lib missing" }
+
+      - name: Configure installed static CMake consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $triplet = "qigao-x64-windows-v145"
+          $install = Join-Path $env:RUNNER_TEMP "libpq-install"
+          $source = Join-Path $env:RUNNER_TEMP "libpq-cmake-consumer"
+          $build = Join-Path $env:RUNNER_TEMP "libpq-cmake-build"
+          New-Item -ItemType Directory -Force -Path $source | Out-Null
+          @'
+          #include <libpq-fe.h>
+          int main(void) {
+            return PQlibVersion() <= 0;
+          }
+          '@ | Set-Content -LiteralPath (Join-Path $source "main.c") -Encoding utf8
+          @'
+          cmake_minimum_required(VERSION 3.24)
+          project(libpq_cmake_contract C)
+          find_package(PostgreSQL REQUIRED)
+          if(NOT TARGET PostgreSQL::PostgreSQL)
+            message(FATAL_ERROR "PostgreSQL::PostgreSQL target missing")
+          endif()
+          get_target_property(_pg_links PostgreSQL::PostgreSQL INTERFACE_LINK_LIBRARIES)
+          message(STATUS "PostgreSQL::PostgreSQL links: ${_pg_links}")
+          if(NOT "${_pg_links}" MATCHES "OpenSSL::SSL")
+            message(FATAL_ERROR "static PostgreSQL target does not propagate OpenSSL::SSL")
+          endif()
+          add_executable(libpq-cmake-consumer main.c)
+          target_link_libraries(libpq-cmake-consumer PRIVATE PostgreSQL::PostgreSQL)
+          '@ | Set-Content -LiteralPath (Join-Path $source "CMakeLists.txt") -Encoding utf8
+          cmake -S $source -B $build -A x64 -T v145 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" "-DVCPKG_MANIFEST_MODE=OFF" "-DVCPKG_INSTALLED_DIR=$install" "-DVCPKG_TARGET_TRIPLET=$triplet"
+          if ($LASTEXITCODE -ne 0) { throw "CMake consumer configure failed" }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "CMake consumer build failed" }
+          & (Join-Path $build "Release\libpq-cmake-consumer.exe")
+          if ($LASTEXITCODE -ne 0) { throw "CMake consumer failed" }
