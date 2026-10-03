@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/turbomedia-media-cache.yml"
       - "producers/turbomedia.ref"
+      - "triplets/arm64-ios.cmake"
+      - "triplets/arm64-ios-simulator.cmake"
   workflow_dispatch:
 
 permissions:
