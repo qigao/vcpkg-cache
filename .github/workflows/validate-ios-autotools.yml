@@ -1,0 +1,89 @@
+name: iOS Autotools cross qualification
+
+on:
+  pull_request:
+    paths:
+      - "triplets/arm64-ios.cmake"
+      - "triplets/arm64-ios-simulator.cmake"
+      - ".github/workflows/validate-ios-autotools.yml"
+      - ".github/actions/setup-vcpkg-cache/**"
+      - "vcpkg-tool-version.txt"
+      - "vcpkg-scripts-revision.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  libiconv:
+    name: libiconv cold cross-build / ${{ matrix.name }}
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: device arm64, triplet: arm64-ios}
+          - {name: simulator arm64, triplet: arm64-ios-simulator}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure central vcpkg contract
+        uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+
+      - name: Prepare Autotools host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          brew install autoconf automake autoconf-archive libtool
+
+      - name: Verify explicit iOS configure host identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          triplet="$VCPKG_OVERLAY_TRIPLETS/${{ matrix.triplet }}.cmake"
+          test -f "$triplet"
+          grep -F 'set(VCPKG_MAKE_BUILD_TRIPLET "--host=arm64-apple-ios")' "$triplet"
+
+      - name: Cold-build GNU libiconv through pinned-old vcpkg-make
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/ios-libiconv-manifest"
+          installed="$RUNNER_TEMP/ios-libiconv-${{ matrix.triplet }}"
+          rm -rf "$manifest" "$installed"
+          mkdir -p "$manifest"
+
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-ios-autotools-contract",
+            "version-string": "1",
+            "dependencies": ["libiconv"],
+            "builtin-baseline": "a51bb4d1434e6d0927ff79db8033bed8522b85df"
+          }
+          EOF
+
+          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$installed" \
+            --triplet "${{ matrix.triplet }}" \
+            --overlay-ports="$VCPKG_OVERLAY_PORTS" \
+            --overlay-triplets="$VCPKG_OVERLAY_TRIPLETS"
+
+          prefix="$installed/${{ matrix.triplet }}"
+          test -f "$prefix/include/iconv.h"
+          test -f "$prefix/lib/libiconv.a"
+          test ! -e "$prefix/bin/iconv"
+
+      - name: Summarize cross contract
+        shell: bash
+        run: |
+          {
+            echo "triplet=${{ matrix.triplet }}"
+            echo "autoconf_host=arm64-apple-ios"
+            echo "baseline=a51bb4d1434e6d0927ff79db8033bed8522b85df"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -139,6 +139,78 @@ static int build_server_hello(uint8_t *record, size_t *record_len)
     return 1;
 }
 
+static int validate_alpn_wire_bound(void)
+{
+    TLS_CTX ctx;
+    char long_name[256];
+    char *protocols[256];
+    size_t i;
+
+    memset(long_name, 'a', sizeof(long_name) - 1u);
+    long_name[sizeof(long_name) - 1u] = '\0';
+    for (i = 0; i < sizeof(protocols)/sizeof(protocols[0]); ++i)
+        protocols[i] = long_name;
+
+    memset(&ctx, 0, sizeof(ctx));
+    if (tls_ctx_init(&ctx, TLS_protocol_tls12, TLS_client_mode) != 1)
+        return -1;
+    if (tls_ctx_set_application_layer_protocol_negotiation(&ctx, protocols, 255u) != 1) {
+        tls_ctx_cleanup(&ctx);
+        return -2;
+    }
+    if (ctx.alpn_protocols != protocols || ctx.alpn_protocols_cnt != 255u) {
+        tls_ctx_cleanup(&ctx);
+        return -3;
+    }
+    tls_ctx_cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    if (tls_ctx_init(&ctx, TLS_protocol_tls12, TLS_client_mode) != 1)
+        return -4;
+    if (tls_ctx_set_application_layer_protocol_negotiation(&ctx, protocols, 256u) == 1) {
+        tls_ctx_cleanup(&ctx);
+        return -5;
+    }
+    tls_ctx_cleanup(&ctx);
+    return 1;
+}
+
+static int validate_server_preferred_selection(void)
+{
+    char *server_protocols[] = {"h2", "http/1.1"};
+    char *client_protocols[] = {"http/1.1", "h2"};
+    uint8_t extension[64];
+    uint8_t *p = extension;
+    size_t extension_len = 0;
+    const uint8_t *encoded = extension;
+    size_t encoded_len;
+    const uint8_t *ext_data = NULL;
+    size_t ext_data_len = 0;
+    int ext_type = 0;
+    char *selected = NULL;
+
+    if (tls_application_layer_protocol_negotiation_ext_to_bytes(
+            client_protocols,
+            sizeof(client_protocols)/sizeof(client_protocols[0]),
+            &p, &extension_len) != 1)
+        return -1;
+    encoded_len = extension_len;
+    if (tls_ext_from_bytes(&ext_type, &ext_data, &ext_data_len,
+                           &encoded, &encoded_len) != 1
+        || ext_type != TLS_extension_application_layer_protocol_negotiation
+        || encoded_len != 0)
+        return -2;
+    if (tls_application_layer_protocol_negotiation_select(
+            ext_data, ext_data_len,
+            server_protocols,
+            sizeof(server_protocols)/sizeof(server_protocols[0]),
+            &selected) != 1)
+        return -3;
+    if (selected != server_protocols[0] || strcmp(selected, "h2") != 0)
+        return -4;
+    return 1;
+}
+
 int main(void)
 {
     TLS_CTX ctx;
@@ -147,6 +219,13 @@ int main(void)
     TLS_IO callbacks = {&io, probe_send, probe_recv};
     size_t server_hello_len = 0;
     int rc = 1;
+
+    if (validate_alpn_wire_bound() != 1) {
+        return 17;
+    }
+    if (validate_server_preferred_selection() != 1) {
+        return 18;
+    }
 
     fprintf(stderr, "alpn-probe: abi ctx=%zu/%zu conn=%zu/%zu\n",
             sizeof(TLS_CTX), tls_ctx_sizeof(), sizeof(TLS_CONNECT), tls_connect_sizeof());

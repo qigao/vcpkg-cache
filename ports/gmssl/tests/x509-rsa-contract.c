@@ -1,6 +1,7 @@
 #include <gmssl/hex.h>
 #include <gmssl/x509_cer.h>
 #include <gmssl/x509_key.h>
+#include <gmssl/tls.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -68,7 +69,13 @@ int main(void)
 	X509_KEY key2;
 	X509_KEY cert_key;
 	X509_SIGN_CTX verify_ctx;
+	TLS_CTX trust_ctx;
+	uint8_t trust_bundle[8192];
+	size_t trust_bundle_len = 0;
+	size_t i;
 	int sig_alg = OID_undef;
+
+	memset(&trust_ctx, 0, sizeof(trust_ctx));
 
 	if (decode(spki_hex, spki, sizeof(spki), &spki_len) != 1) return 1;
 	if (decode(signature_hex, sig, sizeof(sig), &sig_len) != 1) return 2;
@@ -108,6 +115,22 @@ int main(void)
 	bad_cert[cert_len - 1] ^= 1u;
 	if (x509_cert_is_signed_by_root_ca_cert(
 			bad_cert, cert_len, cert, cert_len, NULL, 0) != 0) return 13;
+
+	/* A client trust store must not be bounded by the 512-byte CA-name
+	 * presentation buffer used for server CertificateRequest. */
+	for (i = 0; i < 8; i++) {
+		if (trust_bundle_len + cert_len > sizeof(trust_bundle)) return 14;
+		memcpy(trust_bundle + trust_bundle_len, cert, cert_len);
+		trust_bundle_len += cert_len;
+	}
+	if (tls_ctx_init(&trust_ctx, TLS_protocol_tls13, TLS_client_mode) != 1) return 15;
+	if (tls_ctx_set_ca_certificates_der(&trust_ctx,
+			trust_bundle, trust_bundle_len, TLS_DEFAULT_VERIFY_DEPTH) != 1) return 16;
+	if (!trust_ctx.cacerts || trust_ctx.cacertslen != trust_bundle_len
+		|| memcmp(trust_ctx.cacerts, trust_bundle, trust_bundle_len) != 0
+		|| trust_ctx.ca_names_len != 0
+		|| trust_ctx.trusted_authorities_len != 0) return 17;
+	tls_ctx_cleanup(&trust_ctx);
 
 	x509_key_cleanup(&cert_key);
 	x509_key_cleanup(&key2);

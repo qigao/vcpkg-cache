@@ -117,6 +117,15 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_link_options(gmssl-rsa-pkcs8-contract PRIVATE -fsanitize=address)
 endif()
 
+add_executable(gmssl-rsa-encrypted-pkcs8-contract rsa-encrypted-pkcs8-contract.c)
+target_link_libraries(gmssl-rsa-encrypted-pkcs8-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-rsa-encrypted-pkcs8-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-rsa-encrypted-pkcs8-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-rsa-encrypted-pkcs8-contract PRIVATE -fsanitize=address)
+endif()
+
 add_executable(gmssl-rsa-private-signatures-contract rsa-private-signatures-contract.c)
 target_link_libraries(gmssl-rsa-private-signatures-contract PRIVATE GmSSL::GmSSL)
 set_target_properties(gmssl-rsa-private-signatures-contract PROPERTIES
@@ -157,4 +166,73 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_link_options(gmssl-tls12-ecdhe-rsa-contract PRIVATE -fsanitize=address)
   target_compile_options(gmssl-x509-basic-constraints-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
   target_link_options(gmssl-x509-basic-constraints-contract PRIVATE -fsanitize=address)
+endif()
+
+add_executable(gmssl-tls-version-range-server-dispatch-contract tls-version-range-server-dispatch-contract.c)
+target_link_libraries(gmssl-tls-version-range-server-dispatch-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-version-range-server-dispatch-contract PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-tls-version-range-server-dispatch-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-tls-version-range-server-dispatch-contract PRIVATE -fsanitize=address)
+endif()
+
+file(TO_CMAKE_PATH "${CMAKE_CURRENT_LIST_DIR}/fixtures/external-io-ca-cert.pem" _gmssl_external_io_ca)
+file(TO_CMAKE_PATH "${CMAKE_CURRENT_LIST_DIR}/fixtures/external-io-server-cert.pem" _gmssl_external_io_cert)
+file(TO_CMAKE_PATH "${CMAKE_CURRENT_LIST_DIR}/fixtures/external-io-server-key.pem" _gmssl_external_io_key)
+
+function(gmssl_add_external_io_contract target protocol cipher sig_alg label)
+    add_executable(${target} tls-external-io-contract.c)
+    target_link_libraries(${target} PRIVATE GmSSL::GmSSL)
+    target_compile_definitions(${target} PRIVATE
+        "GMSSL_EXTERNAL_IO_CA_CERT=\"${_gmssl_external_io_ca}\""
+        "GMSSL_EXTERNAL_IO_SERVER_CERT=\"${_gmssl_external_io_cert}\""
+        "GMSSL_EXTERNAL_IO_SERVER_KEY=\"${_gmssl_external_io_key}\""
+        "GMSSL_EXTERNAL_IO_PROTOCOL=${protocol}"
+        "GMSSL_EXTERNAL_IO_CIPHER=${cipher}"
+        "GMSSL_EXTERNAL_IO_SIGALG=${sig_alg}"
+        "GMSSL_EXTERNAL_IO_LABEL=\"${label}\"")
+    set_target_properties(${target} PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+        target_compile_options(${target} PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(${target} PRIVATE -fsanitize=address)
+    endif()
+endfunction()
+
+gmssl_add_external_io_contract(
+    gmssl-tls13-external-io-contract
+    TLS_protocol_tls13
+    TLS_cipher_aes_128_gcm_sha256
+    TLS_sig_rsa_pss_rsae_sha256
+    "TLS 1.3")
+gmssl_add_external_io_contract(
+    gmssl-tls12-external-io-contract
+    TLS_protocol_tls12
+    TLS_cipher_ecdhe_rsa_with_aes_128_gcm_sha256
+    TLS_sig_rsa_pkcs1_sha256
+    "TLS 1.2")
+
+unset(_gmssl_external_io_ca)
+unset(_gmssl_external_io_cert)
+unset(_gmssl_external_io_key)
+
+add_executable(gmssl-p256-plain-pkcs8-contract p256-plain-pkcs8-contract.c)
+target_link_libraries(gmssl-p256-plain-pkcs8-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-p256-plain-pkcs8-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-p256-plain-pkcs8-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-p256-plain-pkcs8-contract PRIVATE -fsanitize=address)
+endif()
+
+add_executable(gmssl-tls-cleanup-contract tls-cleanup-contract.c)
+target_link_libraries(gmssl-tls-cleanup-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-cleanup-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-tls-cleanup-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-tls-cleanup-contract PRIVATE -fsanitize=address)
 endif()

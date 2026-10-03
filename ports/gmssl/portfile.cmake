@@ -11,13 +11,26 @@ vcpkg_replace_string(
     "# CMAKE_INSTALL_PREFIX is provided by vcpkg"
 )
 
+# GmSSL is a private implementation dependency for consumers such as CNet.
+# Force a static provider regardless of the triplet's default library linkage.
+vcpkg_replace_string(
+    "${SOURCE_PATH}/CMakeLists.txt"
+    "add_library(gmssl \${src})"
+    "add_library(gmssl STATIC \${src})"
+)
+
 include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/alpn-capacity.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/trust-anchors.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/tls-lifecycle.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-compat.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/inspection.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/exporter.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/version-range.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/signature-capacity.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ec-plain-pkcs8.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-verify.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-signatures.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-private.cmake")
@@ -26,8 +39,11 @@ include("${CMAKE_CURRENT_LIST_DIR}/rsa-pkcs8.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-signatures.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa-signing.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/rsa-encrypted-pkcs8.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa-server-signing.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa-mtls.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa-signing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 
