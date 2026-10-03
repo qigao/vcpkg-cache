@@ -22,7 +22,11 @@ const int tls13_signature_algorithms[] = {
 	TLS_sig_ecdsa_secp256r1_sha256,
 #endif
 #if defined(ENABLE_SHA2)
+	/* TLS 1.3 CertificateVerify must prefer RSA-PSS. Keep PKCS#1 after it
+	 * so ordinary sha256WithRSAEncryption certificate chains remain selectable
+	 * when signature_algorithms_cert is not sent separately. */
 	TLS_sig_rsa_pss_rsae_sha256,
+	TLS_sig_rsa_pkcs1_sha256,
 #endif
 };
 ]==]
@@ -263,6 +267,44 @@ gmssl_replace_once(
 
 	/*
 	format_print(stderr, 0, 0, "verify_certificate_verify\n");
+]==]
+)
+
+
+# TLS 1.3 cipher suites are independent of the authentication key family but
+# still select a transcript digest. RSA-PSS/SHA-256 must therefore map
+# directly to SHA-256 here; do not fake an X.509 AlgorithmIdentifier mapping.
+gmssl_replace_once(
+    "${_gmssl_tls13_c}"
+[==[
+	switch (tls_signature_scheme_algorithm_oid(sig_alg)) {
+	case OID_sm2sign_with_sm3:
+		digest_oid = OID_sm3;
+		break;
+	case OID_ecdsa_with_sha256:
+		digest_oid = OID_sha256;
+		break;
+	default:
+		error_print();
+		return -1;
+	}
+]==]
+[==[
+	if (sig_alg == TLS_sig_rsa_pss_rsae_sha256) {
+		digest_oid = OID_sha256;
+	} else {
+		switch (tls_signature_scheme_algorithm_oid(sig_alg)) {
+		case OID_sm2sign_with_sm3:
+			digest_oid = OID_sm3;
+			break;
+		case OID_ecdsa_with_sha256:
+			digest_oid = OID_sha256;
+			break;
+		default:
+			error_print();
+			return -1;
+		}
+	}
 ]==]
 )
 
