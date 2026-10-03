@@ -83,6 +83,7 @@ jobs:
           "$build/gmssl-tls-version-range-contract"
           "$build/gmssl-tls-version-range-dispatch-contract"
           "$build/gmssl-tls-version-range-server-dispatch-contract"
+          "$build/gmssl-tls-version-range-server-dispatch-contract"
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
           "$build/gmssl-x509-rsa-contract"
@@ -91,6 +92,8 @@ jobs:
           "$build/gmssl-rsa-private-contract"
           "$build/gmssl-rsa-private-op-contract"
           "$build/gmssl-rsa-pkcs8-contract"
+          "$build/gmssl-rsa-encrypted-pkcs8-contract"
+          "$build/gmssl-rsa-encrypted-pkcs8-contract"
           "$build/gmssl-rsa-private-signatures-contract"
           "$build/gmssl-tls-inspection-contract"
           "$build/gmssl-tls12-ecdhe-rsa-contract"
@@ -170,6 +173,90 @@ jobs:
           trap - EXIT
 
 
+      - name: Interoperate GmSSL TLS 1.2 RSA server with OpenSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          work="$RUNNER_TEMP/gmssl-tls12-rsa-server-interop"
+          rm -rf "$work"
+          mkdir -p "$work"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/ca-key.pem" -out "$work/ca-cert.pem" -days 1 \
+            -subj "/CN=GmSSL Server Test CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign"
+          openssl req -new -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/server-key.pem" -out "$work/server.csr" \
+            -subj "/CN=localhost"
+          cat > "$work/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:localhost
+          EOF
+          openssl x509 -req -in "$work/server.csr" \
+            -CA "$work/ca-cert.pem" -CAkey "$work/ca-key.pem" -CAcreateserial \
+            -out "$work/server-cert.pem" -days 1 -sha256 -extfile "$work/server.ext"
+          "$gmssl_bin" tls12_server \
+            -port 9444 -cert "$work/server-cert.pem" -key "$work/server-key.pem" -pass "" \
+            -cipher_suite TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
+            -supported_group prime256v1 -sig_alg rsa_pkcs1_sha256 \
+            -renegotiation_info \
+            >"$work/server.out" 2>"$work/server.err" &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          client_rc=0
+          echoed=0
+          printf 'gmssl-rsa-server\n' | openssl s_client \
+            -connect 127.0.0.1:9444 -servername localhost \
+            -CAfile "$work/ca-cert.pem" -verify_hostname localhost \
+            -tls1_2 -cipher ECDHE-RSA-AES128-GCM-SHA256 \
+            -sigalgs rsa_pkcs1_sha256 -quiet \
+            >"$work/client.out" 2>"$work/client.err" &
+          client_pid=$!
+          for _ in $(seq 1 100); do
+            if grep -q "gmssl-rsa-server" "$work/client.out" 2>/dev/null; then
+              echoed=1
+              break
+            fi
+            if ! kill -0 "$client_pid" 2>/dev/null; then
+              wait "$client_pid" || client_rc=$?
+              client_pid=""
+              break
+            fi
+            sleep 0.1
+          done
+          if [ -n "$client_pid" ]; then
+            kill "$client_pid" 2>/dev/null || true
+            wait "$client_pid" 2>/dev/null || true
+            client_pid=""
+          fi
+          cat "$work/server.err"
+          cat "$work/server.out"
+          cat "$work/client.err"
+          cat "$work/client.out"
+          if [ "$echoed" -ne 1 ]; then
+            echo "OpenSSL TLS 1.2 client did not receive the GmSSL echo (rc=$client_rc)" >&2
+            exit 1
+          fi
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          trap - EXIT
+
+      - name: Interoperate TLS 1.2 RSA mutual authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          bash ports/gmssl/tests/tls12-rsa-mtls-interop.sh \
+            "$gmssl_bin" "$RUNNER_TEMP/gmssl-tls12-rsa-mtls" 9450
+
   macos:
     name: GmSSL / macos-15
     runs-on: macos-15
@@ -242,7 +329,6 @@ jobs:
           "$build/gmssl-tls12-alpn-contract"
           "$build/gmssl-tls-version-range-contract"
           "$build/gmssl-tls-version-range-dispatch-contract"
-          "$build/gmssl-tls-version-range-server-dispatch-contract"
           "$build/gmssl-rsa-public-contract"
           "$build/gmssl-rsa-signature-contract"
           "$build/gmssl-x509-rsa-contract"
@@ -328,6 +414,90 @@ jobs:
           kill "$server_pid" 2>/dev/null || true
           wait "$server_pid" 2>/dev/null || true
           trap - EXIT
+
+      - name: Interoperate GmSSL TLS 1.2 RSA server with OpenSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
+          work="$RUNNER_TEMP/gmssl-tls12-rsa-server-interop"
+          rm -rf "$work"
+          mkdir -p "$work"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/ca-key.pem" -out "$work/ca-cert.pem" -days 1 \
+            -subj "/CN=GmSSL Server Test CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign"
+          openssl req -new -newkey rsa:2048 -sha256 -nodes \
+            -keyout "$work/server-key.pem" -out "$work/server.csr" \
+            -subj "/CN=localhost"
+          cat > "$work/server.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:localhost
+          EOF
+          openssl x509 -req -in "$work/server.csr" \
+            -CA "$work/ca-cert.pem" -CAkey "$work/ca-key.pem" -CAcreateserial \
+            -out "$work/server-cert.pem" -days 1 -sha256 -extfile "$work/server.ext"
+          "$gmssl_bin" tls12_server \
+            -port 9444 -cert "$work/server-cert.pem" -key "$work/server-key.pem" -pass "" \
+            -cipher_suite TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
+            -supported_group prime256v1 -sig_alg rsa_pkcs1_sha256 \
+            -renegotiation_info \
+            >"$work/server.out" 2>"$work/server.err" &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          client_rc=0
+          echoed=0
+          printf 'gmssl-rsa-server\n' | openssl s_client \
+            -connect 127.0.0.1:9444 -servername localhost \
+            -CAfile "$work/ca-cert.pem" -verify_hostname localhost \
+            -tls1_2 -cipher ECDHE-RSA-AES128-GCM-SHA256 \
+            -sigalgs rsa_pkcs1_sha256 -quiet \
+            >"$work/client.out" 2>"$work/client.err" &
+          client_pid=$!
+          for _ in $(seq 1 100); do
+            if grep -q "gmssl-rsa-server" "$work/client.out" 2>/dev/null; then
+              echoed=1
+              break
+            fi
+            if ! kill -0 "$client_pid" 2>/dev/null; then
+              wait "$client_pid" || client_rc=$?
+              client_pid=""
+              break
+            fi
+            sleep 0.1
+          done
+          if [ -n "$client_pid" ]; then
+            kill "$client_pid" 2>/dev/null || true
+            wait "$client_pid" 2>/dev/null || true
+            client_pid=""
+          fi
+          cat "$work/server.err"
+          cat "$work/server.out"
+          cat "$work/client.err"
+          cat "$work/client.out"
+          if [ "$echoed" -ne 1 ]; then
+            echo "OpenSSL TLS 1.2 client did not receive the GmSSL echo (rc=$client_rc)" >&2
+            exit 1
+          fi
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          trap - EXIT
+
+      - name: Interoperate TLS 1.2 RSA mutual authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          bash ports/gmssl/tests/tls12-rsa-mtls-interop.sh \
+            "$gmssl_bin" "$RUNNER_TEMP/gmssl-tls12-rsa-mtls" 9450
 
   windows:
     name: GmSSL / windows-2025 v145
@@ -433,6 +603,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RSA private operation contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-pkcs8-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA PKCS8 identity contract failed" }
+          & (Join-Path $build "Release\gmssl-rsa-encrypted-pkcs8-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "encrypted RSA PKCS8 key_password contract failed" }
           & (Join-Path $build "Release\gmssl-rsa-private-signatures-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA private signing contract failed" }
           & (Join-Path $build "Release\gmssl-tls-inspection-contract.exe")
