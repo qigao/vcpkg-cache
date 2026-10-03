@@ -145,7 +145,10 @@ jobs:
           ssl_key_file = '$work/server.key'
           EOF
           echo "hostssl all all 127.0.0.1/32 trust" >> "$data/pg_hba.conf"
-          "$pgbin/pg_ctl" -D "$data" -l "$work/postgres.log" -w start
+          if ! "$pgbin/pg_ctl" -D "$data" -l "$work/postgres.log" -w start; then
+            cat "$work/postgres.log" >&2 || true
+            exit 1
+          fi
           trap '"$pgbin/pg_ctl" -D "$data" -m fast -w stop >/dev/null 2>&1 || true' EXIT
 
           cat > "$work/verify-full.c" <<'EOF'
