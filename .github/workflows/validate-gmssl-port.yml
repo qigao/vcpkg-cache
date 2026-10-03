@@ -204,12 +204,21 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           sleep 1
+          client_rc=0
           printf 'gmssl-rsa-server\n' | openssl s_client \
             -connect 127.0.0.1:9444 -servername localhost \
             -CAfile "$work/ca-cert.pem" -verify_hostname localhost \
             -tls1_2 -cipher ECDHE-RSA-AES128-GCM-SHA256 \
             -sigalgs rsa_pkcs1_sha256 -quiet \
-            >"$work/client.out" 2>"$work/client.err"
+            >"$work/client.out" 2>"$work/client.err" || client_rc=$?
+          cat "$work/server.err"
+          cat "$work/server.out"
+          cat "$work/client.err"
+          cat "$work/client.out"
+          if [ "$client_rc" -ne 0 ]; then
+            echo "OpenSSL TLS 1.2 client failed with rc=$client_rc" >&2
+            exit "$client_rc"
+          fi
           grep -q "gmssl-rsa-server" "$work/client.out"
           kill "$server_pid" 2>/dev/null || true
           wait "$server_pid" 2>/dev/null || true
@@ -408,12 +417,21 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           sleep 1
+          client_rc=0
           printf 'gmssl-rsa-server\n' | openssl s_client \
             -connect 127.0.0.1:9444 -servername localhost \
             -CAfile "$work/ca-cert.pem" -verify_hostname localhost \
             -tls1_2 -cipher ECDHE-RSA-AES128-GCM-SHA256 \
             -sigalgs rsa_pkcs1_sha256 -quiet \
-            >"$work/client.out" 2>"$work/client.err"
+            >"$work/client.out" 2>"$work/client.err" || client_rc=$?
+          cat "$work/server.err"
+          cat "$work/server.out"
+          cat "$work/client.err"
+          cat "$work/client.out"
+          if [ "$client_rc" -ne 0 ]; then
+            echo "OpenSSL TLS 1.2 client failed with rc=$client_rc" >&2
+            exit "$client_rc"
+          fi
           grep -q "gmssl-rsa-server" "$work/client.out"
           kill "$server_pid" 2>/dev/null || true
           wait "$server_pid" 2>/dev/null || true
