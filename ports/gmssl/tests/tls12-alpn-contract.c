@@ -175,6 +175,31 @@ static int validate_alpn_wire_bound(void)
     return 1;
 }
 
+static int validate_server_preferred_selection(void)
+{
+    char *server_protocols[] = {"h2", "http/1.1"};
+    char *client_protocols[] = {"http/1.1", "h2"};
+    uint8_t extension[64];
+    uint8_t *p = extension;
+    size_t extension_len = 0;
+    char *selected = NULL;
+
+    if (tls_application_layer_protocol_negotiation_ext_to_bytes(
+            client_protocols,
+            sizeof(client_protocols)/sizeof(client_protocols[0]),
+            &p, &extension_len) != 1)
+        return -1;
+    if (tls_application_layer_protocol_negotiation_select(
+            extension, extension_len,
+            server_protocols,
+            sizeof(server_protocols)/sizeof(server_protocols[0]),
+            &selected) != 1)
+        return -2;
+    if (selected != server_protocols[0] || strcmp(selected, "h2") != 0)
+        return -3;
+    return 1;
+}
+
 int main(void)
 {
     TLS_CTX ctx;
@@ -186,6 +211,9 @@ int main(void)
 
     if (validate_alpn_wire_bound() != 1) {
         return 17;
+    }
+    if (validate_server_preferred_selection() != 1) {
+        return 18;
     }
 
     fprintf(stderr, "alpn-probe: abi ctx=%zu/%zu conn=%zu/%zu\n",
