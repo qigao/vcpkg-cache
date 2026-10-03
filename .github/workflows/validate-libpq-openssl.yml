@@ -140,6 +140,7 @@ jobs:
           cat >> "$data/postgresql.conf" <<EOF
           listen_addresses = '127.0.0.1'
           port = 55432
+          unix_socket_directories = '$work'
           ssl = on
           ssl_cert_file = '$work/server.crt'
           ssl_key_file = '$work/server.key'
