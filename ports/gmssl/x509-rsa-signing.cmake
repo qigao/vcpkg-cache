@@ -112,10 +112,24 @@ gmssl_replace_once(
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+int x509_sign_update(X509_SIGN_CTX *ctx, const uint8_t *data, size_t datalen)
+{
+	if (!ctx) {
+		error_print();
+		return -1;
+	}
+
 	switch (ctx->sign_algor) {
 	case OID_sm2sign_with_sm3:
 ]==]
 [==[
+int x509_sign_update(X509_SIGN_CTX *ctx, const uint8_t *data, size_t datalen)
+{
+	if (!ctx) {
+		error_print();
+		return -1;
+	}
+
 	switch (ctx->sign_algor) {
 	case OID_rsasign_with_sha256:
 		sha256_update(&ctx->u.rsa_verify_ctx, data, datalen);
@@ -127,11 +141,23 @@ gmssl_replace_once(
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+int x509_sign_finish(X509_SIGN_CTX *ctx, uint8_t *sig, size_t *siglen)
+{
+	if (!ctx || !sig || !siglen) {
+		error_print();
+		return -1;
+	}
 	switch (ctx->sign_algor) {
 	case OID_sm2sign_with_sm3:
 		if (ctx->fixed_siglen) {
 ]==]
 [==[
+int x509_sign_finish(X509_SIGN_CTX *ctx, uint8_t *sig, size_t *siglen)
+{
+	if (!ctx || !sig || !siglen) {
+		error_print();
+		return -1;
+	}
 	switch (ctx->sign_algor) {
 	case OID_rsasign_with_sha256: {
 		uint8_t dgst[SHA256_DIGEST_SIZE];
@@ -154,11 +180,33 @@ gmssl_replace_once(
 gmssl_replace_once(
     "${_gmssl_x509_c}"
 [==[
+int x509_sign(X509_SIGN_CTX *ctx, const uint8_t *data, size_t datalen, uint8_t *sig, size_t *siglen)
+{
+	if (!ctx || !sig || !siglen) {
+		error_print();
+		return -1;
+	}
+	if (!data || !datalen) {
+		error_print();
+		return -1;
+	}
+
 	switch (ctx->sign_algor) {
 	case OID_sm2sign_with_sm3:
 #ifdef ENABLE_SECP256R1
 ]==]
 [==[
+int x509_sign(X509_SIGN_CTX *ctx, const uint8_t *data, size_t datalen, uint8_t *sig, size_t *siglen)
+{
+	if (!ctx || !sig || !siglen) {
+		error_print();
+		return -1;
+	}
+	if (!data || !datalen) {
+		error_print();
+		return -1;
+	}
+
 	switch (ctx->sign_algor) {
 	case OID_rsasign_with_sha256:
 	case OID_sm2sign_with_sm3:
