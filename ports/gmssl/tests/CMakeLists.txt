@@ -219,3 +219,11 @@ unset(_gmssl_external_io_ca)
 unset(_gmssl_external_io_cert)
 unset(_gmssl_external_io_key)
 
+add_executable(gmssl-p256-plain-pkcs8-contract p256-plain-pkcs8-contract.c)
+target_link_libraries(gmssl-p256-plain-pkcs8-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-p256-plain-pkcs8-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-p256-plain-pkcs8-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-p256-plain-pkcs8-contract PRIVATE -fsanitize=address)
+endif()
