@@ -138,6 +138,84 @@ jobs:
           git -C "$VCPKG_ROOT" archive "$tree" >/dev/null
 
 
+  linux_arm64:
+    name: Contract / ubuntu-24.04-arm
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      revision: ${{ steps.cache.outputs.cache_revision }}
+      contract: ${{ steps.cache.outputs.contract_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Verify canonical contract identity
+        shell: bash
+        env:
+          OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract_version }}
+          OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
+          OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
+        run: |
+          set -euo pipefail
+          expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
+          expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
+          expected_tool="$(tr -d '\r\n' < vcpkg-tool-version.txt)"
+          test "$OUTPUT_CONTRACT" = "$expected_contract"
+          test "$OUTPUT_REVISION" = "$expected_revision"
+          test "$OUTPUT_TOOL" = "$expected_tool"
+          expected_root="$RUNNER_TEMP/qigao-vcpkg-contract-v$expected_contract-$expected_revision"
+          test "$VCPKG_CACHE_REPOSITORY_ROOT" = "$expected_root"
+          test "$VCPKG_OVERLAY_PORTS" = "$expected_root/ports"
+          test "$VCPKG_OVERLAY_TRIPLETS" = "$expected_root/triplets"
+          test -f "$expected_root/cmake/QigaoVcpkgToolchain.cmake"
+
+      - name: Prepare Linux arm64 SDK build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config autoconf automake libtool
+
+      - name: Qualify focused arm64-linux SDK dependency closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/linux-arm64-sdk-deps"
+          install_root="$RUNNER_TEMP/linux-arm64-sdk-deps-install"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-linux-arm64-sdk-deps",
+            "version-string": "1",
+            "dependencies": [
+              {"name":"pkgconf","host":true},
+              "simde",
+              "zstd",
+              "aklomp-base64",
+              "c-ares",
+              "libuv",
+              "kcp",
+              "gmssl",
+              "miniaudio",
+              {"name":"zeromq","default-features":false}
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-linux \
+            --host-triplet arm64-linux
+          test -f "$install_root/arm64-linux/include/zmq.h"
+          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
+          test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
+
   macos:
     name: Contract / macos-15
     runs-on: macos-15
@@ -261,22 +339,26 @@ jobs:
 
   consistent:
     name: Contract identity is cross-platform stable
-    needs: [linux, macos, windows]
+    needs: [linux, linux_arm64, macos, windows]
     runs-on: ubuntu-24.04
     steps:
       - name: Compare host identities
         shell: bash
         env:
           LINUX_CONTRACT: ${{ needs.linux.outputs.contract }}
+          LINUX_ARM64_CONTRACT: ${{ needs.linux_arm64.outputs.contract }}
           MACOS_CONTRACT: ${{ needs.macos.outputs.contract }}
           WINDOWS_CONTRACT: ${{ needs.windows.outputs.contract }}
           LINUX_REVISION: ${{ needs.linux.outputs.revision }}
+          LINUX_ARM64_REVISION: ${{ needs.linux_arm64.outputs.revision }}
           MACOS_REVISION: ${{ needs.macos.outputs.revision }}
           WINDOWS_REVISION: ${{ needs.windows.outputs.revision }}
         run: |
           set -euo pipefail
+          test "$LINUX_CONTRACT" = "$LINUX_ARM64_CONTRACT"
           test "$LINUX_CONTRACT" = "$MACOS_CONTRACT"
           test "$LINUX_CONTRACT" = "$WINDOWS_CONTRACT"
+          test "$LINUX_REVISION" = "$LINUX_ARM64_REVISION"
           test "$LINUX_REVISION" = "$MACOS_REVISION"
           test "$LINUX_REVISION" = "$WINDOWS_REVISION"
           printf 'contract=%s\nrevision=%s\n' "$LINUX_CONTRACT" "$LINUX_REVISION"

@@ -183,6 +183,146 @@ jobs:
           grep -Fq 'boringssl:x64-linux' "$log"
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
 
+  linux-arm64-sdk-deps:
+    name: Linux arm64 SDK deps
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config autoconf automake libtool
+      - name: Create focused Linux arm64 SDK dependency manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/linux-arm64-sdk-deps"
+          rm -rf "$manifest"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-linux-arm64-sdk-deps",
+            "version-string": "1",
+            "dependencies": [
+              {"name":"pkgconf","host":true},
+              "simde",
+              "zstd",
+              "aklomp-base64",
+              "c-ares",
+              "libuv",
+              "kcp",
+              "gmssl",
+              "miniaudio",
+              {"name":"zeromq","default-features":false}
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
+      - name: Warm focused arm64-linux SDK dependency cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/linux-arm64-sdk-deps-install"
+          rm -rf "$install_root"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
+            --x-install-root="$install_root" \
+            --triplet arm64-linux \
+            --host-triplet arm64-linux
+          test -f "$install_root/arm64-linux/include/zmq.h"
+          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
+          test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
+
+  linux-arm64-sdk-deps-cache-contract:
+    name: Linux arm64 SDK deps clean L2
+    needs: linux-arm64-sdk-deps
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-linux-arm64-sdk-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config autoconf automake libtool
+      - name: Create focused Linux arm64 SDK dependency manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/linux-arm64-sdk-deps-contract"
+          rm -rf "$manifest"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-linux-arm64-sdk-deps-contract",
+            "version-string": "1",
+            "dependencies": [
+              {"name":"pkgconf","host":true},
+              "simde",
+              "zstd",
+              "aklomp-base64",
+              "c-ares",
+              "libuv",
+              "kcp",
+              "gmssl",
+              "miniaudio",
+              {"name":"zeromq","default-features":false}
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
+      - name: Verify focused arm64-linux clean-L2 restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/linux-arm64-sdk-deps-clean"
+          log="$RUNNER_TEMP/linux-arm64-sdk-deps.log"
+          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
+            --x-install-root="$install_root" \
+            --triplet arm64-linux \
+            --host-triplet arm64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          if grep -Eq '^Building ' "$log"; then
+            echo "source build detected during Linux arm64 SDK clean-L2 qualification" >&2
+            exit 1
+          fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          test -f "$install_root/arm64-linux/include/zmq.h"
+          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
+          test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
+          echo "Linux arm64 SDK dependency clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
+
   windows:
     name: Windows x64 / ${{ matrix.runner }}
     strategy:
