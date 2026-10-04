@@ -19,6 +19,7 @@ vcpkg_replace_string(
     "add_library(gmssl STATIC \${src})"
 )
 
+include("${CMAKE_CURRENT_LIST_DIR}/legacy-md5.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
