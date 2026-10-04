@@ -7,6 +7,7 @@ on:
       - "producers/turbomedia.ref"
       - "triplets/arm64-ios.cmake"
       - "triplets/arm64-ios-simulator.cmake"
+      - "ports/boringssl/**"
   push:
     branches: [master]
     paths:
@@ -14,6 +15,7 @@ on:
       - "producers/turbomedia.ref"
       - "triplets/arm64-ios.cmake"
       - "triplets/arm64-ios-simulator.cmake"
+      - "ports/boringssl/**"
   workflow_dispatch:
 
 permissions:
@@ -186,6 +188,11 @@ jobs:
             message(FATAL_ERROR "FFMPEG_LIBRARIES is empty")
           endif()
           EOF
+          if [[ "${{ matrix.triplet }}" == "arm64-ios-simulator" ]]; then
+            sysroot=iphonesimulator
+          else
+            sysroot=iphoneos
+          fi
           cmake -S "$contract" -B "$contract/build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$QIGAO_VCPKG_TOOLCHAIN_FILE" \
@@ -193,7 +200,50 @@ jobs:
             -DVCPKG_MANIFEST_MODE=OFF \
             -DVCPKG_INSTALLED_DIR="$installed" \
             -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT="$sysroot" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+
+      - name: Verify iOS x265 archive link contract
+        if: startsWith(matrix.triplet, 'arm64-ios')
+        shell: bash
+        run: |
+          set -euo pipefail
+          installed="$RUNNER_TEMP/turbomedia-media-clean-${{ matrix.triplet }}"
+          archive="$installed/${{ matrix.triplet }}/lib/libx265.a"
+          test -f "$archive"
+
+          contract="$RUNNER_TEMP/turbomedia-x265-${{ matrix.triplet }}-contract"
+          rm -rf "$contract"
+          mkdir -p "$contract"
+          cat > "$contract/probe.cpp" <<'EOF'
+          extern "C" int turbomedia_x265_archive_contract(void) { return 0; }
+          EOF
+          cat > "$contract/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.25)
+          project(turbomedia_x265_ios_contract CXX)
+          if(NOT DEFINED X265_ARCHIVE OR NOT EXISTS "${X265_ARCHIVE}")
+            message(FATAL_ERROR "X265_ARCHIVE is missing")
+          endif()
+          add_library(turbomedia_x265_ios_contract SHARED probe.cpp)
+          target_link_options(
+            turbomedia_x265_ios_contract
+            PRIVATE "LINKER:-force_load,${X265_ARCHIVE}")
+          EOF
+
+          if [[ "${{ matrix.triplet }}" == "arm64-ios-simulator" ]]; then
+            sysroot=iphonesimulator
+          else
+            sysroot=iphoneos
+          fi
+          cmake -S "$contract" -B "$contract/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT="$sysroot" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DX265_ARCHIVE="$archive"
+          cmake --build "$contract/build" --parallel 2
 
       - name: Summarize producer identity
         shell: pwsh
