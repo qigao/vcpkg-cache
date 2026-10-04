@@ -6,33 +6,33 @@
 # PostgreSQL SCRAM-SHA-256-PLUS.
 
 function(libpq_replace_once path before after)
-    file(READ "\${path}" _libpq_content)
-    string(FIND "\${_libpq_content}" "\${before}" _libpq_first)
+    file(READ "${path}" _libpq_content)
+    string(FIND "${_libpq_content}" "${before}" _libpq_first)
     if(_libpq_first EQUAL -1)
-        message(FATAL_ERROR "libpq overlay marker not found in \${path}")
+        message(FATAL_ERROR "libpq overlay marker not found in ${path}")
     endif()
 
-    string(LENGTH "\${before}" _libpq_before_len)
-    math(EXPR _libpq_tail_start "\${_libpq_first} + \${_libpq_before_len}")
-    string(SUBSTRING "\${_libpq_content}" \${_libpq_tail_start} -1 _libpq_tail)
-    string(FIND "\${_libpq_tail}" "\${before}" _libpq_second)
+    string(LENGTH "${before}" _libpq_before_len)
+    math(EXPR _libpq_tail_start "${_libpq_first} + ${_libpq_before_len}")
+    string(SUBSTRING "${_libpq_content}" ${_libpq_tail_start} -1 _libpq_tail)
+    string(FIND "${_libpq_tail}" "${before}" _libpq_second)
     if(NOT _libpq_second EQUAL -1)
-        message(FATAL_ERROR "libpq overlay marker is not unique in \${path}")
+        message(FATAL_ERROR "libpq overlay marker is not unique in ${path}")
     endif()
 
-    string(REPLACE "\${before}" "\${after}" _libpq_content "\${_libpq_content}")
-    file(WRITE "\${path}" "\${_libpq_content}")
+    string(REPLACE "${before}" "${after}" _libpq_content "${_libpq_content}")
+    file(WRITE "${path}" "${_libpq_content}")
 endfunction()
 
-set(_libpq_fe_h "\${SOURCE_PATH}/src/interfaces/libpq/libpq-fe.h")
-set(_libpq_int_h "\${SOURCE_PATH}/src/interfaces/libpq/libpq-int.h")
-set(_libpq_connect_c "\${SOURCE_PATH}/src/interfaces/libpq/fe-connect.c")
-set(_libpq_auth_c "\${SOURCE_PATH}/src/interfaces/libpq/fe-auth.c")
-set(_libpq_scram_c "\${SOURCE_PATH}/src/interfaces/libpq/fe-auth-scram.c")
-set(_libpq_exports "\${SOURCE_PATH}/src/interfaces/libpq/exports.txt")
+set(_libpq_fe_h "${SOURCE_PATH}/src/interfaces/libpq/libpq-fe.h")
+set(_libpq_int_h "${SOURCE_PATH}/src/interfaces/libpq/libpq-int.h")
+set(_libpq_connect_c "${SOURCE_PATH}/src/interfaces/libpq/fe-connect.c")
+set(_libpq_auth_c "${SOURCE_PATH}/src/interfaces/libpq/fe-auth.c")
+set(_libpq_scram_c "${SOURCE_PATH}/src/interfaces/libpq/fe-auth-scram.c")
+set(_libpq_exports "${SOURCE_PATH}/src/interfaces/libpq/exports.txt")
 
 libpq_replace_once(
-    "\${_libpq_fe_h}"
+    "${_libpq_fe_h}"
 [==[
 #define LIBPQ_HAS_SSL_LIBRARY_DETECTION 1
 ]==]
@@ -44,7 +44,7 @@ libpq_replace_once(
 )
 
 libpq_replace_once(
-    "\${_libpq_fe_h}"
+    "${_libpq_fe_h}"
 [==[
 extern PostgresPollingStatusType PQconnectPoll(PGconn *conn);
 
@@ -67,7 +67,7 @@ extern int	PQsetExternalChannelBinding(PGconn *conn, const char *type,
 )
 
 libpq_replace_once(
-    "\${_libpq_int_h}"
+    "${_libpq_int_h}"
 [==[
 	const pg_fe_sasl_mech *sasl;
 	void	   *sasl_state;
@@ -93,7 +93,7 @@ libpq_replace_once(
 )
 
 libpq_replace_once(
-    "\${_libpq_connect_c}"
+    "${_libpq_connect_c}"
 [==[
 	if (conn->sasl_state)
 	{
@@ -122,7 +122,7 @@ libpq_replace_once(
 )
 
 libpq_replace_once(
-    "\${_libpq_connect_c}"
+    "${_libpq_connect_c}"
 [==[
 	return conn;
 }
@@ -192,7 +192,7 @@ PQsetExternalChannelBinding(PGconn *conn, const char *type,
 )
 
 libpq_replace_once(
-    "\${_libpq_auth_c}"
+    "${_libpq_auth_c}"
 [==[
 	initPQExpBuffer(&mechanism_buf);
 
@@ -221,7 +221,7 @@ libpq_replace_once(
 )
 
 libpq_replace_once(
-    "\${_libpq_auth_c}"
+    "${_libpq_auth_c}"
 [==[
 		if (strcmp(mechanism_buf.data, SCRAM_SHA_256_PLUS_NAME) == 0)
 		{
@@ -320,7 +320,7 @@ libpq_replace_once(
 )
 
 libpq_replace_once(
-    "\${_libpq_scram_c}"
+    "${_libpq_scram_c}"
 [==[
 	if (strcmp(state->sasl_mechanism, SCRAM_SHA_256_PLUS_NAME) == 0)
 	{
@@ -362,7 +362,7 @@ libpq_replace_once(
 )
 
 libpq_replace_once(
-    "\${_libpq_scram_c}"
+    "${_libpq_scram_c}"
 [==[
 	if (strcmp(state->sasl_mechanism, SCRAM_SHA_256_PLUS_NAME) == 0)
 	{
@@ -525,7 +525,7 @@ libpq_replace_once(
 )
 
 libpq_replace_once(
-    "\${_libpq_exports}"
+    "${_libpq_exports}"
 [==[
 PQconnectionUsedGSSAPI    187
 ]==]
