@@ -22,7 +22,6 @@ def contract_files(root: pathlib.Path) -> list[pathlib.Path]:
         "scripts/vcpkg-required-commits.py",
         "vcpkg.json",
         "vcpkg-tool-version.txt",
-        "vcpkg-tool-version-linux-arm64.txt",
         "vcpkg-scripts-revision.txt",
     ):
         path = root / relative
