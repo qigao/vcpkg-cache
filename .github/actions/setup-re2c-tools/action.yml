@@ -72,6 +72,7 @@ runs:
 
         case "$RUNNER_OS/$RUNNER_ARCH" in
           Linux/X64) rid=linux-x64 ;;
+          Linux/ARM64) rid=linux-arm64 ;;
           macOS/X64) rid=macos-x64 ;;
           macOS/ARM64) rid=macos-arm64 ;;
           *) echo "unsupported re2c host: $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
