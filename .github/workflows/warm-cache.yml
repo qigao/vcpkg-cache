@@ -13,7 +13,6 @@ on:
       - "scripts/vcpkg-required-commits.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
-      - "vcpkg-tool-version-linux-arm64.txt"
       - "vcpkg-scripts-revision.txt"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
