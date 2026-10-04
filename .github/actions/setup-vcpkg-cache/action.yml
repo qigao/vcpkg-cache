@@ -1,5 +1,5 @@
 name: Set up shared vcpkg cache
-description: Configure canonical vcpkg scripts with the runner-provided executable, overlay ports, local L1 cache, and GitHub Packages L2 cache.
+description: Configure canonical vcpkg scripts and executable, overlay ports, local L1 cache, and GitHub Packages L2 cache.
 
 inputs:
   mode:
@@ -80,37 +80,34 @@ runs:
         set -euo pipefail
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
         scripts_revision="$(tr -d '\r\n' < "$action_root/vcpkg-scripts-revision.txt")"
-        tool_version_file="$action_root/vcpkg-tool-version.txt"
-        if [ "${RUNNER_OS:-}" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; then
-          tool_version_file="$action_root/vcpkg-tool-version-linux-arm64.txt"
-        fi
-        test -f "$tool_version_file"
-        expected_tool_version="$(tr -d '\r\n' < "$tool_version_file")"
+        expected_tool_version="$(tr -d '\r\n' < "$action_root/vcpkg-tool-version.txt")"
         test -n "$scripts_revision"
         test -n "$expected_tool_version"
 
         runner_tool=""
-        for candidate in "${VCPKG_ROOT:-}" "${VCPKG_INSTALLATION_ROOT:-}"; do
-          if [ -n "$candidate" ] && [ -x "$candidate/vcpkg" ]; then
-            runner_tool="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$candidate/vcpkg")"
-            break
+        if ! { [ "${RUNNER_OS:-}" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; }; then
+          for candidate in "${VCPKG_ROOT:-}" "${VCPKG_INSTALLATION_ROOT:-}"; do
+            if [ -n "$candidate" ] && [ -x "$candidate/vcpkg" ]; then
+              runner_tool="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$candidate/vcpkg")"
+              break
+            fi
+          done
+          if [ -z "$runner_tool" ]; then
+            candidate="$(command -v vcpkg || true)"
+            if [ -n "$candidate" ]; then
+              runner_tool="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$candidate")"
+            fi
           fi
-        done
-        if [ -z "$runner_tool" ]; then
-          candidate="$(command -v vcpkg || true)"
-          if [ -n "$candidate" ]; then
-            runner_tool="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$candidate")"
+          if [ -z "$runner_tool" ] || [ ! -x "$runner_tool" ]; then
+            echo "runner-provided vcpkg executable is unavailable" >&2
+            exit 1
           fi
-        fi
-        if [ -z "$runner_tool" ] || [ ! -x "$runner_tool" ]; then
-          echo "runner-provided vcpkg executable is unavailable" >&2
-          exit 1
-        fi
 
-        actual_tool_version="$("$runner_tool" version | awk '/^vcpkg package management program version / {print $NF; exit}')"
-        if [ "$actual_tool_version" != "$expected_tool_version" ]; then
-          echo "runner vcpkg tool version mismatch: $actual_tool_version != $expected_tool_version" >&2
-          exit 1
+          actual_tool_version="$("$runner_tool" version | awk '/^vcpkg package management program version / {print $NF; exit}')"
+          if [ "$actual_tool_version" != "$expected_tool_version" ]; then
+            echo "runner vcpkg tool version mismatch: $actual_tool_version != $expected_tool_version" >&2
+            exit 1
+          fi
         fi
 
         root="$RUNNER_TEMP/qigao-vcpkg-$scripts_revision"
@@ -170,9 +167,21 @@ runs:
         test "$(git -C "$root" rev-parse --is-shallow-repository)" = "false"
         test "$(git -C "$root" config --get remote.origin.promisor 2>/dev/null || true)" != "true"
         test -z "$(git -C "$root" config --get remote.origin.partialclonefilter 2>/dev/null || true)"
-        cp "$runner_tool" "$root/vcpkg"
-        chmod +x "$root/vcpkg"
-        "$root/vcpkg" version
+        if [ "${RUNNER_OS:-}" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; then
+          rm -f "$root/vcpkg"
+          (
+            cd "$root"
+            sh ./bootstrap-vcpkg.sh -disableMetrics
+          )
+        else
+          cp "$runner_tool" "$root/vcpkg"
+          chmod +x "$root/vcpkg"
+        fi
+        actual_tool_version="$("$root/vcpkg" version | awk '/^vcpkg package management program version / {print $NF; exit}')"
+        if [ "$actual_tool_version" != "$expected_tool_version" ]; then
+          echo "canonical vcpkg tool version mismatch: $actual_tool_version != $expected_tool_version" >&2
+          exit 1
+        fi
 
         echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
         echo "VCPKG_TOOL_REVISION=$expected_tool_version" >> "$GITHUB_ENV"
