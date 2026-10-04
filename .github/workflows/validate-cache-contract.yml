@@ -138,7 +138,7 @@ jobs:
           git -C "$VCPKG_ROOT" archive "$tree" >/dev/null
 
 
-  linux-arm64:
+  linux_arm64:
     name: Contract / ubuntu-24.04-arm
     runs-on: ubuntu-24.04-arm
     outputs:
@@ -336,18 +336,18 @@ jobs:
 
   consistent:
     name: Contract identity is cross-platform stable
-    needs: [linux, linux-arm64, macos, windows]
+    needs: [linux, linux_arm64, macos, windows]
     runs-on: ubuntu-24.04
     steps:
       - name: Compare host identities
         shell: bash
         env:
           LINUX_CONTRACT: ${{ needs.linux.outputs.contract }}
-          LINUX_ARM64_CONTRACT: ${{ needs.linux-arm64.outputs.contract }}
+          LINUX_ARM64_CONTRACT: ${{ needs.linux_arm64.outputs.contract }}
           MACOS_CONTRACT: ${{ needs.macos.outputs.contract }}
           WINDOWS_CONTRACT: ${{ needs.windows.outputs.contract }}
           LINUX_REVISION: ${{ needs.linux.outputs.revision }}
-          LINUX_ARM64_REVISION: ${{ needs.linux-arm64.outputs.revision }}
+          LINUX_ARM64_REVISION: ${{ needs.linux_arm64.outputs.revision }}
           MACOS_REVISION: ${{ needs.macos.outputs.revision }}
           WINDOWS_REVISION: ${{ needs.windows.outputs.revision }}
         run: |
