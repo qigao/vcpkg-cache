@@ -173,6 +173,13 @@ runs:
             cd "$root"
             sh ./bootstrap-vcpkg.sh -disableMetrics
           )
+          # vcpkg requires FORCE_SYSTEM_BINARIES on Linux ARM64 to admit the
+          # architecture, while FORCE_DOWNLOADED_BINARIES lets hash-pinned
+          # downloadable tools (notably NuGet) override missing system tools.
+          export VCPKG_FORCE_SYSTEM_BINARIES=1
+          export VCPKG_FORCE_DOWNLOADED_BINARIES=1
+          echo "VCPKG_FORCE_SYSTEM_BINARIES=1" >> "$GITHUB_ENV"
+          echo "VCPKG_FORCE_DOWNLOADED_BINARIES=1" >> "$GITHUB_ENV"
         else
           cp "$runner_tool" "$root/vcpkg"
           chmod +x "$root/vcpkg"
@@ -181,16 +188,6 @@ runs:
         if [ "$actual_tool_version" != "$expected_tool_version" ]; then
           echo "canonical vcpkg tool version mismatch: $actual_tool_version != $expected_tool_version" >&2
           exit 1
-        fi
-
-        if [ "${RUNNER_OS:-}" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; then
-          # vcpkg requires FORCE_SYSTEM_BINARIES on Linux ARM64 to admit the
-          # architecture, while FORCE_DOWNLOADED_BINARIES lets hash-pinned
-          # downloadable tools (notably NuGet) override missing system tools.
-          export VCPKG_FORCE_SYSTEM_BINARIES=1
-          export VCPKG_FORCE_DOWNLOADED_BINARIES=1
-          echo "VCPKG_FORCE_SYSTEM_BINARIES=1" >> "$GITHUB_ENV"
-          echo "VCPKG_FORCE_DOWNLOADED_BINARIES=1" >> "$GITHUB_ENV"
         fi
 
         echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
