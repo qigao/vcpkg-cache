@@ -1,0 +1,86 @@
+name: Validate GmSSL registry contract
+
+on:
+  pull_request:
+    paths:
+      - "ports/gmssl/**"
+      - "versions/baseline.json"
+      - "versions/g-/gmssl.json"
+      - ".github/workflows/validate-gmssl-registry.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  registry:
+    name: GmSSL custom registry metadata
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify baseline, version entry and port tree agree
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          with open("ports/gmssl/vcpkg.json", encoding="utf-8") as f:
+              port = json.load(f)
+          with open("versions/baseline.json", encoding="utf-8") as f:
+              baseline = json.load(f)["default"]
+          with open("versions/g-/gmssl.json", encoding="utf-8") as f:
+              versions = json.load(f)["versions"]
+
+          version_keys = ("version", "version-semver", "version-string", "version-date")
+          port_key = next((key for key in version_keys if key in port), None)
+          if port_key is None:
+              raise SystemExit("gmssl port has no supported version field")
+
+          port_version = port[port_key]
+          port_revision = int(port.get("port-version", 0))
+          baseline_entry = baseline.get("gmssl")
+          if baseline_entry is None:
+              raise SystemExit("gmssl is missing from versions/baseline.json")
+          if baseline_entry.get("baseline") != port_version:
+              raise SystemExit(
+                  f"gmssl baseline version mismatch: {baseline_entry.get('baseline')} != {port_version}"
+              )
+          if int(baseline_entry.get("port-version", 0)) != port_revision:
+              raise SystemExit(
+                  f"gmssl baseline port-version mismatch: "
+                  f"{baseline_entry.get('port-version', 0)} != {port_revision}"
+              )
+
+          match = None
+          for entry in versions:
+              entry_version = next((entry[k] for k in version_keys if k in entry), None)
+              if entry_version == port_version and int(entry.get("port-version", 0)) == port_revision:
+                  match = entry
+                  break
+          if match is None:
+              raise SystemExit(
+                  f"gmssl {port_version}#{port_revision} is missing from versions/g-/gmssl.json"
+              )
+
+          tree = match.get("git-tree")
+          if not tree:
+              raise SystemExit("gmssl version entry has no git-tree")
+          print(f"tree={tree}")
+          print(f"version={port_version}")
+          print(f"port_version={port_revision}")
+          PY
+
+      - name: Verify version tree is exactly the current gmssl port
+        shell: bash
+        env:
+          VERSION_TREE: ${{ steps.metadata.outputs.tree }}
+        run: |
+          set -euo pipefail
+          current_tree="$(git rev-parse HEAD:ports/gmssl)"
+          test "$VERSION_TREE" = "$current_tree"
+          git cat-file -e "$VERSION_TREE^{tree}"
+          git archive "$VERSION_TREE" | tar -tf - | grep -qx 'md5.h'
+          git archive "$VERSION_TREE" | tar -tf - | grep -qx 'md5.c'
+          printf 'gmssl registry tree=%s\n' "$VERSION_TREE"
