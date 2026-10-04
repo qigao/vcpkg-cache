@@ -86,6 +86,62 @@ jobs:
           test -f "$install_root/x64-linux/lib/libssl.a"
           test -f "$install_root/x64-linux/lib/libcrypto.a"
 
+  macos:
+    name: macOS pure-C static consumer
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+
+      - name: Prepare BoringSSL macOS host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          brew install ninja nasm
+
+      - name: Cold-build BoringSSL for macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/boringssl-arm64-osx"
+          rm -rf "$install_root"
+
+          (
+            cd "$RUNNER_TEMP"
+            VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install               boringssl:arm64-osx               --classic               --overlay-ports="$GITHUB_WORKSPACE/ports"               --x-install-root="$install_root"
+          )
+
+          prefix="$install_root/arm64-osx"
+          test -f "$prefix/lib/libssl.a"
+          test -f "$prefix/lib/libcrypto.a"
+
+          consumer="$RUNNER_TEMP/boringssl-c-consumer-macos"
+          rm -rf "$consumer"
+          mkdir -p "$consumer"
+          cat > "$consumer/consumer.c" <<'EOF'
+          #include <openssl/ssl.h>
+          int boringssl_c_consumer(void) {
+              SSL_CTX *ctx = SSL_CTX_new(TLS_method());
+              if (!ctx) return 1;
+              SSL_CTX_free(ctx);
+              return 0;
+          }
+          EOF
+          cat > "$consumer/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.25)
+          project(boringssl_c_consumer C)
+          find_package(Threads REQUIRED)
+          find_package(OpenSSL CONFIG REQUIRED)
+          add_library(boringssl_c_consumer SHARED consumer.c)
+          target_link_libraries(boringssl_c_consumer PRIVATE OpenSSL::SSL)
+          EOF
+          cmake -S "$consumer" -B "$consumer/build" -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_OSX_ARCHITECTURES=arm64             -DCMAKE_PREFIX_PATH="$prefix"
+          cmake --build "$consumer/build" --parallel 2
+
   ios:
     name: iOS cold source build / ${{ matrix.name }}
     runs-on: macos-15
@@ -131,3 +187,37 @@ jobs:
           test -f "$prefix/lib/libcrypto.a"
           test ! -e "$prefix/tools/boringssl/bssl"
           test ! -e "$prefix/bin/bssl"
+
+      - name: Link pure-C iOS consumer through OpenSSL package
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/boringssl-${{ matrix.triplet }}"
+          prefix="$install_root/${{ matrix.triplet }}"
+          consumer="$RUNNER_TEMP/boringssl-c-consumer-${{ matrix.triplet }}"
+          rm -rf "$consumer"
+          mkdir -p "$consumer"
+          cat > "$consumer/consumer.c" <<'EOF'
+          #include <openssl/ssl.h>
+          int boringssl_c_consumer(void) {
+              SSL_CTX *ctx = SSL_CTX_new(TLS_method());
+              if (!ctx) return 1;
+              SSL_CTX_free(ctx);
+              return 0;
+          }
+          EOF
+          cat > "$consumer/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.25)
+          project(boringssl_c_consumer C)
+          find_package(Threads REQUIRED)
+          find_package(OpenSSL CONFIG REQUIRED)
+          add_library(boringssl_c_consumer SHARED consumer.c)
+          target_link_libraries(boringssl_c_consumer PRIVATE OpenSSL::SSL)
+          EOF
+          if [[ "${{ matrix.triplet }}" == "arm64-ios-simulator" ]]; then
+            sysroot=iphonesimulator
+          else
+            sysroot=iphoneos
+          fi
+          cmake -S "$consumer" -B "$consumer/build" -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_SYSTEM_NAME=iOS             -DCMAKE_OSX_SYSROOT="$sysroot"             -DCMAKE_OSX_ARCHITECTURES=arm64             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0             -DCMAKE_PREFIX_PATH="$prefix"
+          cmake --build "$consumer/build" --parallel 2
