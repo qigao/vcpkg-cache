@@ -32,6 +32,8 @@ vcpkg_extract_source_archive(
         android/unversioned_so.patch
 )
 
+include("${CMAKE_CURRENT_LIST_DIR}/external-channel-binding.cmake")
+
 file(GLOB _py3_include_path "${CURRENT_HOST_INSTALLED_DIR}/include/python3*")
 string(REGEX MATCH "python3\\.([0-9]+)" _python_version_tmp "${_py3_include_path}")
 set(PYTHON_VERSION_MINOR "${CMAKE_MATCH_1}")
