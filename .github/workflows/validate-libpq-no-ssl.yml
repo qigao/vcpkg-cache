@@ -84,7 +84,7 @@ jobs:
             return accepted == 1 && rejected == 0 ? 0 : 3;
           #endif
           }
-                    EOF
+          EOF
           export PKG_CONFIG_PATH="$root/lib/pkgconfig"
           pkg_libs="$(pkg-config --libs --static libpq)"
           if grep -Eq '(^|[[:space:]])-l(ssl|crypto)([[:space:]]|$)' <<<"$pkg_libs"; then
@@ -197,7 +197,7 @@ jobs:
             return accepted == 1 && rejected == 0 ? 0 : 3;
           #endif
           }
-                    '@ | Set-Content -LiteralPath (Join-Path $source "main.c") -Encoding utf8
+          '@ | Set-Content -LiteralPath (Join-Path $source "main.c") -Encoding utf8
           @'
           cmake_minimum_required(VERSION 3.24)
           project(libpq_no_ssl_contract C)
