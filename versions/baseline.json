@@ -18,7 +18,7 @@
     },
     "libpq": {
       "baseline": "16.9",
-      "port-version": 0
+      "port-version": 1
     }
   }
 }
