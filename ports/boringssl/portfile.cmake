@@ -21,6 +21,7 @@ vcpkg_from_github(
     0002-remove-WX-Werror.patch
     0003-fix-shared-symbol-visibility.patch
     0004-ios-library-only-install.patch
+    0005-apple-static-cxx-runtime.patch
 )
 
 if(VCPKG_TARGET_IS_WINDOWS)
