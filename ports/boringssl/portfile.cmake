@@ -21,7 +21,29 @@ vcpkg_from_github(
     0002-remove-WX-Werror.patch
     0003-fix-shared-symbol-visibility.patch
     0004-ios-library-only-install.patch
-    0005-apple-static-cxx-runtime.patch
+)
+
+
+vcpkg_replace_string(
+  "${SOURCE_PATH}/CMakeLists.txt"
+  [[if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Generic|Android)$")
+  find_package(Threads REQUIRED)
+  target_link_libraries(crypto Threads::Threads)
+endif()
+
+# Every target depends on crypto, so we add libcxx as a dependency here to
+]]
+  [[if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Generic|Android)$")
+  find_package(Threads REQUIRED)
+  target_link_libraries(crypto Threads::Threads)
+endif()
+
+if(APPLE AND NOT BUILD_SHARED_LIBS)
+  target_link_libraries(crypto PUBLIC c++)
+endif()
+
+# Every target depends on crypto, so we add libcxx as a dependency here to
+]]
 )
 
 if(VCPKG_TARGET_IS_WINDOWS)
