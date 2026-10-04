@@ -39,7 +39,7 @@ endif()
 endif()
 
 if(APPLE AND NOT BUILD_SHARED_LIBS)
-  target_link_libraries(crypto PUBLIC c++)
+  target_link_libraries(crypto c++)
 endif()
 
 # Every target depends on crypto, so we add libcxx as a dependency here to
