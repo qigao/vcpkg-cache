@@ -13,6 +13,7 @@ on:
       - "scripts/vcpkg-required-commits.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
+      - "vcpkg-tool-version-linux-arm64.txt"
       - "vcpkg-scripts-revision.txt"
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/**"
@@ -155,12 +156,15 @@ jobs:
         env:
           OUTPUT_CONTRACT: ${{ steps.cache.outputs.contract_version }}
           OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
+          OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
         run: |
           set -euo pipefail
           expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
           expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
+          expected_tool="$(tr -d '\r\n' < vcpkg-tool-version-linux-arm64.txt)"
           test "$OUTPUT_CONTRACT" = "$expected_contract"
           test "$OUTPUT_REVISION" = "$expected_revision"
+          test "$OUTPUT_TOOL" = "$expected_tool"
           expected_root="$RUNNER_TEMP/qigao-vcpkg-contract-v$expected_contract-$expected_revision"
           test "$VCPKG_CACHE_REPOSITORY_ROOT" = "$expected_root"
           test "$VCPKG_OVERLAY_PORTS" = "$expected_root/ports"
