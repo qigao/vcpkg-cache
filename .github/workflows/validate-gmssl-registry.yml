@@ -81,6 +81,8 @@ jobs:
           current_tree="$(git rev-parse HEAD:ports/gmssl)"
           test "$VERSION_TREE" = "$current_tree"
           git cat-file -e "$VERSION_TREE^{tree}"
-          git archive "$VERSION_TREE" | tar -tf - | grep -qx 'md5.h'
-          git archive "$VERSION_TREE" | tar -tf - | grep -qx 'md5.c'
+          listing="$RUNNER_TEMP/gmssl-registry-tree.txt"
+          git archive "$VERSION_TREE" | tar -tf - > "$listing"
+          grep -qx 'md5.h' "$listing"
+          grep -qx 'md5.c' "$listing"
           printf 'gmssl registry tree=%s\n' "$VERSION_TREE"
