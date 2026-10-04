@@ -3,6 +3,15 @@ project(gmssl_tls12_alpn_contract C)
 
 find_package(GmSSL CONFIG REQUIRED)
 
+add_executable(gmssl-des-cbc-contract des-cbc-contract.c)
+target_link_libraries(gmssl-des-cbc-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-des-cbc-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-des-cbc-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-des-cbc-contract PRIVATE -fsanitize=address)
+endif()
+
 add_executable(gmssl-sha1-contract sha1-contract.c)
 target_link_libraries(gmssl-sha1-contract PRIVATE GmSSL::GmSSL)
 set_target_properties(gmssl-sha1-contract PROPERTIES

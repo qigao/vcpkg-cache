@@ -85,4 +85,6 @@ jobs:
           git archive "$VERSION_TREE" | tar -tf - > "$listing"
           grep -qx 'md5.h' "$listing"
           grep -qx 'md5.c' "$listing"
+          grep -qx 'des.h' "$listing"
+          grep -qx 'des.c' "$listing"
           printf 'gmssl registry tree=%s\n' "$VERSION_TREE"

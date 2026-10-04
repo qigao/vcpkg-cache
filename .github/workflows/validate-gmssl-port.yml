@@ -79,6 +79,7 @@ jobs:
           build="$RUNNER_TEMP/gmssl-tls12-alpn-build"
           cmake -S ports/gmssl/tests -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
           cmake --build "$build"
+          "$build/gmssl-des-cbc-contract"
           "$build/gmssl-sha1-contract"
           "$build/gmssl-tls12-alpn-contract"
           "$build/gmssl-tls-version-range-contract"
@@ -335,6 +336,7 @@ jobs:
           build="$RUNNER_TEMP/gmssl-tls12-alpn-build"
           cmake -S ports/gmssl/tests -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
           cmake --build "$build"
+          "$build/gmssl-des-cbc-contract"
           "$build/gmssl-tls12-alpn-contract"
           "$build/gmssl-tls-version-range-contract"
           "$build/gmssl-tls-version-range-dispatch-contract"
@@ -589,6 +591,8 @@ jobs:
           cmake --build $build --config Release
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN contract build failed" }
           $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
+          & (Join-Path $build "Release\gmssl-des-cbc-contract.exe")
+          if ($LASTEXITCODE -ne 0) { throw "DES-CBC compatibility contract failed" }
           & (Join-Path $build "Release\gmssl-tls12-alpn-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN wire contract failed" }
           & (Join-Path $build "Release\gmssl-tls-version-range-contract.exe")
