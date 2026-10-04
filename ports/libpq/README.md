@@ -41,3 +41,23 @@ When changing this overlay:
 The no-SSL profile is appropriate only when the database connection is
 intentionally plaintext or protected by a separately designed secure transport.
 It does not silently replace libpq TLS with CNet/GmSSL.
+
+## External channel binding
+
+The overlay adds a narrow public extension for externally owned TLS:
+
+```c
+int PQsetExternalChannelBinding(PGconn *conn, const char *type,
+                                const void *data, size_t len);
+```
+
+Only RFC 5929 `tls-server-end-point` is accepted. The bytes are copied into
+bounded private `PGconn` state, must be installed before SASL authentication
+starts, and require `sslmode=disable`. The extension does not set
+`ssl_in_use`, expose an external TLS handle, or create a transport loop.
+
+The binding is cleared on physical connection teardown and `PQreset()`, so a
+reconnected `PGconn` must receive fresh bytes from the exact newly verified
+external TLS session. `channel_binding=require` can then select
+`SCRAM-SHA-256-PLUS` in the no-SSL profile while native `libpq[ssl]`
+continues to use its upstream certificate-hash path.
