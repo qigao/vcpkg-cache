@@ -80,7 +80,12 @@ runs:
         set -euo pipefail
         action_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
         scripts_revision="$(tr -d '\r\n' < "$action_root/vcpkg-scripts-revision.txt")"
-        expected_tool_version="$(tr -d '\r\n' < "$action_root/vcpkg-tool-version.txt")"
+        tool_version_file="$action_root/vcpkg-tool-version.txt"
+        if [ "${RUNNER_OS:-}" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; then
+          tool_version_file="$action_root/vcpkg-tool-version-linux-arm64.txt"
+        fi
+        test -f "$tool_version_file"
+        expected_tool_version="$(tr -d '\r\n' < "$tool_version_file")"
         test -n "$scripts_revision"
         test -n "$expected_tool_version"
 
