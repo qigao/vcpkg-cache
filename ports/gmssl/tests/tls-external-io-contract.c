@@ -212,8 +212,9 @@ static int drive_shutdown(TLS_CONNECT *client, TLS_CONNECT *server)
 
 int main(int argc, char **argv)
 {
-	enum { INVALID_ARGUMENTS = 17, INVALID_SNI_STATE = 18 };
-	const int send_sni = argc == 1;
+	enum { INVALID_ARGUMENTS = 17, INVALID_SNI_STATE = 18, CLIENT_AUTH_SETUP_FAILED = 19 };
+	int send_sni = 1;
+	int request_client = 0;
 	TLS_CTX client_ctx;
 	TLS_CTX server_ctx;
 	TLS_CONNECT client;
@@ -243,9 +244,15 @@ int main(int argc, char **argv)
 	int client_close = 0;
 	int server_close = 0;
 	int rc = 1;
-	if (!send_sni && (argc != 2 || strcmp(argv[1], "--no-sni") != 0)) {
-		fprintf(stderr, "usage: %s [--no-sni]\n", argv[0]);
-		return INVALID_ARGUMENTS;
+	for (int arg = 1; arg < argc; ++arg) {
+		if (strcmp(argv[arg], "--no-sni") == 0 && send_sni) {
+			send_sni = 0;
+		} else if (strcmp(argv[arg], "--request-client") == 0 && !request_client) {
+			request_client = 1;
+		} else {
+			fprintf(stderr, "usage: %s [--no-sni] [--request-client]\n", argv[0]);
+			return INVALID_ARGUMENTS;
+		}
 	}
 
 	memset(&client_ctx, 0, sizeof(client_ctx));
@@ -277,6 +284,12 @@ int main(int argc, char **argv)
 			GMSSL_EXTERNAL_IO_SERVER_KEY,
 			"") != 1) {
 		rc = 5; goto cleanup;
+	}
+	if (request_client
+		&& (tls_ctx_set_ca_certificates(&server_ctx, GMSSL_EXTERNAL_IO_CA_CERT, 4) != 1
+			|| tls_ctx_enable_certificate_request(&server_ctx, 1) != 1
+			|| tls_ctx_enable_client_certificate_optional(&server_ctx, 1) != 1)) {
+		rc = CLIENT_AUTH_SETUP_FAILED; goto cleanup;
 	}
 
 	if (tls_init(&client, &client_ctx) != 1) {

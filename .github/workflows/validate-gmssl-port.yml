@@ -108,6 +108,7 @@ jobs:
           "$build/gmssl-tls12-external-io-contract"
           "$build/gmssl-tls13-external-io-contract" --no-sni
           "$build/gmssl-tls12-external-io-contract" --no-sni
+          "$build/gmssl-tls13-external-io-contract" --no-sni --request-client
       - name: Interoperate with OpenSSL TLS 1.2 ECDHE_RSA
         shell: bash
         run: |
@@ -645,6 +646,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Debug TLS 1.3 no-SNI contract failed" }
           & (Join-Path $build "Debug\gmssl-tls12-external-io-contract.exe") --no-sni
           if ($LASTEXITCODE -ne 0) { throw "Debug TLS 1.2 no-SNI contract failed" }
+          & (Join-Path $build "Debug\gmssl-tls13-external-io-contract.exe") --no-sni --request-client
+          if ($LASTEXITCODE -ne 0) { throw "Debug TLS 1.3 optional client identity contract failed" }
 
 
   android:
