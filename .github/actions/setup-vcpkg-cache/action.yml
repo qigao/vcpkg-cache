@@ -337,6 +337,29 @@ runs:
         "VCPKG_TOOL_REVISION=$expectedToolVersion" >> $env:GITHUB_ENV
         "VCPKG_SCRIPTS_REVISION=$scriptsRevision" >> $env:GITHUB_ENV
 
+    - name: Prewarm canonical NuGet tool on Unix
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        test -x "$VCPKG_ROOT/vcpkg"
+
+        nuget_ready=false
+        for attempt in 1 2 3; do
+          if VCPKG_FORCE_DOWNLOADED_BINARIES=1 "$VCPKG_ROOT/vcpkg" fetch nuget >/dev/null; then
+            nuget_ready=true
+            break
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            sleep $((attempt * 2))
+          fi
+        done
+
+        if [ "$nuget_ready" != "true" ]; then
+          echo "failed to prewarm canonical NuGet tool after 3 attempts" >&2
+          exit 1
+        fi
+
     - name: Configure shared vcpkg cache on Unix
       if: runner.os != 'Windows'
       shell: bash
