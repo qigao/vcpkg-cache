@@ -1,0 +1,7 @@
+{
+  "name": "qigao-header-only-cache-contract",
+  "version-string": "1",
+  "description": "Isolated header-only dependency graph for generic cache admission.",
+  "dependencies": ["simde"],
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}

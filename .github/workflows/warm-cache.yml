@@ -12,6 +12,7 @@ on:
       - "scripts/cache-contract-revision.py"
       - "scripts/vcpkg-required-commits.py"
       - "vcpkg.json"
+      - "cache-contracts/**"
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
       - ".github/actions/setup-vcpkg-cache/**"
@@ -227,6 +228,15 @@ jobs:
           }
           EOF
           echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
+      - name: Warm isolated arm64-linux header-only cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=cache-contracts/header-only \
+            --x-install-root="$RUNNER_TEMP/header-only-arm64-warm" \
+            --triplet arm64-linux \
+            --host-triplet arm64-linux
       - name: Warm focused arm64-linux SDK dependency cache
         shell: bash
         run: |
@@ -295,6 +305,17 @@ jobs:
           }
           EOF
           echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
+      - name: Verify isolated arm64-linux header-only clean-L2 restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=cache-contracts/header-only \
+            --x-install-root="$RUNNER_TEMP/header-only-arm64-clean" \
+            --triplet arm64-linux \
+            --host-triplet arm64-linux \
+            --only-binarycaching
+          test -f "$RUNNER_TEMP/header-only-arm64-clean/arm64-linux/include/simde/x86/sse2.h"
       - name: Verify focused arm64-linux clean-L2 restore
         shell: bash
         run: |
