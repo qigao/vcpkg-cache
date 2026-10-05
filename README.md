@@ -59,6 +59,15 @@ The action provides the pinned vcpkg executable/scripts environment, overlay por
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
+The generic `cache-contracts/header-only/vcpkg.json` profile keeps an isolated
+simde dependency graph. The arm64 warm producer installs it before the full SDK
+dependency set, and a fresh runner verifies read-only NuGet restoration with an
+empty L1 cache and `--only-binarycaching`. This profile covers the header-only ABI
+whose tool record is `cmake 0`; warming a larger CMake-dependent graph produces a
+different ABI even when the simde source, features and triplet match. Both graphs
+use the pinned shared tools and their actual ABI hashes. Consumer cache misses
+remain explicit failures.
+
 ## Cache contract identity
 
 The shared cache exposes a machine-readable contract identity.
