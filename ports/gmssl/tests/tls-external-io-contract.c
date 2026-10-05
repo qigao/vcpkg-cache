@@ -210,8 +210,10 @@ static int drive_shutdown(TLS_CONNECT *client, TLS_CONNECT *server)
 	return -3;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+	enum { INVALID_ARGUMENTS = 17, INVALID_SNI_STATE = 18 };
+	const int send_sni = argc == 1;
 	TLS_CTX client_ctx;
 	TLS_CTX server_ctx;
 	TLS_CONNECT client;
@@ -241,6 +243,10 @@ int main(void)
 	int client_close = 0;
 	int server_close = 0;
 	int rc = 1;
+	if (!send_sni && (argc != 2 || strcmp(argv[1], "--no-sni") != 0)) {
+		fprintf(stderr, "usage: %s [--no-sni]\n", argv[0]);
+		return INVALID_ARGUMENTS;
+	}
 
 	memset(&client_ctx, 0, sizeof(client_ctx));
 	memset(&server_ctx, 0, sizeof(server_ctx));
@@ -278,7 +284,7 @@ int main(void)
 	}
 	client_ready = 1;
 	if (tls_set_hostname(&client, "localhost") != 1
-		|| tls_set_server_name(&client) != 1
+		|| (send_sni && tls_set_server_name(&client) != 1)
 		|| tls_set_io(&client, &client_callbacks) != 1
 		|| tls_socket_is_valid(client.sock)) {
 		rc = 7; goto cleanup;
@@ -298,6 +304,9 @@ int main(void)
 	}
 	if (client.protocol != GMSSL_EXTERNAL_IO_PROTOCOL || server.protocol != GMSSL_EXTERNAL_IO_PROTOCOL) {
 		rc = 11; goto cleanup;
+	}
+	if (client.server_name != send_sni || server.server_name != send_sni) {
+		rc = INVALID_SNI_STATE; goto cleanup;
 	}
 
 	client_io.force_send_again = 1;
@@ -330,8 +339,9 @@ int main(void)
 	}
 
 	printf("GmSSL callback-only %s contract: PASS "
-		"(c->s peak=%zu, s->c peak=%zu, short-send=%zu/%zu, short-recv=%zu/%zu)\n",
+		"(SNI=%s, c->s peak=%zu, s->c peak=%zu, short-send=%zu/%zu, short-recv=%zu/%zu)\n",
 		GMSSL_EXTERNAL_IO_LABEL,
+		send_sni ? "present" : "absent",
 		client_to_server.peak, server_to_client.peak,
 		client_io.short_send, server_io.short_send,
 		client_io.short_recv, server_io.short_recv);
