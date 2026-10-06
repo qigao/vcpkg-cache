@@ -2,6 +2,8 @@ vcpkg_from_git(
     OUT_SOURCE_PATH SOURCE_PATH
     URL "https://github.com/guanzhi/GmSSL.git"
     REF 7c9f02904ef33e59c87b4f16621cc8fd434e7579
+    PATCHES
+        p256-ecdsa-der-signature-parsing.patch
 )
 
 # Upstream overrides CMAKE_INSTALL_PREFIX on MSVC. vcpkg owns the install root.
