@@ -10,7 +10,7 @@
     },
     "gmssl": {
       "baseline": "3.2.0",
-      "port-version": 5
+      "port-version": 6
     },
     "zstd": {
       "baseline": "1.6.0-dev.20260701",

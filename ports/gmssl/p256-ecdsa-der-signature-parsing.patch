@@ -1,0 +1,37 @@
+From c5ee40e3dfb640547afea7f3a9fc8fe0c9412d4a Mon Sep 17 00:00:00 2001
+From: Zhi Guan <guanzhi1980@gmail.com>
+Date: Tue, 30 Jun 2026 10:57:31 +0800
+Subject: [PATCH] Backport the P-256 ECDSA DER signature parsing fix
+
+Backport of upstream GmSSL commit c5ee40e3dfb640547afea7f3a9fc8fe0c9412d4a
+to the pre-refactor ecdsa.c implementation used by the 3.2.0 port.
+---
+ src/ecdsa.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/ecdsa.c b/src/ecdsa.c
+index 8f4fc03..89ad050 100644
+--- a/src/ecdsa.c
++++ b/src/ecdsa.c
+@@ -171,6 +171,8 @@ int ecdsa_signature_from_der(ECDSA_SIGNATURE *sig, const uint8_t **in, size_t *i
+ 	const uint8_t *d;
+ 	const uint8_t *r;
+ 	const uint8_t *s;
++	uint8_t rbuf[32] = {0};
++	uint8_t sbuf[32] = {0};
+ 	size_t dlen, rlen, slen;
+ 
+ 	if ((ret = asn1_sequence_from_der(&d, &dlen, in, inlen)) != 1) {
+@@ -186,8 +188,10 @@ int ecdsa_signature_from_der(ECDSA_SIGNATURE *sig, const uint8_t **in, size_t *i
+ 		return -1;
+ 	}
+ 
+-	secp256r1_from_32bytes(sig->r, r);
+-	secp256r1_from_32bytes(sig->s, s);
++	memcpy(rbuf + sizeof(rbuf) - rlen, r, rlen);
++	memcpy(sbuf + sizeof(sbuf) - slen, s, slen);
++	secp256r1_from_32bytes(sig->r, rbuf);
++	secp256r1_from_32bytes(sig->s, sbuf);
+ 
+ 	return 1;
+ }
