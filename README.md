@@ -57,6 +57,11 @@ steps:
 
 The action provides the pinned vcpkg executable/scripts environment, overlay ports, and GitHub Packages binary-cache configuration. The Microsoft vcpkg repository is materialized at the exact pinned scripts SHA with its complete reachable Git objects: the checkout is non-shallow and has no promisor remote or partial-clone filter. This is required because vcpkg versioning resolves historical port snapshots by `git-tree` SHA; consumers must never need repository-local `git fetch --unshallow` workarounds. The action does not provide a product manifest and must not build or publish a product SDK.
 
+The tool is bootstrapped from the pinned scripts checkout on every platform and
+checked against `vcpkg-tool-version.txt`. Runner-preinstalled vcpkg versions do
+not participate in tool selection. Bootstrap or identity failures stop setup;
+the action never substitutes another tool version.
+
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
 The generic `cache-contracts/header-only/vcpkg.json` profile keeps an isolated

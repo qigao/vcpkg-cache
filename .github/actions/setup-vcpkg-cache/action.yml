@@ -73,7 +73,7 @@ runs:
         set -euo pipefail
         command -v mono >/dev/null 2>&1 || brew install mono
 
-    - name: Prepare canonical vcpkg scripts with runner tool on Unix
+    - name: Prepare canonical vcpkg scripts and tool on Unix
       if: runner.os != 'Windows'
       shell: bash
       run: |
@@ -83,32 +83,6 @@ runs:
         expected_tool_version="$(tr -d '\r\n' < "$action_root/vcpkg-tool-version.txt")"
         test -n "$scripts_revision"
         test -n "$expected_tool_version"
-
-        runner_tool=""
-        if ! { [ "${RUNNER_OS:-}" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; }; then
-          for candidate in "${VCPKG_ROOT:-}" "${VCPKG_INSTALLATION_ROOT:-}"; do
-            if [ -n "$candidate" ] && [ -x "$candidate/vcpkg" ]; then
-              runner_tool="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$candidate/vcpkg")"
-              break
-            fi
-          done
-          if [ -z "$runner_tool" ]; then
-            candidate="$(command -v vcpkg || true)"
-            if [ -n "$candidate" ]; then
-              runner_tool="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$candidate")"
-            fi
-          fi
-          if [ -z "$runner_tool" ] || [ ! -x "$runner_tool" ]; then
-            echo "runner-provided vcpkg executable is unavailable" >&2
-            exit 1
-          fi
-
-          actual_tool_version="$("$runner_tool" version | awk '/^vcpkg package management program version / {print $NF; exit}')"
-          if [ "$actual_tool_version" != "$expected_tool_version" ]; then
-            echo "runner vcpkg tool version mismatch: $actual_tool_version != $expected_tool_version" >&2
-            exit 1
-          fi
-        fi
 
         root="$RUNNER_TEMP/qigao-vcpkg-$scripts_revision"
         if [ ! -d "$root/.git" ] ||
@@ -167,12 +141,12 @@ runs:
         test "$(git -C "$root" rev-parse --is-shallow-repository)" = "false"
         test "$(git -C "$root" config --get remote.origin.promisor 2>/dev/null || true)" != "true"
         test -z "$(git -C "$root" config --get remote.origin.partialclonefilter 2>/dev/null || true)"
+        # The pinned scripts select the tool release, independent of runner image updates.
+        (
+          cd "$root"
+          sh ./bootstrap-vcpkg.sh -disableMetrics
+        )
         if [ "${RUNNER_OS:-}" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; then
-          rm -f "$root/vcpkg"
-          (
-            cd "$root"
-            sh ./bootstrap-vcpkg.sh -disableMetrics
-          )
           # vcpkg requires FORCE_SYSTEM_BINARIES on Linux ARM64 to admit the
           # architecture, while FORCE_DOWNLOADED_BINARIES lets hash-pinned
           # downloadable tools (notably NuGet) override missing system tools.
@@ -180,9 +154,6 @@ runs:
           export VCPKG_FORCE_DOWNLOADED_BINARIES=1
           echo "VCPKG_FORCE_SYSTEM_BINARIES=1" >> "$GITHUB_ENV"
           echo "VCPKG_FORCE_DOWNLOADED_BINARIES=1" >> "$GITHUB_ENV"
-        else
-          cp "$runner_tool" "$root/vcpkg"
-          chmod +x "$root/vcpkg"
         fi
         actual_tool_version="$("$root/vcpkg" version | awk '/^vcpkg package management program version / {print $NF; exit}')"
         if [ "$actual_tool_version" != "$expected_tool_version" ]; then
@@ -194,7 +165,7 @@ runs:
         echo "VCPKG_TOOL_REVISION=$expected_tool_version" >> "$GITHUB_ENV"
         echo "VCPKG_SCRIPTS_REVISION=$scripts_revision" >> "$GITHUB_ENV"
 
-    - name: Prepare canonical vcpkg scripts with runner tool on Windows
+    - name: Prepare canonical vcpkg scripts and tool on Windows
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
@@ -204,38 +175,6 @@ runs:
         if ([string]::IsNullOrWhiteSpace($scriptsRevision)) { throw "canonical vcpkg scripts revision is unavailable" }
         $expectedToolVersion = (Get-Content -LiteralPath (Join-Path $actionRoot "vcpkg-tool-version.txt") -Raw).Trim()
         if ([string]::IsNullOrWhiteSpace($expectedToolVersion)) { throw "canonical vcpkg tool version is unavailable" }
-
-        $runnerTool = $null
-        foreach ($candidate in @($env:VCPKG_ROOT, $env:VCPKG_INSTALLATION_ROOT)) {
-          if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
-          $exe = Join-Path $candidate "vcpkg.exe"
-          if (Test-Path -LiteralPath $exe -PathType Leaf) {
-            $runnerTool = (Resolve-Path -LiteralPath $exe).Path
-            break
-          }
-        }
-        if ([string]::IsNullOrWhiteSpace($runnerTool)) {
-          $command = Get-Command vcpkg.exe -ErrorAction SilentlyContinue
-          if ($null -eq $command) { $command = Get-Command vcpkg -ErrorAction SilentlyContinue }
-          if ($null -ne $command) { $runnerTool = $command.Source }
-        }
-        if ([string]::IsNullOrWhiteSpace($runnerTool) -or -not (Test-Path -LiteralPath $runnerTool -PathType Leaf)) {
-          throw "runner-provided vcpkg executable is unavailable"
-        }
-
-        $versionOutput = @(& $runnerTool version 2>&1)
-        $versionExitCode = $LASTEXITCODE
-        if ($versionExitCode -ne 0) {
-          throw "runner-provided vcpkg version failed with exit code $versionExitCode"
-        }
-        if ($versionOutput.Count -lt 1) {
-          throw "runner-provided vcpkg version produced no output"
-        }
-        $versionLine = [string]$versionOutput[0]
-        $actualToolVersion = ($versionLine -replace '^vcpkg package management program version\s+', '').Trim()
-        if ($actualToolVersion -ne $expectedToolVersion) {
-          throw "runner vcpkg tool version mismatch: $actualToolVersion != $expectedToolVersion"
-        }
 
         $root = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-$scriptsRevision"
         $head = $null
@@ -328,10 +267,17 @@ runs:
           throw "canonical vcpkg scripts repository must not use a partial-clone filter"
         }
 
+        # The pinned scripts select the tool release, independent of runner image updates.
+        & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
+        if ($LASTEXITCODE -ne 0) { throw "canonical vcpkg bootstrap failed" }
         $exe = Join-Path $root "vcpkg.exe"
-        Copy-Item -LiteralPath $runnerTool -Destination $exe -Force
-        & $exe version
-        if ($LASTEXITCODE -ne 0) { throw "runner-provided vcpkg executable failed in canonical scripts root" }
+        $versionOutput = @(& $exe version 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw "canonical vcpkg version failed" }
+        if ($versionOutput.Count -lt 1) { throw "canonical vcpkg version produced no output" }
+        $actualToolVersion = ([string]$versionOutput[0] -replace '^vcpkg package management program version\s+', '').Trim()
+        if ($actualToolVersion -ne $expectedToolVersion) {
+          throw "canonical vcpkg tool version mismatch: $actualToolVersion != $expectedToolVersion"
+        }
 
         "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
         "VCPKG_TOOL_REVISION=$expectedToolVersion" >> $env:GITHUB_ENV
