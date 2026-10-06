@@ -189,18 +189,21 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
       - name: Prepare host dependencies
         shell: bash
         run: |
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           sudo apt-get update
-          # Tool discovery participates in vcpkg package ABIs; match Salts exactly.
+          # Tool discovery participates in vcpkg package ABIs; preserve the
+          # consumer's ordering as well as its exact tool set.
           sudo apt-get install -y --no-install-recommends \
             ninja-build pkg-config nasm libudev-dev
+      - name: Restore consumer re2c tool
+        uses: ./.github/actions/setup-re2c-tools
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
       - name: Create focused Linux arm64 SDK dependency manifest
         shell: bash
         run: |
@@ -221,9 +224,7 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl",
-              "miniaudio",
-              {"name":"zeromq","default-features":false}
+              "gmssl"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -247,9 +248,7 @@ jobs:
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
             --x-install-root="$install_root" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux
-          test -f "$install_root/arm64-linux/include/zmq.h"
+            --triplet arm64-linux
           test -f "$install_root/arm64-linux/include/gmssl/tls.h"
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
 
@@ -267,18 +266,20 @@ jobs:
           rm -rf "$cache"
           mkdir -p "$cache"
           echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: read
       - name: Prepare host dependencies
         shell: bash
         run: |
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           sudo apt-get update
-          # Qualify with the same ABI-relevant host tools as the producer.
+          # Qualify with the exact ABI-relevant setup order used by Salts.
           sudo apt-get install -y --no-install-recommends \
             ninja-build pkg-config nasm libudev-dev
+      - name: Restore consumer re2c tool
+        uses: ./.github/actions/setup-re2c-tools
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
       - name: Create focused Linux arm64 SDK dependency manifest
         shell: bash
         run: |
@@ -299,9 +300,7 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl",
-              "miniaudio",
-              {"name":"zeromq","default-features":false}
+              "gmssl"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -331,7 +330,6 @@ jobs:
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
             --x-install-root="$install_root" \
             --triplet arm64-linux \
-            --host-triplet arm64-linux \
             --only-binarycaching 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
           set -e
@@ -341,7 +339,6 @@ jobs:
             exit 1
           fi
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          test -f "$install_root/arm64-linux/include/zmq.h"
           test -f "$install_root/arm64-linux/include/gmssl/tls.h"
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
           echo "Linux arm64 SDK dependency clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
