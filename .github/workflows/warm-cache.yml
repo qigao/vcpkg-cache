@@ -198,8 +198,9 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           sudo apt-get update
+          # Tool discovery participates in vcpkg package ABIs; match Salts exactly.
           sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config autoconf automake libtool
+            ninja-build pkg-config nasm libudev-dev
       - name: Create focused Linux arm64 SDK dependency manifest
         shell: bash
         run: |
@@ -275,8 +276,9 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           sudo apt-get update
+          # Qualify with the same ABI-relevant host tools as the producer.
           sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config autoconf automake libtool
+            ninja-build pkg-config nasm libudev-dev
       - name: Create focused Linux arm64 SDK dependency manifest
         shell: bash
         run: |
