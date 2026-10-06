@@ -214,8 +214,8 @@ jobs:
           baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
           cat > "$manifest/vcpkg.json" <<EOF
           {
-            "name": "qigao-linux-arm64-sdk-deps",
-            "version-string": "1",
+            "name": "salts",
+            "version-semver": "1.8.27",
             "dependencies": [
               {"name":"pkgconf","host":true},
               "simde",
@@ -229,16 +229,20 @@ jobs:
             "builtin-baseline": "$baseline"
           }
           EOF
+          cat > "$manifest/vcpkg-configuration.json" <<'EOF'
+          {
+            "registries": [
+              {
+                "kind": "git",
+                "repository": "https://github.com/qigao/vcpkg-cache",
+                "reference": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "baseline": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "packages": ["aklomp-base64", "c-ares", "zstd", "gmssl"]
+              }
+            ]
+          }
+          EOF
           echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
-      - name: Warm isolated arm64-linux header-only cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root=cache-contracts/header-only \
-            --x-install-root="$RUNNER_TEMP/header-only-arm64-warm" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux
       - name: Warm focused arm64-linux SDK dependency cache
         shell: bash
         run: |
@@ -290,8 +294,8 @@ jobs:
           baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
           cat > "$manifest/vcpkg.json" <<EOF
           {
-            "name": "qigao-linux-arm64-sdk-deps-contract",
-            "version-string": "1",
+            "name": "salts",
+            "version-semver": "1.8.27",
             "dependencies": [
               {"name":"pkgconf","host":true},
               "simde",
@@ -305,18 +309,20 @@ jobs:
             "builtin-baseline": "$baseline"
           }
           EOF
+          cat > "$manifest/vcpkg-configuration.json" <<'EOF'
+          {
+            "registries": [
+              {
+                "kind": "git",
+                "repository": "https://github.com/qigao/vcpkg-cache",
+                "reference": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "baseline": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "packages": ["aklomp-base64", "c-ares", "zstd", "gmssl"]
+              }
+            ]
+          }
+          EOF
           echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
-      - name: Verify isolated arm64-linux header-only clean-L2 restore
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root=cache-contracts/header-only \
-            --x-install-root="$RUNNER_TEMP/header-only-arm64-clean" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux \
-            --only-binarycaching
-          test -f "$RUNNER_TEMP/header-only-arm64-clean/arm64-linux/include/simde/x86/sse2.h"
       - name: Verify focused arm64-linux clean-L2 restore
         shell: bash
         run: |
