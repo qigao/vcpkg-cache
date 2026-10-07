@@ -48,6 +48,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa-server-signing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa-mtls.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa-signing.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/handshake-framing.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ecdsa-der-width.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/tls13-optional-inputs.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 
 vcpkg_cmake_configure(

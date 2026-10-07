@@ -1,7 +1,7 @@
 {
   "name": "gmssl",
   "version": "3.2.0",
-  "port-version": 3,
+  "port-version": 4,
   "description": "GmSSL cryptographic library with TLS 1.2/1.3, TLCP and SM2/SM3/SM4",
   "homepage": "https://github.com/guanzhi/GmSSL",
   "license": "Apache-2.0",
