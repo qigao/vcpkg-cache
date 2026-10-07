@@ -30,6 +30,12 @@ b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 
 The root `vcpkg.json` is only a generic cache warm set. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product.
 
+The setup action bootstraps the official vcpkg executable from the checkout selected by
+`vcpkg-scripts-revision.txt`, then checks it against `vcpkg-tool-version.txt`.
+It does not use the runner image's preinstalled executable. When updating the shared
+tool identity, keep these two files aligned with the checkout's bootstrap metadata.
+Bootstrap or identity failures stop setup before dependency restoration.
+
 ## Central overlay ports
 
 `ports/` currently owns shared vcpkg overlay implementations such as:
