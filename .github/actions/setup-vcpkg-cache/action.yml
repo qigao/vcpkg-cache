@@ -56,22 +56,15 @@ runs:
           *) echo "invalid vcpkg cache mode: $CACHE_MODE" >&2; exit 1 ;;
         esac
 
-    - name: Ensure Mono on Linux
-      if: runner.os == 'Linux'
+    - name: Require runner Mono
+      if: runner.os != 'Windows'
       shell: bash
       run: |
         set -euo pipefail
         if ! command -v mono >/dev/null 2>&1; then
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mono-complete
+          echo 'The CI runner must provide Mono for NuGet binary caching' >&2
+          exit 1
         fi
-
-    - name: Ensure Mono on macOS
-      if: runner.os == 'macOS'
-      shell: bash
-      run: |
-        set -euo pipefail
-        command -v mono >/dev/null 2>&1 || brew install mono
 
     - name: Prepare canonical vcpkg scripts and tool on Unix
       if: runner.os != 'Windows'
