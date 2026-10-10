@@ -8,6 +8,7 @@ on:
       - "triplets/arm64-ios.cmake"
       - "triplets/arm64-ios-simulator.cmake"
       - "ports/boringssl/**"
+      - "ports/gmssl/**"
   push:
     branches: [master]
     paths:
@@ -16,6 +17,7 @@ on:
       - "triplets/arm64-ios.cmake"
       - "triplets/arm64-ios-simulator.cmake"
       - "ports/boringssl/**"
+      - "ports/gmssl/**"
   workflow_dispatch:
 
 permissions:
