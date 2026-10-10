@@ -376,6 +376,20 @@ jobs:
           $ErrorActionPreference = "Stop"
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET --host-triplet $env:VCPKG_WARM_TRIPLET
           if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
+      - name: Warm unversioned Windows MIR JIT cache
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned"
+          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned-install"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          @{
+            name = "qigao-mir-jit-unversioned-cache"
+            "version-string" = "1"
+            dependencies = @("mir-jit")
+          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET"
+          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT warm failed" }
 
   windows-cache-contract:
     name: Windows x64 cache-only restore / ${{ matrix.runner }}
@@ -421,6 +435,28 @@ jobs:
           }
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
             throw "generic Windows restore did not use NuGet"
+          }
+      - name: Verify unversioned Windows MIR JIT cache-only restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract"
+          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract-install"
+          $log = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract.log"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          @{
+            name = "qigao-mir-jit-cache-contract"
+            "version-string" = "1"
+            dependencies = @("mir-jit")
+          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET" --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT cache-only restore failed" }
+          $text = Get-Content -LiteralPath $log -Raw
+          if ($text -match "(?m)^Building mir-jit:") {
+            throw "MIR JIT source build detected during cache-only qualification"
+          }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "Windows MIR JIT restore did not use NuGet"
           }
 
   macos:

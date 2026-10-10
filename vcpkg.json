@@ -38,7 +38,7 @@
     "tiny-aes-c",
     {
       "name": "mir-jit",
-      "platform": "linux | osx | android"
+      "platform": "linux | osx | android | (windows & x64)"
     },
     "quickjs-ng",
     {

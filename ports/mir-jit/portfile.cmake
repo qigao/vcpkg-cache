@@ -1,7 +1,7 @@
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
-if(VCPKG_TARGET_IS_WINDOWS)
-    message(FATAL_ERROR "mir-jit is not qualified for Windows in qigao/vcpkg-cache")
+if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_ARCHITECTURE STREQUAL "x64")
+    message(FATAL_ERROR "mir-jit supports only x64 on Windows")
 endif()
 
 vcpkg_from_git(

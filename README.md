@@ -45,8 +45,15 @@ Bootstrap or identity failures stop setup before dependency restoration.
 - `libpq`
 - `zstd`
 - `wabt`
+- `mir-jit` (static MIR core/generator; Linux, macOS, Android and Windows x64)
 
 A product may depend on these ports, but the product still owns its manifest and version-selection policy.
+
+The MIR port keeps its pinned upstream source and executable-memory budget
+patch on Windows x64. Windows cache jobs warm both the root manifest and the
+unversioned MIR dependency graph used by optional-feature consumers such as
+TurboWasm, then verify read-only NuGet restoration. Windows x86 and ARM64
+remain unsupported. Product JIT/runtime tests belong to the consuming product.
 
 Consumers configure vcpkg with:
 
