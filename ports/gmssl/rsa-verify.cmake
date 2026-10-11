@@ -1,7 +1,5 @@
-# Minimal bounded RSA public-key primitive for standard TLS authentication.
-#
-# This is intentionally below X.509/TLS. It establishes a standalone,
-# dependency-free correctness gate before signature-scheme integration.
+# Bounded RSA public-key ABI and import for standard TLS authentication.
+# Public/private arithmetic is shared in rsa_private_op.c.
 
 set(_gmssl_rsa_h "${SOURCE_PATH}/include/gmssl/rsa.h")
 set(_gmssl_rsa_c "${SOURCE_PATH}/src/rsa.c")
@@ -22,32 +20,6 @@ vcpkg_replace_string(
     "${_gmssl_rsa_c}"
     "int rsa_public_key_print(FILE *fp, int fmt, int ind, const char *label, const uint8_t *a, size_t alen)\n{"
     [==[
-static void rsa_mod_mul(uint32_t *r,
-	const uint32_t *a, const uint32_t *b,
-	const uint32_t *n, size_t k)
-{
-	uint32_t acc[RSA_MAX_MODULUS_WORDS];
-	uint32_t x[RSA_MAX_MODULUS_WORDS];
-	size_t i;
-	int bit;
-
-	bn_set_word(acc, 0, k);
-	bn_copy(x, a, k);
-	for (i = 0; i < k; i++) {
-		uint32_t word = b[i];
-		for (bit = 0; bit < 32; bit++) {
-			if (word & 1u) {
-				bn_mod_add(acc, acc, x, n, k);
-			}
-			word >>= 1;
-			bn_mod_add(x, x, x, n, k);
-		}
-	}
-	bn_copy(r, acc, k);
-	gmssl_secure_clear(acc, sizeof(acc));
-	gmssl_secure_clear(x, sizeof(x));
-}
-
 int rsa_public_key_from_der(RSA_PUBLIC_KEY *key, const uint8_t **in, size_t *inlen)
 {
 	const uint8_t *d;
@@ -87,61 +59,6 @@ int rsa_public_key_from_der(RSA_PUBLIC_KEY *key, const uint8_t **in, size_t *inl
 	memcpy(key->modulus, modulus, modulus_len);
 	key->public_exponent = (uint32_t)exponent;
 	return 1;
-}
-
-int rsa_public_key_operation(const RSA_PUBLIC_KEY *key,
-	const uint8_t *in, size_t inlen,
-	uint8_t *out, size_t outmax, size_t *outlen)
-{
-	uint32_t modulus[RSA_MAX_MODULUS_WORDS];
-	uint32_t base[RSA_MAX_MODULUS_WORDS];
-	uint32_t result[RSA_MAX_MODULUS_WORDS];
-	size_t k;
-	uint32_t exponent;
-	int ret = -1;
-
-	if (outlen) *outlen = 0;
-	if (!key || !in || !out || !outlen
-		|| key->modulus_size < RSA_MIN_MODULUS_SIZE
-		|| key->modulus_size > RSA_MAX_MODULUS_SIZE
-		|| (key->modulus_size & 3u) != 0
-		|| inlen != key->modulus_size
-		|| outmax < key->modulus_size
-		|| key->public_exponent < 3
-		|| (key->public_exponent & 1u) == 0) {
-		error_print();
-		return -1;
-	}
-
-	k = key->modulus_size / 4;
-	bn_from_bytes(modulus, k, key->modulus);
-	bn_from_bytes(base, k, in);
-	if (bn_cmp(base, modulus, k) >= 0) {
-		error_print();
-		goto end;
-	}
-
-	bn_set_word(result, 1, k);
-	exponent = key->public_exponent;
-	while (exponent) {
-		if (exponent & 1u) {
-			rsa_mod_mul(result, result, base, modulus, k);
-		}
-		exponent >>= 1;
-		if (exponent) {
-			rsa_mod_mul(base, base, base, modulus, k);
-		}
-	}
-
-	bn_to_bytes(result, k, out);
-	*outlen = key->modulus_size;
-	ret = 1;
-
-end:
-	gmssl_secure_clear(modulus, sizeof(modulus));
-	gmssl_secure_clear(base, sizeof(base));
-	gmssl_secure_clear(result, sizeof(result));
-	return ret;
 }
 
 int rsa_public_key_print(FILE *fp, int fmt, int ind, const char *label, const uint8_t *a, size_t alen)

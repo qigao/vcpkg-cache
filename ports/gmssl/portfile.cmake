@@ -2,6 +2,8 @@ vcpkg_from_git(
     OUT_SOURCE_PATH SOURCE_PATH
     URL "https://github.com/guanzhi/GmSSL.git"
     REF 7c9f02904ef33e59c87b4f16621cc8fd434e7579
+    PATCHES
+        p256-ecdsa-der-signature-parsing.patch
 )
 
 # Upstream overrides CMAKE_INSTALL_PREFIX on MSVC. vcpkg owns the install root.
@@ -21,6 +23,7 @@ vcpkg_replace_string(
 
 include("${CMAKE_CURRENT_LIST_DIR}/legacy-md5.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/legacy-des.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/key-wrap.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
@@ -41,6 +44,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/rsa-private.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-op.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-pkcs8.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-signatures.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/rsa-ext.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa-signing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/rsa-encrypted-pkcs8.cmake")

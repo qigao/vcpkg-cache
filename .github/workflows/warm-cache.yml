@@ -189,17 +189,21 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
       - name: Prepare host dependencies
         shell: bash
         run: |
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           sudo apt-get update
+          # Tool discovery participates in vcpkg package ABIs; preserve the
+          # consumer's ordering as well as its exact tool set.
           sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config autoconf automake libtool
+            ninja-build pkg-config nasm libudev-dev
+      - name: Restore consumer re2c tool
+        uses: ./.github/actions/setup-re2c-tools
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
       - name: Create focused Linux arm64 SDK dependency manifest
         shell: bash
         run: |
@@ -210,8 +214,8 @@ jobs:
           baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
           cat > "$manifest/vcpkg.json" <<EOF
           {
-            "name": "qigao-linux-arm64-sdk-deps",
-            "version-string": "1",
+            "name": "salts",
+            "version-semver": "1.8.27",
             "dependencies": [
               {"name":"pkgconf","host":true},
               "simde",
@@ -220,23 +224,25 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl",
-              "miniaudio",
-              {"name":"zeromq","default-features":false}
+              "gmssl"
             ],
             "builtin-baseline": "$baseline"
           }
           EOF
+          cat > "$manifest/vcpkg-configuration.json" <<'EOF'
+          {
+            "registries": [
+              {
+                "kind": "git",
+                "repository": "https://github.com/qigao/vcpkg-cache",
+                "reference": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "baseline": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "packages": ["aklomp-base64", "c-ares", "zstd", "gmssl"]
+              }
+            ]
+          }
+          EOF
           echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
-      - name: Warm isolated arm64-linux header-only cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root=cache-contracts/header-only \
-            --x-install-root="$RUNNER_TEMP/header-only-arm64-warm" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux
       - name: Warm focused arm64-linux SDK dependency cache
         shell: bash
         run: |
@@ -246,9 +252,7 @@ jobs:
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
             --x-install-root="$install_root" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux
-          test -f "$install_root/arm64-linux/include/zmq.h"
+            --triplet arm64-linux
           test -f "$install_root/arm64-linux/include/gmssl/tls.h"
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
 
@@ -266,17 +270,20 @@ jobs:
           rm -rf "$cache"
           mkdir -p "$cache"
           echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: read
       - name: Prepare host dependencies
         shell: bash
         run: |
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           sudo apt-get update
+          # Qualify with the exact ABI-relevant setup order used by Salts.
           sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config autoconf automake libtool
+            ninja-build pkg-config nasm libudev-dev
+      - name: Restore consumer re2c tool
+        uses: ./.github/actions/setup-re2c-tools
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
       - name: Create focused Linux arm64 SDK dependency manifest
         shell: bash
         run: |
@@ -287,8 +294,8 @@ jobs:
           baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
           cat > "$manifest/vcpkg.json" <<EOF
           {
-            "name": "qigao-linux-arm64-sdk-deps-contract",
-            "version-string": "1",
+            "name": "salts",
+            "version-semver": "1.8.27",
             "dependencies": [
               {"name":"pkgconf","host":true},
               "simde",
@@ -297,25 +304,25 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl",
-              "miniaudio",
-              {"name":"zeromq","default-features":false}
+              "gmssl"
             ],
             "builtin-baseline": "$baseline"
           }
           EOF
+          cat > "$manifest/vcpkg-configuration.json" <<'EOF'
+          {
+            "registries": [
+              {
+                "kind": "git",
+                "repository": "https://github.com/qigao/vcpkg-cache",
+                "reference": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "baseline": "b8bcce436838b716522bb2c8b35438b47ac1830b",
+                "packages": ["aklomp-base64", "c-ares", "zstd", "gmssl"]
+              }
+            ]
+          }
+          EOF
           echo "LINUX_ARM64_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
-      - name: Verify isolated arm64-linux header-only clean-L2 restore
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root=cache-contracts/header-only \
-            --x-install-root="$RUNNER_TEMP/header-only-arm64-clean" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux \
-            --only-binarycaching
-          test -f "$RUNNER_TEMP/header-only-arm64-clean/arm64-linux/include/simde/x86/sse2.h"
       - name: Verify focused arm64-linux clean-L2 restore
         shell: bash
         run: |
@@ -329,7 +336,6 @@ jobs:
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
             --x-install-root="$install_root" \
             --triplet arm64-linux \
-            --host-triplet arm64-linux \
             --only-binarycaching 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
           set -e
@@ -339,7 +345,6 @@ jobs:
             exit 1
           fi
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          test -f "$install_root/arm64-linux/include/zmq.h"
           test -f "$install_root/arm64-linux/include/gmssl/tls.h"
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
           echo "Linux arm64 SDK dependency clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
@@ -371,6 +376,20 @@ jobs:
           $ErrorActionPreference = "Stop"
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET --host-triplet $env:VCPKG_WARM_TRIPLET
           if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
+      - name: Warm unversioned Windows MIR JIT cache
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned"
+          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned-install"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          @{
+            name = "qigao-mir-jit-unversioned-cache"
+            "version-string" = "1"
+            dependencies = @("mir-jit")
+          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET"
+          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT warm failed" }
 
   windows-cache-contract:
     name: Windows x64 cache-only restore / ${{ matrix.runner }}
@@ -416,6 +435,28 @@ jobs:
           }
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
             throw "generic Windows restore did not use NuGet"
+          }
+      - name: Verify unversioned Windows MIR JIT cache-only restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract"
+          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract-install"
+          $log = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract.log"
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          @{
+            name = "qigao-mir-jit-cache-contract"
+            "version-string" = "1"
+            dependencies = @("mir-jit")
+          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET" --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT cache-only restore failed" }
+          $text = Get-Content -LiteralPath $log -Raw
+          if ($text -match "(?m)^Building mir-jit:") {
+            throw "MIR JIT source build detected during cache-only qualification"
+          }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "Windows MIR JIT restore did not use NuGet"
           }
 
   macos:

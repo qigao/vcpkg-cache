@@ -5,3 +5,7 @@ MIR JIT provides a private static-library CMake target:
 
 The port intentionally packages only the MIR core/generator API.
 C2MIR, MIR command-line tools, and upstream tests are not built.
+
+Windows support is limited to x64. The same pinned upstream core/generator
+and code-memory-limit patch are built with the consuming triplet's CRT.
+32-bit Windows and Windows ARM64 are not admitted by this port.

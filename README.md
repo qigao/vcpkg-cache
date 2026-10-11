@@ -30,6 +30,12 @@ b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 
 The root `vcpkg.json` is only a generic cache warm set. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product.
 
+The setup action bootstraps the official vcpkg executable from the checkout selected by
+`vcpkg-scripts-revision.txt`, then checks it against `vcpkg-tool-version.txt`.
+It does not use the runner image's preinstalled executable. When updating the shared
+tool identity, keep these two files aligned with the checkout's bootstrap metadata.
+Bootstrap or identity failures stop setup before dependency restoration.
+
 ## Central overlay ports
 
 `ports/` currently owns shared vcpkg overlay implementations such as:
@@ -40,8 +46,15 @@ The root `vcpkg.json` is only a generic cache warm set. It is **not** a dependen
 - `zstd`
 - `wabt`
 - [`tre`](ports/tre/README.md) (static regex and approximate matching)
+- `mir-jit` (static MIR core/generator; Linux, macOS, Android and Windows x64)
 
 A product may depend on these ports, but the product still owns its manifest and version-selection policy.
+
+The MIR port keeps its pinned upstream source and executable-memory budget
+patch on Windows x64. Windows cache jobs warm both the root manifest and the
+unversioned MIR dependency graph used by optional-feature consumers such as
+TurboWasm, then verify read-only NuGet restoration. Windows x86 and ARM64
+remain unsupported. Product JIT/runtime tests belong to the consuming product.
 
 Consumers configure vcpkg with:
 
