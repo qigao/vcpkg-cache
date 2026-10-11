@@ -36,6 +36,7 @@
       ]
     },
     "tiny-aes-c",
+    "tre",
     {
       "name": "mir-jit",
       "platform": "linux | osx | android"

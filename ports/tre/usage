@@ -1,0 +1,7 @@
+tre provides CMake targets:
+
+  find_package(unofficial-tre 0.9.0 CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE unofficial::tre::tre)
+
+Include <tre/tre.h>. This port builds a static library with approximate,
+wide-character and multibyte matching enabled.

@@ -39,6 +39,7 @@ The root `vcpkg.json` is only a generic cache warm set. It is **not** a dependen
 - `libpq`
 - `zstd`
 - `wabt`
+- [`tre`](ports/tre/README.md) (static regex and approximate matching)
 
 A product may depend on these ports, but the product still owns its manifest and version-selection policy.
 
