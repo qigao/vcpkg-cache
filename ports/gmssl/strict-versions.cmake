@@ -26,7 +26,7 @@ int tls_ctx_set_cipher_suites(TLS_CTX *ctx, const int *cipher_suites, size_t cip
 gmssl_replace_once(
     "${_gmssl_tls_c}"
 [==[
-void tls_ctx_cleanup(TLS_CTX *ctx)
+int tls_ctx_set_cipher_suites(TLS_CTX *ctx, const int *cipher_suites, size_t cipher_suites_cnt)
 ]==]
 [==[
 int tls_ctx_set_strict_protocol(TLS_CTX *ctx, int protocol)
@@ -50,7 +50,7 @@ int tls_ctx_set_strict_protocol(TLS_CTX *ctx, int protocol)
     return tls_ctx_set_supported_versions(ctx, &protocol, 1);
 }
 
-void tls_ctx_cleanup(TLS_CTX *ctx)
+int tls_ctx_set_cipher_suites(TLS_CTX *ctx, const int *cipher_suites, size_t cipher_suites_cnt)
 ]==]
 )
 
