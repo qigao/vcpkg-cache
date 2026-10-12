@@ -77,7 +77,7 @@ int tls13_recv_certificate_request(TLS_CONNECT *conn)
 	int handshake_type;
 	const uint8_t *handshake_data;
 	size_t handshake_datalen;
-	int client_cert;
+	int client_cert = 0;
 
 	// certificate_request
 	const uint8_t *request_context;
@@ -100,7 +100,7 @@ int tls13_recv_certificate_request(TLS_CONNECT *conn)
 	int common_sig_algs[4];
 	size_t common_sig_algs_cnt;
 	int common_sig_algs_cert[4];
-	size_t common_sig_algs_cert_cnt;
+	size_t common_sig_algs_cert_cnt = 0;
 	const uint8_t *ca_names = NULL;
 	size_t ca_names_len = 0;
 	const uint8_t *filters = NULL;
@@ -129,7 +129,7 @@ int tls13_recv_certificate_request(TLS_CONNECT *conn)
 	int handshake_type;
 	const uint8_t *handshake_data;
 	size_t handshake_datalen;
-	int client_cert;
+	int client_cert = 0;
 
 	// certificate_request
 	const uint8_t *request_context;
@@ -152,7 +152,7 @@ int tls13_recv_certificate_request(TLS_CONNECT *conn)
 	int common_sig_algs[4];
 	size_t common_sig_algs_cnt;
 	int common_sig_algs_cert[4];
-	size_t common_sig_algs_cert_cnt;
+	size_t common_sig_algs_cert_cnt = 0;
 	const uint8_t *ca_names = NULL;
 	size_t ca_names_len = 0;
 	const uint8_t *filters = NULL;
