@@ -8,6 +8,19 @@ work="${2:?temporary work directory required}"
 base_port="${3:-9460}"
 
 test -x "$gmssl_bin"
+# macOS /usr/bin/openssl is LibreSSL on many runners. Use the actual
+# Homebrew OpenSSL 3 CLI consistently for cert generation and independent
+# verification; do not mix multiple X.509 implementations in one fixture.
+openssl_bin="$(command -v openssl)"
+if [ "$(uname -s)" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
+  openssl3_prefix="$(brew --prefix openssl@3 2>/dev/null || true)"
+  if [ -n "$openssl3_prefix" ] && [ -x "$openssl3_prefix/bin/openssl" ]; then
+    openssl_bin="$openssl3_prefix/bin/openssl"
+  fi
+fi
+openssl() { "$openssl_bin" "$@"; }
+printf 'Independent TLS fixture oracle: '
+openssl version
 rm -rf "$work"
 mkdir -p "$work"
 
