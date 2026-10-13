@@ -310,3 +310,19 @@ if(NOT CMAKE_CROSSCOMPILING)
         COMMAND "$<TARGET_FILE:gmssl-x509-p384-sha384-contract>"
         COMMENT "Verify private P-384 issuer / SHA-384 certificate chains")
 endif()
+
+# #1196: a failed inbound TLS1.3 tag triggers an outbound authenticated
+# fatal alert. The alert MUST consume the local-write key/nonce, not the
+# remote receive nonce. Enforce both client and server modes on every native OS.
+add_executable(gmssl-tls13-alert-direction-contract tls13-alert-direction-contract.c)
+target_link_libraries(gmssl-tls13-alert-direction-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls13-alert-direction-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(NOT CMAKE_CROSSCOMPILING)
+    add_custom_command(TARGET gmssl-tls13-alert-direction-contract POST_BUILD
+        COMMAND "$<TARGET_FILE:gmssl-tls13-alert-direction-contract>"
+        COMMENT "Qualify correct TLS1.3 Fatal Alert outbound direction")
+endif()
+enable_testing()
+add_test(NAME gmssl.tls13_alert_direction
+         COMMAND gmssl-tls13-alert-direction-contract)
