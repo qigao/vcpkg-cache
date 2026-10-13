@@ -295,7 +295,7 @@ int x509_verify_finish(X509_SIGN_CTX *ctx)
 		if (ret != 1) return ret < 0 ? -1 : 0;
 		break;
 #endif
-	case OID_rsasign_with_sha256:
+	case OID_rsasign_with_sha256: {
 ]==]
 )
 
