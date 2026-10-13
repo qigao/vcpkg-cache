@@ -263,3 +263,19 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(gmssl-tls-cleanup-contract PRIVATE -fsanitize=address -fno-omit-frame-pointer)
     target_link_options(gmssl-tls-cleanup-contract PRIVATE -fsanitize=address)
 endif()
+
+
+# #192: test the *installed provider's* strict protocol ABI, not Salts TLS.
+add_executable(gmssl-strict-protocol-contract strict-protocol-contract.c)
+target_link_libraries(gmssl-strict-protocol-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-strict-protocol-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+
+# The cache qualification workflow already builds this CMake project on
+# host platforms. Make the conformance executable part of that native build
+# gate instead of introducing a redundant CI target list.
+if(NOT CMAKE_CROSSCOMPILING)
+    add_custom_command(TARGET gmssl-strict-protocol-contract POST_BUILD
+        COMMAND "$<TARGET_FILE:gmssl-strict-protocol-contract>"
+        COMMENT "Qualify private GmSSL strict TLS/TLCP admission")
+endif()
