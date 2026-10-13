@@ -445,7 +445,7 @@ gmssl_replace_once(
 [==[
 	if (!strcmp(name, "ecdsa_secp256r1_sha256")) {
 		return TLS_sig_ecdsa_secp256r1_sha256;
-	} else if (!strcmp(name, "sm2sig_sm3")) {
+	} else if (!strcmp(name, "rsa_pkcs1_sha256")) {
 ]==]
 [==[
 	if (!strcmp(name, "ecdsa_secp256r1_sha256")) {
@@ -454,7 +454,7 @@ gmssl_replace_once(
 	} else if (!strcmp(name, "ecdsa_secp384r1_sha384")) {
 		return TLS_sig_ecdsa_secp384r1_sha384;
 #endif
-	} else if (!strcmp(name, "sm2sig_sm3")) {
+	} else if (!strcmp(name, "rsa_pkcs1_sha256")) {
 ]==]
 )
 
