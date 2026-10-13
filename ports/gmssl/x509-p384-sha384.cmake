@@ -432,3 +432,150 @@ gmssl_replace_once(
 ]==]
 )
 unset(_gmssl_p384_cert_c)
+
+# TLS certificate-signature policy must understand P-384 issuing CA OIDs.
+# SignatureScheme cert mapping is distinct from the ECDHE P-256 key-share group.
+set(_gmssl_p384_tls_trace "${SOURCE_PATH}/src/tls_trace.c")
+set(_gmssl_p384_tls12 "${SOURCE_PATH}/src/tls12.c")
+set(_gmssl_p384_tls13 "${SOURCE_PATH}/src/tls13.c")
+
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls_trace}"
+[==[
+} else if (alg_oid == OID_ecdsa_with_sha256 && group_oid == OID_secp256r1) {
+		return TLS_sig_ecdsa_secp256r1_sha256;
+	}
+	return 0;
+]==]
+[==[
+} else if (alg_oid == OID_ecdsa_with_sha256 && group_oid == OID_secp256r1) {
+		return TLS_sig_ecdsa_secp256r1_sha256;
+#ifdef ENABLE_SECP384R1
+	} else if (alg_oid == OID_ecdsa_with_sha384 && group_oid == OID_secp384r1) {
+		return TLS_sig_ecdsa_secp384r1_sha384;
+#endif
+	}
+	return 0;
+]==]
+)
+
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls_trace}"
+[==[
+case TLS_sig_ecdsa_secp256r1_sha256: return OID_ecdsa_with_sha256;
+]==]
+[==[
+case TLS_sig_ecdsa_secp256r1_sha256: return OID_ecdsa_with_sha256;
+#ifdef ENABLE_SECP384R1
+	case TLS_sig_ecdsa_secp384r1_sha384: return OID_ecdsa_with_sha384;
+#endif
+]==]
+)
+
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls_trace}"
+[==[
+case TLS_sig_ecdsa_secp256r1_sha256: return OID_secp256r1;
+]==]
+[==[
+case TLS_sig_ecdsa_secp256r1_sha256: return OID_secp256r1;
+#ifdef ENABLE_SECP384R1
+	case TLS_sig_ecdsa_secp384r1_sha384: return OID_secp384r1;
+#endif
+]==]
+)
+
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls12}"
+[==[
+#if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
+	TLS_sig_ecdsa_secp256r1_sha256,
+#endif
+};
+const size_t
+]==]
+[==[
+#if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
+	TLS_sig_ecdsa_secp256r1_sha256,
+#endif
+#ifdef ENABLE_SECP384R1
+	TLS_sig_ecdsa_secp384r1_sha384,
+#endif
+};
+const size_t
+]==]
+)
+
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls13}"
+[==[
+#if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
+	TLS_sig_ecdsa_secp256r1_sha256,
+#endif
+};
+const size_t
+]==]
+[==[
+#if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
+	TLS_sig_ecdsa_secp256r1_sha256,
+#endif
+#ifdef ENABLE_SECP384R1
+	TLS_sig_ecdsa_secp384r1_sha384,
+#endif
+};
+const size_t
+]==]
+)
+
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls13}"
+[==[
+	case TLS_sig_ecdsa_secp256r1_sha256:
+		if (public_key->algor != OID_ec_public_key
+			&& public_key->algor_param != OID_secp256r1) {
+			error_print();
+			return -1;
+		}
+		if (tbs_dgst_ctx->digest->oid != OID_sha256) {
+			error_print();
+			return -1;
+		}
+		break;
+
+	default:
+]==]
+[==[
+	case TLS_sig_ecdsa_secp256r1_sha256:
+		if (public_key->algor != OID_ec_public_key
+			&& public_key->algor_param != OID_secp256r1) {
+			error_print();
+			return -1;
+		}
+		if (tbs_dgst_ctx->digest->oid != OID_sha256) {
+			error_print();
+			return -1;
+		}
+		break;
+#ifdef ENABLE_SECP384R1
+	case TLS_sig_ecdsa_secp384r1_sha384:
+		if (public_key->algor != OID_ec_public_key
+			|| public_key->algor_param != OID_secp384r1
+			|| tbs_dgst_ctx->digest->oid != OID_sha256) {
+			error_print();
+			return -1;
+		}
+		break;
+#endif
+	default:
+]==]
+)
+
+unset(_gmssl_p384_tls_trace)
+unset(_gmssl_p384_tls12)
+unset(_gmssl_p384_tls13)
