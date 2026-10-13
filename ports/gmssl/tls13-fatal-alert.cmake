@@ -38,4 +38,51 @@ int tls13_send_alert(TLS_CONNECT *conn, int alert)
 ]==]
 )
 
+
+# #196/#1196: tls13_send_alert is shared by client and server. A client
+# authenticates inbound records with server_write_*, but *sends* a fatal alert
+# using client_write_* and the client write sequence. The older pinned code
+# unconditionally used server_write_* even for client-side failures, advancing
+# the inbound server sequence and potentially emitting an undecryptable alert.
+# Only change the outbound direction selection; preserve the existing
+# consumed-record ownership fence, fail-closed behavior and no retry policy.
+gmssl_replace_once(
+    "${_gmssl_tls13_fatal_alert_c}"
+[==[
+		default:
+			tls13_padding_len_rand(&padding_len);
+			if (tls13_record_encrypt(conn->cipher_suite, &conn->server_write_key, conn->server_write_iv,
+				conn->server_seq_num, conn->plain_record, conn->plain_recordlen, padding_len,
+				conn->record, &conn->recordlen) != 1) {
+				error_print();
+				return -1;
+			}
+			tls_seq_num_incr(conn->server_seq_num);
+		}
+]==]
+[==[
+		default: {
+			/* A client must never spend the peer's inbound AEAD nonce when
+			 * emitting its locally authenticated fatal Alert. */
+			const int client = conn->ctx && conn->ctx->is_client;
+			const BLOCK_CIPHER_KEY *write_key =
+				client ? &conn->client_write_key : &conn->server_write_key;
+			const uint8_t *write_iv =
+				client ? conn->client_write_iv : conn->server_write_iv;
+			uint8_t *write_seq =
+				client ? conn->client_seq_num : conn->server_seq_num;
+			tls13_padding_len_rand(&padding_len);
+			if (tls13_record_encrypt(conn->cipher_suite, write_key, write_iv,
+				write_seq, conn->plain_record, conn->plain_recordlen, padding_len,
+				conn->record, &conn->recordlen) != 1) {
+				error_print();
+				return -1;
+			}
+			tls_seq_num_incr(write_seq);
+			break;
+		}
+		}
+]==]
+)
+
 unset(_gmssl_tls13_fatal_alert_c)
