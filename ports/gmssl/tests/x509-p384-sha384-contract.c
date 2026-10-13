@@ -3,6 +3,8 @@
 #include <gmssl/x509_key.h>
 #include <gmssl/oid.h>
 #include <gmssl/tls.h>
+#include <gmssl/hex.h>
+#include <gmssl/digest.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -29,6 +31,56 @@ static int read_cert(const char *path, uint8_t *cert, size_t *len, size_t capaci
     rc = x509_cert_from_pem(cert, len, capacity, fp);
     if (fclose(fp) != 0) return -1;
     return rc == 1 ? 0 : -1;
+}
+
+
+/* OpenSSL/Python-cryptography generated test-only, independent P-384 vector.
+ * Signed data is RFC8446 server context: 64 spaces + context+NUL + SHA256
+ * transcript hash; ECDSA P384/SHA384 signs this structure, independently of
+ * the SHA256 handshake transcript digest.
+ */
+static int test_tls13_p384_cv(void)
+{
+    static const uint8_t transcript[] =
+        "GmSSL TLS13 external P384 CertificateVerify transcript test";
+    static const char public_hex[] =
+        "04dc2e3a2486a0f83c32fa52274591dc79c10954493d293342d3d7afee9f170d3d03"
+        "afe6d331c99412fbdff9536b4a8ba74133504b573b33ac466b3213067b422dcf204"
+        "393e3e3740eeff28df1adf86edd9257cad0804ba6d196b16c3f28021932";
+    static const char signature_hex[] =
+        "30650231009fa18c0724397ddfbe83ec4fd0d788c7fd486476dbd85c9d62cf5e58"
+        "bea70f0a88035cc63c5f9122acf78a12f83acecf023058928a55882f98038f8fd91"
+        "7dbf7559f93ba1180804469f8a1f9aa6398169ffa5c1d35d89bfab0b64b40aeb1e"
+        "b6f6754";
+    X509_KEY key = {0};
+    DIGEST_CTX ctx = {0};
+    uint8_t point[97], sig[104];
+    size_t point_len = 0, sig_len = 0;
+    const uint8_t *p;
+    size_t available;
+
+    if (hex_to_bytes(public_hex, strlen(public_hex), point, &point_len) != 1
+        || point_len != sizeof(point)
+        || hex_to_bytes(signature_hex, strlen(signature_hex), sig, &sig_len) != 1
+        || sig_len == 0 || sig_len > sizeof(sig)) return 21;
+    p = point; available = point_len;
+    key.algor = OID_ec_public_key;
+    key.algor_param = OID_secp384r1;
+    if (secp384r1_public_key_from_bytes(&key.u.secp384r1_key, &p, &available) != 1
+        || available != 0) return 22;
+    if (digest_init(&ctx, DIGEST_sha256()) != 1
+        || digest_update(&ctx, transcript, sizeof(transcript) - 1) != 1) return 23;
+    if (tls13_verify_certificate_verify(TLS_server_mode, TLS_sig_ecdsa_secp384r1_sha384,
+                                         &key, &ctx, sig, sig_len) != 1) return 24;
+    if (tls13_verify_certificate_verify(TLS_client_mode, TLS_sig_ecdsa_secp384r1_sha384,
+                                         &key, &ctx, sig, sig_len) == 1) return 25;
+    if (tls13_verify_certificate_verify(TLS_server_mode, TLS_sig_ecdsa_secp256r1_sha256,
+                                         &key, &ctx, sig, sig_len) == 1) return 26;
+    sig[sig_len - 1] ^= 1u;
+    if (tls13_verify_certificate_verify(TLS_server_mode, TLS_sig_ecdsa_secp384r1_sha384,
+                                         &key, &ctx, sig, sig_len) == 1) return 27;
+    x509_key_cleanup(&key);
+    return 0;
 }
 
 int main(void)
@@ -99,6 +151,8 @@ int main(void)
     memcpy(modified, leaf256, nleaf256);
     modified[nleaf256 - 1] ^= 0x01;
     if (x509_cert_verify_by_ca_cert(modified, nleaf256, ca256, nca256, NULL, 0) == 1) return 16;
+
+    if (test_tls13_p384_cv() != 0) return 28;
 
     x509_key_cleanup(&ca256_key);
     x509_key_cleanup(&leaf_key);
