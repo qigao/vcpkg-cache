@@ -443,6 +443,24 @@ set(_gmssl_p384_tls13 "${SOURCE_PATH}/src/tls13.c")
 gmssl_replace_once(
     "${_gmssl_p384_tls_trace}"
 [==[
+	if (!strcmp(name, "ecdsa_secp256r1_sha256")) {
+		return TLS_sig_ecdsa_secp256r1_sha256;
+	} else if (!strcmp(name, "sm2sig_sm3")) {
+]==]
+[==[
+	if (!strcmp(name, "ecdsa_secp256r1_sha256")) {
+		return TLS_sig_ecdsa_secp256r1_sha256;
+#ifdef ENABLE_SECP384R1
+	} else if (!strcmp(name, "ecdsa_secp384r1_sha384")) {
+		return TLS_sig_ecdsa_secp384r1_sha384;
+#endif
+	} else if (!strcmp(name, "sm2sig_sm3")) {
+]==]
+)
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls_trace}"
+[==[
 } else if (alg_oid == OID_ecdsa_with_sha256 && group_oid == OID_secp256r1) {
 		return TLS_sig_ecdsa_secp256r1_sha256;
 ]==]
