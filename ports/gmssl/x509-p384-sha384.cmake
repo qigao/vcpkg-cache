@@ -271,7 +271,7 @@ int x509_verify_finish(X509_SIGN_CTX *ctx)
 	size_t idlen;
 
 	switch (ctx->sign_algor) {
-	case OID_rsasign_with_sha256:
+	case OID_rsasign_with_sha256: {
 ]==]
 [==[
 int x509_verify_finish(X509_SIGN_CTX *ctx)
