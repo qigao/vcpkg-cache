@@ -445,8 +445,6 @@ gmssl_replace_once(
 [==[
 } else if (alg_oid == OID_ecdsa_with_sha256 && group_oid == OID_secp256r1) {
 		return TLS_sig_ecdsa_secp256r1_sha256;
-	}
-	return 0;
 ]==]
 [==[
 } else if (alg_oid == OID_ecdsa_with_sha256 && group_oid == OID_secp256r1) {
@@ -455,8 +453,6 @@ gmssl_replace_once(
 	} else if (alg_oid == OID_ecdsa_with_sha384 && group_oid == OID_secp384r1) {
 		return TLS_sig_ecdsa_secp384r1_sha384;
 #endif
-	}
-	return 0;
 ]==]
 )
 
@@ -495,8 +491,6 @@ gmssl_replace_once(
 #if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
 	TLS_sig_ecdsa_secp256r1_sha256,
 #endif
-};
-const size_t
 ]==]
 [==[
 #if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
@@ -505,8 +499,6 @@ const size_t
 #ifdef ENABLE_SECP384R1
 	TLS_sig_ecdsa_secp384r1_sha384,
 #endif
-};
-const size_t
 ]==]
 )
 
@@ -517,8 +509,6 @@ gmssl_replace_once(
 #if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
 	TLS_sig_ecdsa_secp256r1_sha256,
 #endif
-};
-const size_t
 ]==]
 [==[
 #if defined(ENABLE_SECP256R1) && defined(ENABLE_SHA2)
@@ -527,8 +517,6 @@ const size_t
 #ifdef ENABLE_SECP384R1
 	TLS_sig_ecdsa_secp384r1_sha384,
 #endif
-};
-const size_t
 ]==]
 )
 
@@ -547,8 +535,6 @@ gmssl_replace_once(
 			return -1;
 		}
 		break;
-
-	default:
 ]==]
 [==[
 	case TLS_sig_ecdsa_secp256r1_sha256:
@@ -572,7 +558,6 @@ gmssl_replace_once(
 		}
 		break;
 #endif
-	default:
 ]==]
 )
 
