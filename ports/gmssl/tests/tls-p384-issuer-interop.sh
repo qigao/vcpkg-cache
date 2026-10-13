@@ -130,20 +130,28 @@ run_version() {
   fi
 
   # Preserve strict GmSSL CA and identity checks on the same server.
-  if "$gmssl_bin" "tls${version}_client" \
+  # The pinned gmssl CLI exits 0 even after a failed handshake. Require
+  # an explicit handshake rejection diagnostic and absence of HTTP, not rc != 0.
+  "$gmssl_bin" "tls${version}_client" \
       -host 127.0.0.1 -port "$port" -server_name localhost \
       -cacert "$work/wrong-ca.pem" -cipher_suite "$suite" \
       -supported_group prime256v1 -sig_alg ecdsa_secp256r1_sha256 \
-      -get / >"$work/wrong-ca-$version.out" 2>"$work/wrong-ca-$version.err"; then
-    echo "GmSSL TLS $version accepted certificate signed by untrusted CA" >&2
+      -get / >"$work/wrong-ca-$version.out" 2>"$work/wrong-ca-$version.err" || true
+  if grep -Eq 'HTTP/1[.]0 200' "$work/wrong-ca-$version.out" \
+      || ! grep -q 'client: error' "$work/wrong-ca-$version.err"; then
+    cat "$work/wrong-ca-$version.err" >&2
+    echo "GmSSL TLS $version failed to reject untrusted CA at handshake" >&2
     return 1
   fi
-  if "$gmssl_bin" "tls${version}_client" \
+  "$gmssl_bin" "tls${version}_client" \
       -host 127.0.0.1 -port "$port" -server_name wrong.example \
       -cacert "$work/ca.pem" -cipher_suite "$suite" \
       -supported_group prime256v1 -sig_alg ecdsa_secp256r1_sha256 \
-      -get / >"$work/wrong-host-$version.out" 2>"$work/wrong-host-$version.err"; then
-    echo "GmSSL TLS $version accepted wrong hostname" >&2
+      -get / >"$work/wrong-host-$version.out" 2>"$work/wrong-host-$version.err" || true
+  if grep -Eq 'HTTP/1[.]0 200' "$work/wrong-host-$version.out" \
+      || ! grep -q 'client: error' "$work/wrong-host-$version.err"; then
+    cat "$work/wrong-host-$version.err" >&2
+    echo "GmSSL TLS $version failed to reject wrong hostname at handshake" >&2
     return 1
   fi
 
