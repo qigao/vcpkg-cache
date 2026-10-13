@@ -357,6 +357,31 @@ gmssl_replace_once(
 ]==]
 )
 
+
+# A P-384 public key is retained by X509_KEY; clean it on all paths.
+gmssl_replace_once(
+    "${_gmssl_p384_c}"
+[==[
+			case OID_secp256r1:
+				secp256r1_key_cleanup(&key->u.secp256r1_key);
+				break;
+#endif
+			default:
+]==]
+[==[
+			case OID_secp256r1:
+				secp256r1_key_cleanup(&key->u.secp256r1_key);
+				break;
+#endif
+#ifdef ENABLE_SECP384R1
+			case OID_secp384r1:
+				gmssl_secure_clear(&key->u.secp384r1_key, sizeof(SECP384R1_KEY));
+				break;
+#endif
+			default:
+]==]
+)
+
 unset(_gmssl_p384_cmake)
 unset(_gmssl_p384_h)
 unset(_gmssl_p384_c)
