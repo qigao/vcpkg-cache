@@ -152,7 +152,13 @@ int main(void)
     modified[nleaf256 - 1] ^= 0x01;
     if (x509_cert_verify_by_ca_cert(modified, nleaf256, ca256, nca256, NULL, 0) == 1) return 16;
 
-    if (test_tls13_p384_cv() != 0) return 28;
+    {
+        const int cv = test_tls13_p384_cv();
+        if (cv != 0) {
+            fprintf(stderr, "P-384 TLS 1.3 CertificateVerify subgate: %d\\n", cv);
+            return 28;
+        }
+    }
 
     x509_key_cleanup(&ca256_key);
     x509_key_cleanup(&leaf_key);
