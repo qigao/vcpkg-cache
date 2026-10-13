@@ -360,3 +360,58 @@ gmssl_replace_once(
 unset(_gmssl_p384_cmake)
 unset(_gmssl_p384_h)
 unset(_gmssl_p384_c)
+
+
+# x509_cer.c has a second chain verifier distinct from the x509_vrf.c path
+# already adapted by the RSA overlay. Both must respect the certificate's
+# actual signed OID, not just the issuer key's default signing preference.
+set(_gmssl_p384_cert_c "${SOURCE_PATH}/src/x509_cer.c")
+gmssl_replace_once(
+    "${_gmssl_p384_cert_c}"
+[==[
+	int key_sig_alg;
+	void *sign_args = NULL;
+]==]
+[==[
+	void *sign_args = NULL;
+]==]
+)
+gmssl_replace_once(
+    "${_gmssl_p384_cert_c}"
+[==[
+	if (x509_key_get_sign_algor(key, &key_sig_alg) != 1) {
+		error_print();
+		return -1;
+	}
+
+	if (x509_signed_from_der(
+]==]
+[==[
+	if (x509_signed_from_der(
+]==]
+)
+gmssl_replace_once(
+    "${_gmssl_p384_cert_c}"
+[==[
+	if (sig_alg != key_sig_alg) {
+		error_print();
+		return -1;
+	}
+]==]
+[==[
+	if (x509_key_supports_sign_algor(key, sig_alg) != 1) {
+		error_print();
+		return -1;
+	}
+]==]
+)
+gmssl_replace_once(
+    "${_gmssl_p384_cert_c}"
+[==[
+	if (x509_verify_init(&verify_ctx, key, sign_args, sign_argslen, sig, siglen) != 1
+]==]
+[==[
+	if (x509_verify_init_ex(&verify_ctx, key, sig_alg, sign_args, sign_argslen, sig, siglen) != 1
+]==]
+)
+unset(_gmssl_p384_cert_c)
