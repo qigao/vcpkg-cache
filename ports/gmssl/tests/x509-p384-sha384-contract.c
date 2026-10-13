@@ -2,6 +2,7 @@
 #include <gmssl/x509_cer.h>
 #include <gmssl/x509_key.h>
 #include <gmssl/oid.h>
+#include <gmssl/tls.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -58,6 +59,29 @@ int main(void)
     if (x509_key_supports_sign_algor(&ca_key, OID_ecdsa_with_sha384) != 1
         || x509_key_supports_sign_algor(&ca_key, OID_ecdsa_with_sha256) != 0
         || x509_key_supports_sign_algor(&ca256_key, OID_ecdsa_with_sha384) != 1) return 10;
+
+    /* Certificate SHA384 is selected from CA curve, independently of leaf P256. */
+    if (tls_signature_scheme_from_algorithm_and_group_oid(
+            OID_ecdsa_with_sha384, OID_secp384r1) != TLS_sig_ecdsa_secp384r1_sha384)
+        return 17;
+    if (tls_signature_scheme_algorithm_oid(TLS_sig_ecdsa_secp384r1_sha384)
+            != OID_ecdsa_with_sha384
+        || tls_signature_scheme_group_oid(TLS_sig_ecdsa_secp384r1_sha384)
+            != OID_secp384r1)
+        return 18;
+    if (tls_signature_scheme_from_algorithm_and_group_oid(
+            OID_ecdsa_with_sha384, OID_secp256r1) != 0)
+        return 19;
+    {
+        TLS_CTX tls_ctx = {0};
+        const int schemes[] = { TLS_sig_ecdsa_secp256r1_sha256,
+                                TLS_sig_ecdsa_secp384r1_sha384 };
+        if (tls_ctx_init(&tls_ctx, TLS_protocol_tls13, TLS_client_mode) != 1)
+            return 20;
+        if (tls_ctx_set_signature_algorithms(&tls_ctx, schemes, 2) != 1)
+            return 21;
+        tls_ctx_cleanup(&tls_ctx);
+    }
 
     /* Prove the genuine SHA384 signed P256 server leaf by P384 issuer. */
     if (x509_cert_verify_by_ca_cert(leaf384, nleaf384, ca384, nca384, NULL, 0) != 1) return 11;
