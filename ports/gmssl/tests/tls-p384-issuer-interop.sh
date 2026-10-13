@@ -142,6 +142,17 @@ run_version() {
     return 1
   fi
 
+  # The successful exchange must use the requested protocol and cipher,
+  # never a silent TLS-version or cipher downgrade.
+  local protocol_label="TLS1.2"
+  if [ "$version" = 13 ]; then protocol_label="TLS1.3"; fi
+  if ! grep -q "Protocol: $protocol_label" "$work/client-$version.err" \
+      || ! grep -q "CipherSuite: $suite" "$work/client-$version.err"; then
+    cat "$work/client-$version.err" >&2
+    echo "GmSSL TLS $version did not negotiate the requested strict profile" >&2
+    return 1
+  fi
+
   # The advertised certificate signature scheme includes the P-384 issuer,
   # while the actual P-256 leaf still uses SHA-256 for CertificateVerify.
   # Preserve strict GmSSL CA and identity checks on the same server.
