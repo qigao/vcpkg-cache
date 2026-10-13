@@ -100,6 +100,8 @@ jobs:
           "$build/gmssl-tls-inspection-contract"
           "$build/gmssl-tls12-ecdhe-rsa-contract"
           "$build/gmssl-x509-basic-constraints-contract"
+          "$build/gmssl-x509-ca-eku-contract"
+          "$build/gmssl-tls-certificate-capacity-contract"
           "$build/gmssl-tls-cleanup-contract"
           "$build/gmssl-tls-cleanup-contract"
           "$build/gmssl-p256-plain-pkcs8-contract"
