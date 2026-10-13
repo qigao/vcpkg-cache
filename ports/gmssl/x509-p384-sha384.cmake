@@ -402,11 +402,9 @@ gmssl_replace_once(
 		error_print();
 		return -1;
 	}
-
-	if (x509_signed_from_der(
 ]==]
 [==[
-	if (x509_signed_from_der(
+	/* Select the signature scheme from the certificate's DER OID below. */
 ]==]
 )
 gmssl_replace_once(
