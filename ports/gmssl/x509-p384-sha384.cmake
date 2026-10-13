@@ -561,6 +561,33 @@ gmssl_replace_once(
 ]==]
 )
 
+# TLS 1.3 signature schemes bind *both* the public-key family and curve.
+# The pinned provider used &&, which can admit an EC P-384 key while checking
+# a claimed ecdsa_secp256r1_sha256 CertificateVerify. Require both match.
+gmssl_replace_once(
+    "${_gmssl_p384_tls13}"
+[==[
+		if (public_key->algor != OID_ec_public_key
+			&& public_key->algor_param != OID_secp256r1) {
+]==]
+[==[
+		if (public_key->algor != OID_ec_public_key
+			|| public_key->algor_param != OID_secp256r1) {
+]==]
+)
+
+gmssl_replace_once(
+    "${_gmssl_p384_tls13}"
+[==[
+		if (public_key->algor != OID_ec_public_key
+			&& public_key->algor_param != OID_sm2) {
+]==]
+[==[
+		if (public_key->algor != OID_ec_public_key
+			|| public_key->algor_param != OID_sm2) {
+]==]
+)
+
 unset(_gmssl_p384_tls_trace)
 unset(_gmssl_p384_tls12)
 unset(_gmssl_p384_tls13)
