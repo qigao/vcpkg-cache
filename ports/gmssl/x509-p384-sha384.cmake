@@ -158,22 +158,16 @@ gmssl_replace_once(
 gmssl_replace_once(
     "${_gmssl_p384_c}"
 [==[
-	if (key->algor == OID_rsa_encryption) {
-		return algor == OID_rsasign_with_sha256 ? 1 : 0;
-	}
-	if (x509_key_get_sign_algor(key, &default_algor) != 1)
+	if (x509_key_get_sign_algor(key, &default_algor) != 1) {
 ]==]
 [==[
-	if (key->algor == OID_rsa_encryption) {
-		return algor == OID_rsasign_with_sha256 ? 1 : 0;
-	}
 #ifdef ENABLE_SECP384R1
 	if (key->algor == OID_ec_public_key && key->algor_param == OID_secp384r1)
 		return algor == OID_ecdsa_with_sha384 ? 1 : 0;
 	if (key->algor == OID_ec_public_key && key->algor_param == OID_secp256r1)
 		return algor == OID_ecdsa_with_sha256 || algor == OID_ecdsa_with_sha384 ? 1 : 0;
 #endif
-	if (x509_key_get_sign_algor(key, &default_algor) != 1)
+	if (x509_key_get_sign_algor(key, &default_algor) != 1) {
 ]==]
 )
 
