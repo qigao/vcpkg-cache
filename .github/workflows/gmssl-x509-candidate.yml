@@ -1,0 +1,200 @@
+name: GmSSL candidate independent X509
+
+# #195 has merge conflicts. Test its exact branch head, not a synthetic PR merge.
+on:
+  push:
+    branches: [fix/gmssl-x509-p384-sha384-194]
+    paths:
+      - 'ports/gmssl/**'
+      - '.github/workflows/gmssl-x509-candidate.yml'
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: gmssl-x509-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REFERENCE_SHA: 9395c67b0435a6692afe948a830d5e0404a028c6
+  FIXTURE_SHA256: 30f4a68d5d1658e33a6f88395a9d9fceb2930886065730485abada06a9593f67
+
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.REFERENCE_SHA }}
+          persist-credentials: false
+      - name: Generate the unchanged independent corpus and check the oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REFERENCE_SHA"
+          python3 -m venv "$RUNNER_TEMP/oracle-venv"
+          "$RUNNER_TEMP/oracle-venv/bin/python" -m pip install --only-binary=:all: cryptography==46.0.4
+          "$RUNNER_TEMP/oracle-venv/bin/python" tests/gmssl-x509-independent/generate-fixtures.py
+          python3 tests/gmssl-x509-independent/check.py --oracle --out "$RUNNER_TEMP/oracle-report"
+          python3 -m unittest discover -s tests/gmssl-x509-independent -p test_check.py -v
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-independent-fixtures
+          path: tests/gmssl-x509-independent/fixtures.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: candidate-independent-oracle
+          path: ${{ runner.temp }}/oracle-report
+          if-no-files-found: warn
+
+  candidate:
+    needs: oracle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            triplet: x64-linux
+            rid: linux-x64
+          - os: macos-15
+            triplet: arm64-osx
+            rid: osx-arm64
+          - os: windows-2025
+            triplet: qigao-x64-windows-v145
+            rid: win-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CHAIN_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_TARGET_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_HOST_TRIPLET: ${{ matrix.triplet }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.REFERENCE_SHA }}
+          path: _reference
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: candidate-independent-fixtures
+          path: _reference/tests/gmssl-x509-independent
+      - name: Prepare Windows host tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nasm ninja strawberryperl -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'missing required host tools' }
+      # Pinned tooling only. The candidate installation below disables ALL binary caches.
+      - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@e678e8c1d0510e89b79e53b1828bfd2cab18ab0e
+        with:
+          mode: read
+      - name: Build exact candidate source into an isolated installation (not release acceptance)
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, platform, subprocess
+          work = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          report = temp / 'candidate-report'
+          report.mkdir(exist_ok=True)
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          candidate = git('rev-parse', 'HEAD')
+          reference = git('-C', str(work / '_reference'), 'rev-parse', 'HEAD')
+          if candidate != os.environ['GITHUB_SHA'] or reference != os.environ['REFERENCE_SHA']:
+              raise RuntimeError('Candidate/reference checkout identity mismatch')
+          fixtures = work / '_reference/tests/gmssl-x509-independent/fixtures.json'
+          if hashlib.sha256(fixtures.read_bytes()).hexdigest() != os.environ['FIXTURE_SHA256']:
+              raise RuntimeError('Independent corpus fingerprint mismatch')
+          triplet = os.environ['CHAIN_TRIPLET']
+          manifest = temp / 'gmssl-candidate-manifest'
+          install = temp / 'gmssl-candidate-installed'
+          manifest.mkdir(exist_ok=True)
+          (manifest / 'vcpkg.json').write_text(json.dumps({
+              'name': 'gmssl-candidate-independent-x509', 'version-string': '1',
+              'dependencies': ['gmssl']}), encoding='utf-8')
+          receipt = {'classification': 'UNRELEASED_SOURCE_CANDIDATE_NOT_RELEASE_ACCEPTANCE',
+                     'candidate_sha': candidate, 'reference_sha': reference,
+                     'port_tree': git('rev-parse', 'HEAD:ports/gmssl'),
+                     'fixtures_sha256': os.environ['FIXTURE_SHA256'],
+                     'triplet': triplet, 'platform': platform.platform(),
+                     'vcpkg_scripts': os.environ['VCPKG_SCRIPTS_REVISION'],
+                     'vcpkg_tool': os.environ['VCPKG_TOOL_REVISION'],
+                     'binary_cache': 'disabled for all candidate packages'}
+          (report / 'source-receipt.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
+          env = os.environ.copy()
+          env['VCPKG_BINARY_SOURCES'] = 'clear'
+          env['VCPKG_OVERLAY_PORTS'] = str(work / 'ports')
+          exe = pathlib.Path(env['VCPKG_ROOT']) / ('vcpkg.exe' if os.name == 'nt' else 'vcpkg')
+          command = [str(exe), 'install', '--x-manifest-root=' + str(manifest),
+                     '--x-install-root=' + str(install), '--triplet=' + triplet,
+                     '--host-triplet=' + triplet, '--overlay-ports=' + str(work / 'ports'),
+                     '--binarysource=clear']
+          result = subprocess.run(command, env=env, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, text=True, timeout=2400)
+          (report / 'source-build.log').write_text(result.stdout, encoding='utf-8')
+          print(result.stdout, flush=True)
+          result.check_returncode()
+          status = (install / 'vcpkg/status').read_text(encoding='utf-8')
+          (report / 'installed-status.txt').write_text(status, encoding='utf-8')
+          packages = [dict(line.split(': ', 1) for line in block.splitlines() if ': ' in line)
+                      for block in status.split('\n\n')]
+          matches = [p for p in packages if p.get('Package') == 'gmssl' and p.get('Architecture') == triplet]
+          if len(matches) != 1 or matches[0].get('Version') != '3.2.0':
+              raise RuntimeError('Candidate installation receipt mismatch')
+          root = install / triplet
+          config = root / 'share/gmssl/GmSSLConfig.cmake'
+          if 'ENABLE_SECP384R1' not in config.read_text(encoding='utf-8'):
+              raise RuntimeError('Installed candidate is missing its P-384 feature contract')
+          paths = ['include/gmssl/x509_cer.h', 'include/gmssl/tls.h',
+                   'share/gmssl/GmSSLConfig.cmake',
+                   'lib/gmssl.lib' if os.name == 'nt' else 'lib/libgmssl.a']
+          receipt.update(provider=matches[0], files={
+              p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in paths})
+          (report / 'installed-receipt.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
+      - name: Run all 19 unchanged cases against installed candidate with no XFAIL
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          root = temp / 'gmssl-candidate-installed' / os.environ['CHAIN_TRIPLET']
+          src = pathlib.Path('_reference/tests/gmssl-x509-independent').resolve()
+          build = temp / 'candidate-chain-build'
+          command = ['cmake', '-S', str(src), '-B', str(build), '-DCMAKE_BUILD_TYPE=Release',
+                     '-DGMSSL_INSTALLED_ROOT=' + str(root)]
+          if os.name == 'nt':
+              command += ['-G', 'Visual Studio 18 2026', '-A', 'x64', '-T', 'v145']
+          subprocess.run(command, check=True)
+          subprocess.run(['cmake', '--build', str(build), '--config', 'Release', '--verbose'], check=True)
+          driver = build / 'Release/gmssl-chain-driver.exe' if os.name == 'nt' else build / 'gmssl-chain-driver'
+          subprocess.run([sys.executable, str(src / 'check.py'), '--provider', str(driver),
+                          '--out', str(temp / 'candidate-report')], check=True)
+      - name: Expose raw mismatches without hiding the failing gate
+        if: always()
+        shell: python
+        run: |
+          import json, os, pathlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'candidate-report/report.json'
+          if path.exists():
+              report = json.loads(path.read_text(encoding='utf-8'))
+              print('Independent candidate cases: %s/%s' % (report['passed'], report['total']))
+              for case in report['cases']:
+                  if not case['pass']:
+                      print(json.dumps(case, indent=2))
+          else:
+              print('No native verification report; inspect the source build or consumer compilation failure.')
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: gmssl-candidate-independent-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/candidate-report
+            ${{ runner.temp }}/candidate-chain-build/CMakeCache.txt
+          if-no-files-found: warn
