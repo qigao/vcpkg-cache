@@ -1,0 +1,155 @@
+name: Exact CHttp Windows v145 consumer cache
+
+on:
+  push:
+    branches: [feature/chttp-v145-exact-abi-cache]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: chttp-v145-exact
+  cancel-in-progress: true
+
+env:
+  TARGET_TRIPLET: qigao-x64-windows-v145
+  TAGGED_MANIFEST_BLOB: cd969f0a7d9cd531489450976f8acef861e8d96f
+  TAGGED_BASELINE: b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
+
+jobs:
+  warm:
+    name: Warm immutable tagged CHttp dependency ABI graph
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/chttp
+          ref: v2.1.0-rc.6
+          path: _chttp_tag
+          persist-credentials: false
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Require exact v145 compiler and tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install nasm ninja strawberryperl -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'missing required host tools' }
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($vs) -or
+              -not (Test-Path (Join-Path $vs 'VC\Tools\MSVC\14.51.36231'))) {
+            throw 'missing exact v145 MSVC toolset 14.51.36231'
+          }
+      - name: Verify CHttp tagged release manifest and readwrite cache
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:QIGAO_VCPKG_WINDOWS_TRIPLET -ne $env:TARGET_TRIPLET -or
+              $env:QIGAO_VCPKG_WINDOWS_HOST_TRIPLET -ne $env:TARGET_TRIPLET) {
+            throw 'wrong canonical target/host triplet'
+          }
+          if ($env:VCPKG_BINARY_SOURCES -notmatch 'nugetconfig' -or
+              $env:VCPKG_NUGET_REPOSITORY -ne 'https://github.com/qigao/vcpkg-cache') {
+            throw 'NuGet cache provenance mismatch'
+          }
+          $file = Join-Path $env:GITHUB_WORKSPACE '_chttp_tag\vcpkg.json'
+          $blob = & git hash-object $file
+          if ($LASTEXITCODE -ne 0 -or $blob.Trim() -ne $env:TAGGED_MANIFEST_BLOB) {
+            throw 'CHttp manifest tag changed'
+          }
+          $m = Get-Content $file -Raw | ConvertFrom-Json
+          if ($m.'builtin-baseline' -ne $env:TAGGED_BASELINE) { throw 'unexpected builtin baseline' }
+          $deps = @($m.dependencies | ForEach-Object { [string]$_ } | Sort-Object)
+          $want = @('gmssl','llhttp','tree-sitter','tree-sitter-c') | Sort-Object
+          if (($deps -join ',') -ne ($want -join ',')) { throw 'unexpected CHttp root manifest' }
+      - name: Warm exactly CHttp v2.1.0-rc.6 target and host dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $args = @('install',
+              "--x-manifest-root=$env:GITHUB_WORKSPACE\_chttp_tag",
+              "--x-install-root=$env:RUNNER_TEMP\chttp-exact-install",
+              "--triplet=$env:TARGET_TRIPLET",
+              "--host-triplet=$env:TARGET_TRIPLET")
+          $log = Join-Path $env:RUNNER_TEMP 'chttp-v145-warm.log'
+          & "$env:VCPKG_ROOT\vcpkg.exe" @args 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw 'producer failed; no fallback is permitted in consumers' }
+          $record = Get-Content $log -Raw
+          $required = @{
+            'gmssl' = 'd16923d11e3a3a09be3931ab2b1cd946886e124f0b4dfcd1382a2c45c578097c'
+            'llhttp' = '7de5080b7fd104c0fd7c20b20700c5831f5d378480889cac1c2a974ac3c654a4'
+            'vcpkg-cmake' = 'b5396d171afc3fe5a7ee23c861edf05cc904d3a297f25d232717c3b3873b9271'
+            'vcpkg-cmake-config' = 'bb3a5fea57b34f6b25c99c81dee9639d95a405c00e4ad913e076ec13cceb7b4b'
+            'tree-sitter' = 'b97b6a94c9cef410be0806b2fc284fb5d556481ca696805894c226dde27e96a0'
+            'tree-sitter-cli' = '41bce9f5c2ed2c3abbfdfb6cbfb4fe15c6f6e22bf9398800b2cb1936fcfdeba7'
+            'tree-sitter-c' = '93cb4902b19d761b03cdc1a291c4f9a2c7cb29f551538de1e557cd2dc1eb9abc'
+          }
+          foreach ($port in $required.Keys) {
+            $identity = "$($port):$($env:TARGET_TRIPLET)"
+            $pattern = [regex]::Escape($identity) + '@.* package ABI: ' + $required[$port]
+            if ($record -notmatch $pattern) { throw "wrong/missing exact CHttp ABI: $port / $($required[$port])" }
+            Write-Output "EXACT ABI MATCH: $port / $($required[$port])"
+          }
+
+  clean-l2:
+    name: Verify clean NuGet L2, binary-only, exact CHttp graph
+    needs: warm
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/chttp
+          ref: v2.1.0-rc.6
+          path: _chttp_tag
+          persist-credentials: false
+      - name: Force empty local binary cache
+        shell: pwsh
+        run: |
+          $l1 = Join-Path $env:RUNNER_TEMP 'chttp-empty-L1'
+          if (Test-Path $l1) { Remove-Item $l1 -Recurse -Force }
+          New-Item -ItemType Directory $l1 | Out-Null
+          "VCPKG_BINARY_CACHE=$l1" >> $env:GITHUB_ENV
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare ABI-matching host tools
+        shell: pwsh
+        run: |
+          choco install nasm ninja strawberryperl -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'missing host tools' }
+      - name: Attest exact tagged consumer restored with no source builds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:QIGAO_VCPKG_WINDOWS_TRIPLET -ne $env:TARGET_TRIPLET -or
+              $env:QIGAO_VCPKG_WINDOWS_HOST_TRIPLET -ne $env:TARGET_TRIPLET) {
+            throw 'incorrect triplet'
+          }
+          $manifest = Join-Path $env:GITHUB_WORKSPACE '_chttp_tag'
+          $blob = & git hash-object (Join-Path $manifest 'vcpkg.json')
+          if ($LASTEXITCODE -ne 0 -or $blob.Trim() -ne $env:TAGGED_MANIFEST_BLOB) {
+            throw 'unexpected tagged manifest blob'
+          }
+          $args = @('install',
+              "--x-manifest-root=$manifest",
+              "--x-install-root=$env:RUNNER_TEMP\chttp-exact-L2",
+              "--triplet=$env:TARGET_TRIPLET",
+              "--host-triplet=$env:TARGET_TRIPLET",
+              '--only-binarycaching')
+          $log = Join-Path $env:RUNNER_TEMP 'chttp-v145-L2.log'
+          & "$env:VCPKG_ROOT\vcpkg.exe" @args 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw 'exact binary-only L2 restore failed' }
+          $record = Get-Content $log -Raw
+          if ($record -match '(?m)^Building .*:qigao-x64-windows-v145') { throw 'source build appeared' }
+          if ($record -notmatch 'Restored [1-9][0-9]* package\(s\) from NuGet') {
+            throw 'NuGet L2 did not restore any actual archives'
+          }
+          Write-Output 'CHttp tagged release dependency graph: clean-L2 binary-only PASS'
