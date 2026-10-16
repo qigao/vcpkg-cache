@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.21)
+project(gmssl_independent_x509 C)
+if(NOT GMSSL_INSTALLED_ROOT)
+  message(FATAL_ERROR "GMSSL_INSTALLED_ROOT must name the restored provider package")
+endif()
+find_package(GmSSL CONFIG REQUIRED
+  PATHS "${GMSSL_INSTALLED_ROOT}/share/gmssl" NO_DEFAULT_PATH)
+add_executable(gmssl-chain-driver chain-driver.c)
+set_target_properties(gmssl-chain-driver PROPERTIES
+  C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+target_link_libraries(gmssl-chain-driver PRIVATE GmSSL::GmSSL)
+if(MSVC)
+  target_compile_options(gmssl-chain-driver PRIVATE /W4)
+else()
+  target_compile_options(gmssl-chain-driver PRIVATE -Wall -Wextra -Werror -pedantic)
+endif()
+message(STATUS "Installed GmSSL config: ${GmSSL_CONFIG}")

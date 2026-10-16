@@ -1,0 +1,139 @@
+name: GmSSL released-provider independent X509
+
+on:
+  pull_request:
+    paths:
+      - 'tests/gmssl-x509-independent/**'
+      - '.github/workflows/gmssl-x509-independent.yml'
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: gmssl-chain-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Generate reproducible public test certificates and independently verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/chain-oracle-venv"
+          "$RUNNER_TEMP/chain-oracle-venv/bin/python" -m pip install --only-binary=:all: cryptography==46.0.4
+          mkdir -p "$RUNNER_TEMP/oracle-report"
+          "$RUNNER_TEMP/chain-oracle-venv/bin/python" -m pip freeze > "$RUNNER_TEMP/oracle-report/python-packages.txt"
+          "$RUNNER_TEMP/chain-oracle-venv/bin/python" tests/gmssl-x509-independent/generate-fixtures.py
+          python3 tests/gmssl-x509-independent/check.py --oracle --out "$RUNNER_TEMP/oracle-report"
+          python3 -m unittest discover -s tests/gmssl-x509-independent -p test_check.py -v
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gmssl-independent-chain-fixtures
+          path: tests/gmssl-x509-independent/fixtures.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: gmssl-independent-chain-oracle
+          path: ${{ runner.temp }}/oracle-report
+          if-no-files-found: warn
+
+  installed-provider:
+    needs: oracle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            triplet: x64-linux
+            rid: linux-x64
+          - os: macos-14
+            triplet: arm64-osx
+            rid: osx-arm64
+          - os: windows-2025
+            triplet: qigao-x64-windows-v145
+            rid: win-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      CHAIN_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_TARGET_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_HOST_TRIPLET: ${{ matrix.triplet }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gmssl-independent-chain-fixtures
+          path: tests/gmssl-x509-independent
+      # Infrastructure/registry identity only; consumer package remains 3.2.0#12.
+      # No test overlay, candidate #195 pin, source build or package publication.
+      - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@e678e8c1d0510e89b79e53b1828bfd2cab18ab0e
+        with:
+          mode: read
+      - name: Restore exact published provider binaries and record receipt
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, platform, subprocess
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          report = temp / 'provider-report'
+          report.mkdir(exist_ok=True)
+          manifest = temp / 'gmssl-independent-manifest'
+          manifest.mkdir(exist_ok=True)
+          triplet = os.environ['CHAIN_TRIPLET']
+          install = temp / 'gmssl-independent-installed'
+          doc = {'name':'gmssl-independent-chain','version-string':'1',
+                 'builtin-baseline':os.environ['VCPKG_SCRIPTS_REVISION'],
+                 'dependencies':['gmssl'],
+                 'overrides':[{'name':'gmssl','version':'3.2.0','port-version':12}]}
+          (manifest/'vcpkg.json').write_text(json.dumps(doc,indent=2))
+          exe = pathlib.Path(os.environ['VCPKG_ROOT']) / ('vcpkg.exe' if os.name=='nt' else 'vcpkg')
+          command = [str(exe),'install','--x-manifest-root='+str(manifest),
+                     '--x-install-root='+str(install),'--triplet='+triplet,
+                     '--host-triplet='+triplet,'--only-binarycaching']
+          result = subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+          (report/'restore.log').write_text(result.stdout)
+          print(result.stdout)
+          result.check_returncode()
+          status = (install/'vcpkg'/'status').read_text()
+          (report/'installed-status.txt').write_text(status)
+          packages = [dict(line.split(': ',1) for line in block.splitlines() if ': ' in line)
+                      for block in status.split('\n\n')]
+          matches = [p for p in packages if p.get('Package')=='gmssl' and p.get('Architecture')==triplet]
+          if len(matches)!=1 or matches[0].get('Version')!='3.2.0' or matches[0].get('Port-Version')!='12':
+              raise RuntimeError('Installed GmSSL identity is not exact 3.2.0#12')
+          root = install/triplet
+          files = ['include/gmssl/x509_cer.h','include/gmssl/tls.h','share/gmssl/GmSSLConfig.cmake',
+                   'lib/gmssl.lib' if os.name=='nt' else 'lib/libgmssl.a']
+          receipt = {'provider':matches[0],'platform':platform.platform(),'machine':platform.machine(),
+                     'files':{f:hashlib.sha256((root/f).read_bytes()).hexdigest() for f in files}}
+          (report/'provider-receipt.json').write_text(json.dumps(receipt,indent=2))
+      - name: Build installed C11 consumer and check all cases without XFAIL
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          root = temp/'gmssl-independent-installed'/os.environ['CHAIN_TRIPLET']
+          build = temp/'chain-build'
+          src = pathlib.Path('tests/gmssl-x509-independent').resolve()
+          command = ['cmake','-S',str(src),'-B',str(build),'-DCMAKE_BUILD_TYPE=Release',
+                     '-DGMSSL_INSTALLED_ROOT='+str(root)]
+          if os.name=='nt':
+              command += ['-G','Visual Studio 18 2026','-A','x64','-T','v145']
+          subprocess.run(command,check=True)
+          subprocess.run(['cmake','--build',str(build),'--config','Release','--verbose'],check=True)
+          driver = build/'Release'/'gmssl-chain-driver.exe' if os.name=='nt' else build/'gmssl-chain-driver'
+          subprocess.run([sys.executable,str(src/'check.py'),'--provider',str(driver),
+                          '--out',str(temp/'provider-report')],check=True)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: gmssl-independent-chain-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/provider-report
+            ${{ runner.temp }}/chain-build/CMakeCache.txt
+          if-no-files-found: warn
