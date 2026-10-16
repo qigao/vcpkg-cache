@@ -70,6 +70,20 @@ jobs:
         with:
           name: gmssl-independent-chain-fixtures
           path: tests/gmssl-x509-independent
+      - name: Checkout immutable CHttp release manifest for Windows ABI comparison
+        if: matrix.rid == 'win-x64'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: qigao/chttp
+          ref: v2.1.0-rc.6
+          path: _chttp_tag
+          persist-credentials: false
+      - name: Prepare Windows host tools matching published ABI
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          choco install nasm ninja strawberryperl -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'missing required host tools' }
       # Infrastructure/registry identity only; consumer package remains 3.2.0#12.
       # No test overlay, candidate #195 pin, source build or package publication.
       - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@e678e8c1d0510e89b79e53b1828bfd2cab18ab0e
@@ -90,7 +104,18 @@ jobs:
                  'builtin-baseline':os.environ['VCPKG_SCRIPTS_REVISION'],
                  'dependencies':['gmssl'],
                  'overrides':[{'name':'gmssl','version':'3.2.0','port-version':12}]}
-          (manifest/'vcpkg.json').write_text(json.dumps(doc,indent=2))
+          if os.name == 'nt':
+              # Match the already verified released consumer graph, not an invented root baseline.
+              manifest = pathlib.Path('_chttp_tag').resolve()
+              tagged = manifest/'vcpkg.json'
+              actual = subprocess.check_output(['git','hash-object',str(tagged)],text=True).strip()
+              if actual != 'cd969f0a7d9cd531489450976f8acef861e8d96f':
+                  raise RuntimeError('Immutable CHttp release manifest identity mismatch')
+              tagged_doc = json.loads(tagged.read_text())
+              if tagged_doc.get('builtin-baseline') != 'b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01':
+                  raise RuntimeError('Unexpected CHttp release baseline')
+          else:
+              (manifest/'vcpkg.json').write_text(json.dumps(doc,indent=2))
           exe = pathlib.Path(os.environ['VCPKG_ROOT']) / ('vcpkg.exe' if os.name=='nt' else 'vcpkg')
           command = [str(exe),'install','--x-manifest-root='+str(manifest),
                      '--x-install-root='+str(install),'--triplet='+triplet,
@@ -99,6 +124,9 @@ jobs:
           (report/'restore.log').write_text(result.stdout)
           print(result.stdout)
           result.check_returncode()
+          if os.name == 'nt':
+              if 'd16923d11e3a3a09be3931ab2b1cd946886e124f0b4dfcd1382a2c45c578097c' not in result.stdout:
+                  raise RuntimeError('Restored Windows GmSSL ABI differs from proven release graph')
           status = (install/'vcpkg'/'status').read_text()
           (report/'installed-status.txt').write_text(status)
           packages = [dict(line.split(': ',1) for line in block.splitlines() if ': ' in line)
