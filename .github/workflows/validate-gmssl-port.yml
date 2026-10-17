@@ -271,6 +271,17 @@ jobs:
           bash ports/gmssl/tests/tls12-rsa-mtls-interop.sh \
             "$gmssl_bin" "$RUNNER_TEMP/gmssl-tls12-rsa-mtls" 9450
 
+      - name: Interoperate OpenSSL P-384 CA / P-256 ECDSA-SHA384 TLS 1.2 and 1.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          bash ports/gmssl/tests/tls-p384-issuer-interop.sh \
+            "$gmssl_bin" "$RUNNER_TEMP/gmssl-p384-issuer-interop" 9460
+
+
   macos:
     name: GmSSL / macos-15
     runs-on: macos-15
@@ -514,6 +525,17 @@ jobs:
           test -n "$gmssl_bin"
           bash ports/gmssl/tests/tls12-rsa-mtls-interop.sh \
             "$gmssl_bin" "$RUNNER_TEMP/gmssl-tls12-rsa-mtls" 9450
+
+      - name: Interoperate OpenSSL P-384 CA / P-256 ECDSA-SHA384 TLS 1.2 and 1.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          bash ports/gmssl/tests/tls-p384-issuer-interop.sh \
+            "$gmssl_bin" "$RUNNER_TEMP/gmssl-p384-issuer-interop" 9460
+
 
   windows:
     name: GmSSL / windows-2025 v145

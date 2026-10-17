@@ -289,3 +289,42 @@ if(NOT CMAKE_CROSSCOMPILING)
         COMMAND "$<TARGET_FILE:gmssl-strict-protocol-contract>"
         COMMENT "Qualify private GmSSL strict TLS/TLCP admission")
 endif()
+
+add_executable(gmssl-x509-p384-sha384-contract x509-p384-sha384-contract.c)
+target_link_libraries(gmssl-x509-p384-sha384-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-x509-p384-sha384-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+foreach(_gmssl_p384_fixture IN ITEMS p384-ca p384-leaf p256-ca p256-leaf)
+    string(TOUPPER "${_gmssl_p384_fixture}" _gmssl_p384_name)
+    string(REPLACE "-" "_" _gmssl_p384_name "${_gmssl_p384_name}")
+    set(_gmssl_p384_file "${CMAKE_CURRENT_LIST_DIR}/fixtures/${_gmssl_p384_fixture}-sha384.pem")
+    target_compile_definitions(gmssl-x509-p384-sha384-contract PRIVATE
+        "GMSSL_${_gmssl_p384_name}=\"${_gmssl_p384_file}\"")
+endforeach()
+unset(_gmssl_p384_fixture)
+unset(_gmssl_p384_name)
+unset(_gmssl_p384_file)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(gmssl-x509-p384-sha384-contract PRIVATE
+        -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(gmssl-x509-p384-sha384-contract PRIVATE -fsanitize=address)
+endif()
+enable_testing()
+add_test(NAME gmssl.x509_p384_sha384 COMMAND gmssl-x509-p384-sha384-contract)
+# The GmSSL overlay workflow builds this project on native runners but does not
+# invoke CTest as a separate step on every OS: require the contract to execute.
+if(NOT CMAKE_CROSSCOMPILING)
+    add_custom_command(TARGET gmssl-x509-p384-sha384-contract POST_BUILD
+        COMMAND "$<TARGET_FILE:gmssl-x509-p384-sha384-contract>"
+        COMMENT "Verify private P-384 issuer / SHA-384 certificate chains")
+endif()
+
+# Consumer header/library ABI agreement under the exported feature macros.
+add_executable(gmssl-tls-abi-layout-contract tls-abi-layout-contract.c)
+target_link_libraries(gmssl-tls-abi-layout-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-abi-layout-contract PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(NOT CMAKE_CROSSCOMPILING)
+    add_custom_command(TARGET gmssl-tls-abi-layout-contract POST_BUILD
+        COMMAND "$<TARGET_FILE:gmssl-tls-abi-layout-contract>"
+        COMMENT "Verify installed TLS_CTX and TLS_CONNECT header/library ABI sizes")
+endif()
