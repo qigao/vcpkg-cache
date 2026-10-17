@@ -58,6 +58,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa-mtls.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa-signing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/handshake-framing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-fatal-alert.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/x509-p384-sha384.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
 
 vcpkg_cmake_configure(
