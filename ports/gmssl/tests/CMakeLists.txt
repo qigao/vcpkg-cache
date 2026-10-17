@@ -318,3 +318,13 @@ if(NOT CMAKE_CROSSCOMPILING)
         COMMAND "$<TARGET_FILE:gmssl-x509-p384-sha384-contract>"
         COMMENT "Verify private P-384 issuer / SHA-384 certificate chains")
 endif()
+
+# Consumer header/library ABI agreement under the exported feature macros.
+add_executable(gmssl-tls-abi-layout-contract tls-abi-layout-contract.c)
+target_link_libraries(gmssl-tls-abi-layout-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls-abi-layout-contract PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(NOT CMAKE_CROSSCOMPILING)
+    add_custom_command(TARGET gmssl-tls-abi-layout-contract POST_BUILD
+        COMMAND "$<TARGET_FILE:gmssl-tls-abi-layout-contract>"
+        COMMENT "Verify installed TLS_CTX and TLS_CONNECT header/library ABI sizes")
+endif()
