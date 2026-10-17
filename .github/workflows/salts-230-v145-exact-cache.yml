@@ -96,7 +96,7 @@ jobs:
               "--host-triplet=$env:TARGET_TRIPLET")
           & "$env:VCPKG_ROOT\vcpkg.exe" @vcpkgArgs 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { throw 'producer failed' }
-          $record = Get-Content $log -Raw
+$record = (Get-Content $log -Raw) -replace "`r", ""
           foreach ($port in @('aklomp-base64','c-ares','gmssl','kcp','libuv','pkgconf','simde','zstd')) {
             if ($record -notmatch "(?m)^$([regex]::Escape($port)):[^\r\n]* package ABI: [0-9a-f]{64}$") {
               throw "missing exact package ABI evidence for $port"
