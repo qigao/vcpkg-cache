@@ -93,7 +93,7 @@ jobs:
               "--x-manifest-root=$env:GITHUB_WORKSPACE\_salts_head",
               "--x-install-root=$installRoot",
               "--triplet=$env:TARGET_TRIPLET",
-              "--host-triplet=$env:TARGET_TRIPLET')
+              "--host-triplet=$env:TARGET_TRIPLET")
           & "$env:VCPKG_ROOT\vcpkg.exe" @vcpkgArgs 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { throw 'producer failed' }
           $record = Get-Content $log -Raw
