@@ -110,7 +110,7 @@ jobs:
           if ($record -notmatch 'Restored 0 package\(s\) from NuGet') {
             throw 'producer unexpectedly reused NuGet L2 packages; isolated producer must compile the exact graph'
           }
-          $buildLines = @($record -split "\r?\n" | Where-Object { $_ -match '(?m)^Building [0-9]+/[0-9]+ ' })
+          $buildLines = @($record -split "\r?\n" | Where-Object { $_ -match '\bBuilding [^:\r\n]+:qigao-x64-windows-v145@' })
           if ($buildLines.Count -lt 12) { throw "producer did not compile the full target+host graph; saw $($buildLines.Count) build lines" }
           foreach ($port in @('aklomp-base64','c-ares','gmssl','kcp','libuv','pkgconf','simde','zstd')) {
             if ($record -notmatch "(?m)^$([regex]::Escape($port)):[^\r\n]* package ABI: [0-9a-f]{64}$") {
