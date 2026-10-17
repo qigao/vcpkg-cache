@@ -21,7 +21,7 @@ env:
   REGISTRY_GMSSL_COMMIT: 2e214ae44a3e3244eded5db6361194576356fc9e
   # Isolate this qualification's NuGet package IDs so the producer must build
   # and publish the exact graph instead of silently reusing pre-existing L2 entries.
-  X_VCPKG_NUGET_ID_PREFIX: salts230-v145-qualification
+  X_VCPKG_NUGET_ID_PREFIX: salts230-v145-${{ github.run_id }}-
 
 jobs:
   warm:
