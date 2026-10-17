@@ -1,0 +1,189 @@
+name: Exact Salts 2.3.0 Windows v145 dependency cache
+
+on:
+  push:
+    branches: [ci/salts-230-v145-exact-cache]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: salts-230-v145-exact
+  cancel-in-progress: true
+
+env:
+  TARGET_TRIPLET: qigao-x64-windows-v145
+  SALTS_COMMIT: e23f467241ad86de776d104cf74a66c78bd3b5bb
+  SALTS_BASELINE: b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
+  REGISTRY_BASE64_COMMIT: b8bcce436838b716522bb2c8b35438b47ac1830b
+  REGISTRY_GMSSL_COMMIT: 2e214ae44a3e3244eded5db6361194576356fc9e
+  # Isolate this qualification's NuGet package IDs so the producer must build
+  # and publish the exact graph instead of silently reusing pre-existing L2 entries.
+  X_VCPKG_NUGET_ID_PREFIX: salts230-v145-${{ github.run_id }}-
+
+jobs:
+  warm:
+    name: Warm exact Salts 2.3.0 dependency graph
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/salts
+          ref: ${{ env.SALTS_COMMIT }}
+          path: _salts_head
+          persist-credentials: false
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Require exact Windows v145 compiler and tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install nasm ninja strawberryperl -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'missing required host tools' }
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($vs) -or
+              -not (Test-Path (Join-Path $vs 'VC\Tools\MSVC\14.51.36231'))) {
+            throw 'missing exact v145 MSVC toolset 14.51.36231'
+          }
+      - name: Verify exact Salts manifest, registry pins, and cache provenance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:QIGAO_VCPKG_WINDOWS_TRIPLET -ne $env:TARGET_TRIPLET -or
+              $env:QIGAO_VCPKG_WINDOWS_HOST_TRIPLET -ne $env:TARGET_TRIPLET) {
+            throw 'wrong canonical target/host triplet'
+          }
+          if ($env:VCPKG_BINARY_SOURCES -notmatch 'nugetconfig' -or
+              $env:VCPKG_NUGET_REPOSITORY -ne 'https://github.com/qigao/vcpkg-cache') {
+            throw 'NuGet cache provenance mismatch'
+          }
+          $root = Join-Path $env:GITHUB_WORKSPACE '_salts_head'
+          $m = Get-Content (Join-Path $root 'vcpkg.json') -Raw | ConvertFrom-Json
+          if ($m.'version-semver' -ne '2.3.0' -or $m.'builtin-baseline' -ne $env:SALTS_BASELINE) {
+            throw 'unexpected Salts manifest version or builtin baseline'
+          }
+          $deps = @($m.dependencies | ForEach-Object { $_.name } | Sort-Object)
+          $want = @('aklomp-base64','c-ares','gmssl','kcp','libuv','pkgconf','simde','zstd') | Sort-Object
+          if (($deps -join ',') -ne ($want -join ',')) { throw "unexpected Salts dependency set: $($deps -join ',')" }
+          $registry = Get-Content (Join-Path $root 'vcpkg-configuration.json') -Raw | ConvertFrom-Json
+          $base64 = @($registry.registries | Where-Object { $_.packages -contains 'aklomp-base64' })
+          $gmssl = @($registry.registries | Where-Object { $_.packages -contains 'gmssl' })
+          if ($base64.Count -ne 1 -or $base64[0].reference -ne $env:REGISTRY_BASE64_COMMIT -or
+              $base64[0].baseline -ne $env:REGISTRY_BASE64_COMMIT) {
+            throw 'unexpected base64/c-ares/zstd registry revision'
+          }
+          if ($gmssl.Count -ne 1 -or $gmssl[0].reference -ne $env:REGISTRY_GMSSL_COMMIT -or
+              $gmssl[0].baseline -ne $env:REGISTRY_GMSSL_COMMIT) {
+            throw 'unexpected GmSSL registry revision'
+          }
+          Write-Output "Manifest commit: $env:SALTS_COMMIT"
+          Write-Output "Manifest baseline: $env:SALTS_BASELINE"
+          Write-Output "Registry base64/c-ares/zstd: $env:REGISTRY_BASE64_COMMIT"
+          Write-Output "Registry GmSSL: $env:REGISTRY_GMSSL_COMMIT"
+      - name: Force empty producer L1 cache
+        shell: pwsh
+        run: |
+          $l1 = Join-Path $env:RUNNER_TEMP 'salts-230-producer-empty-L1'
+          if (Test-Path $l1) { Remove-Item $l1 -Recurse -Force }
+          New-Item -ItemType Directory -Path $l1 | Out-Null
+          "VCPKG_BINARY_CACHE=$l1" >> $env:GITHUB_ENV
+      - name: Warm exact Salts target and host dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installRoot = Join-Path $env:RUNNER_TEMP 'salts-230-exact-install'
+          $log = Join-Path $env:RUNNER_TEMP 'salts-230-v145-warm.log'
+          $vcpkgArgs = @('install',
+              "--x-manifest-root=$env:GITHUB_WORKSPACE\_salts_head",
+              "--x-install-root=$installRoot",
+              "--triplet=$env:TARGET_TRIPLET",
+              "--host-triplet=$env:TARGET_TRIPLET")
+          & "$env:VCPKG_ROOT\vcpkg.exe" @vcpkgArgs 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw 'producer failed' }
+          $record = (Get-Content $log -Raw).Replace([string][char]13, '')
+          if ($record -notmatch 'Restored 0 package\(s\) from NuGet') {
+            throw 'producer unexpectedly reused NuGet L2 packages; isolated producer must compile the exact graph'
+          }
+          $buildLines = @($record -split "\r?\n" | Where-Object { $_ -match '\bBuilding [^:\r\n]+:qigao-x64-windows-v145@' })
+          if ($buildLines.Count -lt 12) { throw "producer did not compile the full target+host graph; saw $($buildLines.Count) build lines" }
+          foreach ($port in @('aklomp-base64','c-ares','gmssl','kcp','libuv','pkgconf','simde','zstd')) {
+            if ($record -notmatch "(?m)^$([regex]::Escape($port)):[^\r\n]* package ABI: [0-9a-f]{64}$") {
+              throw "missing exact package ABI evidence for $port"
+            }
+          }
+          $abiLines = @($record -split "\r?\n" | Where-Object { $_ -match ' package ABI: [0-9a-f]{64}$' })
+          if ($abiLines.Count -lt 12) { throw "expected target+host ABI evidence; found $($abiLines.Count) ABI lines" }
+          $abiLines | ForEach-Object { Write-Output "ABI EVIDENCE: $_" }
+          "Producer completed for exact Salts commit $env:SALTS_COMMIT" >> $env:GITHUB_STEP_SUMMARY
+          $abiLines | ForEach-Object { $_ } >> $env:GITHUB_STEP_SUMMARY
+
+  clean-l2:
+    name: Verify clean-L1 NuGet L2 binary-only restore
+    needs: warm
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/salts
+          ref: ${{ env.SALTS_COMMIT }}
+          path: _salts_head
+          persist-credentials: false
+      - name: Force empty local L1 cache
+        shell: pwsh
+        run: |
+          $l1 = Join-Path $env:RUNNER_TEMP 'salts-empty-L1'
+          if (Test-Path $l1) { Remove-Item $l1 -Recurse -Force }
+          New-Item -ItemType Directory -Path $l1 | Out-Null
+          "VCPKG_BINARY_CACHE=$l1" >> $env:GITHUB_ENV
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Require exact Windows v145 host tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install nasm ninja strawberryperl -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'missing required host tools' }
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($vs) -or
+              -not (Test-Path (Join-Path $vs 'VC\Tools\MSVC\14.51.36231'))) {
+            throw 'missing exact v145 MSVC toolset 14.51.36231'
+          }
+      - name: Restore exact graph with binary cache only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:QIGAO_VCPKG_WINDOWS_TRIPLET -ne $env:TARGET_TRIPLET -or
+              $env:QIGAO_VCPKG_WINDOWS_HOST_TRIPLET -ne $env:TARGET_TRIPLET) {
+            throw 'incorrect target/host triplet'
+          }
+          $manifest = Join-Path $env:GITHUB_WORKSPACE '_salts_head'
+          $m = Get-Content (Join-Path $manifest 'vcpkg.json') -Raw | ConvertFrom-Json
+          if ($m.'version-semver' -ne '2.3.0' -or $m.'builtin-baseline' -ne $env:SALTS_BASELINE) {
+            throw 'unexpected Salts manifest'
+          }
+          $vcpkgArgs = @('install',
+              "--x-manifest-root=$manifest",
+              "--x-install-root=$env:RUNNER_TEMP\salts-230-exact-L2",
+              "--triplet=$env:TARGET_TRIPLET",
+              "--host-triplet=$env:TARGET_TRIPLET",
+              '--only-binarycaching')
+          $log = Join-Path $env:RUNNER_TEMP 'salts-230-v145-L2.log'
+          & "$env:VCPKG_ROOT\vcpkg.exe" @vcpkgArgs 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw 'exact binary-only L2 restore failed; no source fallback is allowed' }
+          $record = Get-Content $log -Raw
+          if ($record -match '(?m)^Building .*:qigao-x64-windows-v145') { throw 'source build appeared' }
+          if ($record -notmatch 'Restored 1[2-9] package\(s\) from NuGet|Restored [2-9][0-9]+ package\(s\) from NuGet') {
+            throw 'NuGet L2 did not restore the complete target+host graph (expected at least 12 packages)'
+          }
+          Write-Output 'Salts 2.3.0 exact dependency graph: clean-L1 / clean-L2 binary-only PASS'
+          'Salts 2.3.0 exact dependency graph: clean-L1 / clean-L2 binary-only PASS' >> $env:GITHUB_STEP_SUMMARY
