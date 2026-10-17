@@ -19,6 +19,9 @@ env:
   SALTS_BASELINE: b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
   REGISTRY_BASE64_COMMIT: b8bcce436838b716522bb2c8b35438b47ac1830b
   REGISTRY_GMSSL_COMMIT: 2e214ae44a3e3244eded5db6361194576356fc9e
+  # Isolate this qualification's NuGet package IDs so the producer must build
+  # and publish the exact graph instead of silently reusing pre-existing L2 entries.
+  X_VCPKG_NUGET_ID_PREFIX: salts230-v145-qualification
 
 jobs:
   warm:
@@ -83,6 +86,13 @@ jobs:
           Write-Output "Manifest baseline: $env:SALTS_BASELINE"
           Write-Output "Registry base64/c-ares/zstd: $env:REGISTRY_BASE64_COMMIT"
           Write-Output "Registry GmSSL: $env:REGISTRY_GMSSL_COMMIT"
+      - name: Force empty producer L1 cache
+        shell: pwsh
+        run: |
+          $l1 = Join-Path $env:RUNNER_TEMP 'salts-230-producer-empty-L1'
+          if (Test-Path $l1) { Remove-Item $l1 -Recurse -Force }
+          New-Item -ItemType Directory -Path $l1 | Out-Null
+          "VCPKG_BINARY_CACHE=$l1" >> $env:GITHUB_ENV
       - name: Warm exact Salts target and host dependencies
         shell: pwsh
         run: |
@@ -97,6 +107,11 @@ jobs:
           & "$env:VCPKG_ROOT\vcpkg.exe" @vcpkgArgs 2>&1 | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { throw 'producer failed' }
           $record = (Get-Content $log -Raw).Replace([string][char]13, '')
+          if ($record -notmatch 'Restored 0 package\\(s\\) from NuGet') {
+            throw 'producer unexpectedly reused NuGet L2 packages; isolated producer must compile the exact graph'
+          }
+          $buildLines = @($record -split "\\r?\\n" | Where-Object { $_ -match '(?m)^Building [0-9]+/[0-9]+ ' })
+          if ($buildLines.Count -lt 12) { throw "producer did not compile the full target+host graph; saw $($buildLines.Count) build lines" }
           foreach ($port in @('aklomp-base64','c-ares','gmssl','kcp','libuv','pkgconf','simde','zstd')) {
             if ($record -notmatch "(?m)^$([regex]::Escape($port)):[^\r\n]* package ABI: [0-9a-f]{64}$") {
               throw "missing exact package ABI evidence for $port"
