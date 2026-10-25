@@ -27,6 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 tools/check_gmssl_crypto_workflow.py
           python3 -m unittest discover \
             -s tests/gmssl-crypto-handoff -p 'test_*.py' -v
           python3 tools/verify_gmssl_crypto_handoff.py
@@ -37,27 +38,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/gmssl-crypto-handoff"
+          dir="$RUNNER_TEMP/gmssl-crypto-handoff"
+          mkdir -p "$dir"
           python3 tools/verify_gmssl_crypto_handoff.py \
-            --export "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
-            --report "$RUNNER_TEMP/gmssl-crypto-handoff/source-receipt.json"
+            --export "$dir/gmssl-provider-handoff.tar.gz" \
+            --report "$dir/source-receipt.json"
           python3 tools/verify_gmssl_crypto_handoff.py \
-            --export "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
-          cmp "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
-              "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
-          # Never pipe tar into grep -q with pipefail: grep's early exit
-          # SIGPIPEs tar even though the complete archive is valid.
-          listing="$RUNNER_TEMP/gmssl-crypto-handoff/archive-files.txt"
-          tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" > "$listing"
-          test "$(wc -l < "$listing")" -eq 95
-          grep -Fxq "providers/gmssl/patches/backports/secp384r1_verify.c" "$listing"
-          grep -Fxq "providers/gmssl/tests/fixtures/p384-ca-sha384.pem" "$listing"
-          if grep -Eq '(^|/)(portfile[.]cmake|vcpkg[.]json|GmSSLConfig[.]cmake)
+            --export "$dir/second-pass.tar.gz"
+          cmp "$dir/gmssl-provider-handoff.tar.gz" "$dir/second-pass.tar.gz"
+          # Materialize the complete tar index before grepping: never let a
+          # grep -q early exit trigger tar's SIGPIPE under bash pipefail.
+          tar -tzf "$dir/gmssl-provider-handoff.tar.gz" > "$dir/archive-files.txt"
+          test "$(wc -l < "$dir/archive-files.txt")" -eq 95
+          grep -Fxq "providers/gmssl/patches/backports/secp384r1_verify.c" "$dir/archive-files.txt"
+          grep -Fxq "providers/gmssl/tests/fixtures/p384-ca-sha384.pem" "$dir/archive-files.txt"
+          if grep -Eq '(^|/)(portfile[.]cmake|vcpkg[.]json|GmSSLConfig[.]cmake)$' "$dir/archive-files.txt"; then
             echo "FAIL: Crypto bundle contains vcpkg-owned packaging files" >&2
             exit 1
           fi
-          rm "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
-          sha256sum "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz"
+          rm "$dir/second-pass.tar.gz"
+          sha256sum "$dir/gmssl-provider-handoff.tar.gz"
       - name: Upload handoff kit and exact frozen source receipt
         uses: actions/upload-artifact@v4
         with:
@@ -65,18 +65,5 @@ jobs:
           path: |
             ${{ runner.temp }}/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz
             ${{ runner.temp }}/gmssl-crypto-handoff/source-receipt.json
-          if-no-files-found: error
- "$listing"; then
-            echo "FAIL: Crypto bundle contains vcpkg-owned packaging files" >&2
-            exit 1
-          fi
-          rm "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
-          sha256sum "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz"
-      - name: Upload handoff kit and exact frozen source receipt
-        uses: actions/upload-artifact@v4
-        with:
-          name: gmssl-crypto-provider-import-kit
-          path: |
-            ${{ runner.temp }}/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz
-            ${{ runner.temp }}/gmssl-crypto-handoff/source-receipt.json
+            ${{ runner.temp }}/gmssl-crypto-handoff/archive-files.txt
           if-no-files-found: error

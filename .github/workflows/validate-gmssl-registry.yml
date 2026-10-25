@@ -7,6 +7,11 @@ on:
       - "versions/baseline.json"
       - "versions/g-/gmssl.json"
       - ".github/workflows/validate-gmssl-registry.yml"
+      - ".github/workflows/gmssl-crypto-handoff.yml"
+      - "migrations/gmssl/**"
+      - "tools/verify_gmssl_crypto_handoff.py"
+      - "tools/check_gmssl_crypto_workflow.py"
+      - "tests/gmssl-crypto-handoff/**"
 
 permissions:
   contents: read
@@ -18,6 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Reject malformed Crypto handoff CI shell/YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/check_gmssl_crypto_workflow.py
       - name: Verify baseline, version entry and port tree agree
         id: metadata
         shell: bash
