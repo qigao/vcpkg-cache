@@ -112,6 +112,16 @@ jobs:
           "$build/gmssl-tls13-external-io-contract" --no-sni
           "$build/gmssl-tls12-external-io-contract" --no-sni
           "$build/gmssl-tls13-external-io-contract" --no-sni --request-client
+      - name: Require RFC8446 default OpenSSL TLS1.3 dummy CCS with mTLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gmssl-install/x64-linux"
+          gmssl_bin="$(find "$root/tools" -type f -name gmssl -perm -111 | head -n1)"
+          test -n "$gmssl_bin"
+          python3 ports/gmssl/tests/tls13-dummy-ccs-interop.py \
+            "$gmssl_bin" "$RUNNER_TEMP/gmssl-tls13-ccs-interop"
+
       - name: Interoperate with OpenSSL TLS 1.2 ECDHE_RSA
         shell: bash
         run: |
