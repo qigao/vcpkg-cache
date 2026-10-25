@@ -480,6 +480,41 @@ gmssl_replace_once(
 ]==]
 )
 
+
+# An ordinary TLS 1.2 ServerHello is not a TLS 1.3 HelloRetryRequest.
+# In a mixed-version connection, first inspect only the mandatory
+# legacy_version(2)+random(32) prefix of a *framed* ServerHello.
+# OpenSSL's valid TLS 1.2 ServerHello may have no optional extensions;
+# parsing it with the TLS 1.3 HRR-specific extension requirements otherwise
+# sends a false decode_error before the range dispatcher can select TLS 1.2.
+# The full ordinary ServerHello is still verified by the existing version-
+# range dispatch on the very same retained record. A real HRR keeps the
+# original strict decoder unchanged. Malformed/truncated prefixes fail closed.
+gmssl_replace_once(
+    "${_gmssl_tls13_c}"
+[==[
+	if ((ret = tls13_record_get_handshake_hello_retry_request(conn->record,
+]==]
+[==[
+	if (conn->ctx->min_protocol == TLS_protocol_tls12
+		&& conn->ctx->max_protocol == TLS_protocol_tls13
+		&& handshake_type == TLS_handshake_server_hello) {
+		if (handshake_datalen < 2u + 32u) {
+			error_print();
+			tls13_send_alert(conn, TLS_alert_decode_error);
+			return -1;
+		}
+		if (memcmp(handshake_data + 2u,
+				TLS13_HELLO_RETRY_REQUEST_RANDOM, 32u) != 0) {
+			/* Not HRR: leave the record intact for normal ServerHello parsing. */
+			return 0;
+		}
+	}
+	if ((ret = tls13_record_get_handshake_hello_retry_request(conn->record,
+]==]
+)
+
+
 unset(_gmssl_tls_h)
 unset(_gmssl_tls_c)
 unset(_gmssl_tls13_c)
