@@ -72,7 +72,8 @@ def check_one(gmssl: pathlib.Path, root: pathlib.Path,
               use_middlebox: bool, default_groups: bool = False) -> None:
     ca, server, skey, client, ckey = fixture_files
     port = free_port()
-    label = ("default-openssl-groups" if default_groups else
+    label = (("default-openssl-groups-ccs" if use_middlebox
+              else "default-openssl-groups-no-ccs") if default_groups else
              ("default-ccs" if use_middlebox else "no-ccs"))
     log = root / label
     with log.open("w", encoding="utf-8") as output:
@@ -146,8 +147,10 @@ def main() -> None:
         # Control on identical CA/leaf/key suite, then default OpenSSL.
         check_one(gmssl, folder, material, use_middlebox=False)
         check_one(gmssl, folder, material, use_middlebox=True)
-        # Do not declare provider completion while default client group
-        # negotiation can crash the server in HelloRetryRequest.
+        # Separate HRR's group-selection behavior from any middlebox CCS/
+        # legacy_session_id behavior, then require the combined default.
+        check_one(gmssl, folder, material, use_middlebox=False,
+                  default_groups=True)
         check_one(gmssl, folder, material, use_middlebox=True,
                   default_groups=True)
 
