@@ -1,4 +1,5 @@
 /* Private TLS 1.3 encrypted-handshake framing. Included by upstream tls13.c. */
+#include "tls13-compat-ccs.h"
 static int tls13_recv_handshake_message(TLS_CONNECT *conn, int from_server)
 {
 	uint8_t *seq = from_server ? conn->server_seq_num : conn->client_seq_num;
@@ -41,6 +42,24 @@ static int tls13_recv_handshake_message(TLS_CONNECT *conn, int from_server)
 		if (conn->handshake_fragment_offset == conn->handshake_fragment_len) {
 			int ret = tls_recv_record(conn);
 			if (ret != 1) return ret;
+			if (tls_record_type(conn->record) == TLS_record_change_cipher_spec) {
+				/* RFC 8446 D.4: a single exact, unencrypted dummy CCS is
+				 * ignored before peer Finished. The TLS owner still verifies
+				 * the handshake stage; it must not be decrypted, counted as
+				 * a handshake fragment, or fed into the transcript hash. */
+				ret = gmssl_tls13_compat_ccs_admit(
+					conn->record, conn->recordlen,
+					conn->handshake_fragment_len -
+						conn->handshake_fragment_offset,
+					conn->handshake_message_len,
+					&conn->handshake_compat_ccs_count);
+				if (ret != 1) {
+					tls13_send_alert(conn, TLS_alert_unexpected_message);
+					return -1;
+				}
+				tls_clean_record(conn);
+				continue;
+			}
 			if (tls_record_type(conn->record) != TLS_record_application_data
 				|| tls_record_protocol(conn->record) != TLS_protocol_tls12) {
 				tls13_send_alert(conn, TLS_alert_unexpected_message);
