@@ -1,0 +1,67 @@
+name: GmSSL Crypto provider source handoff (frozen 3.2.0#13)
+
+# Fast source/provenance gate; no vcpkg binary cache or port rewrite.
+on:
+  pull_request:
+    paths:
+      - "migrations/gmssl/**"
+      - "tools/verify_gmssl_crypto_handoff.py"
+      - "tests/gmssl-crypto-handoff/**"
+      - ".github/workflows/gmssl-crypto-handoff.yml"
+      - "ports/gmssl/**"
+      - "versions/g-/gmssl.json"
+      - "versions/baseline.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-immutable-provider-source:
+    name: Port tree immutable and deterministic Crypto import bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check exact registry and Crypto migration ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover \
+            -s tests/gmssl-crypto-handoff -p 'test_*.py' -v
+          python3 tools/verify_gmssl_crypto_handoff.py
+          actual="$(git rev-parse HEAD:ports/gmssl)"
+          test "$actual" = 8e8fda20b723803adc53613f6f608736238ac97d
+          echo "GmSSL vcpkg 3.2.0#13 registry tree preserved: $actual"
+      - name: Generate and compare two independent byte-identical Crypto kits
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gmssl-crypto-handoff"
+          python3 tools/verify_gmssl_crypto_handoff.py \
+            --export "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
+            --report "$RUNNER_TEMP/gmssl-crypto-handoff/source-receipt.json"
+          python3 tools/verify_gmssl_crypto_handoff.py \
+            --export "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
+          cmp "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
+              "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
+          test "$(tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" | wc -l)" -eq 95
+          tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
+            | grep -qx "providers/gmssl/patches/backports/secp384r1_verify.c"
+          tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
+            | grep -qx "providers/gmssl/tests/fixtures/p384-ca-sha384.pem"
+          if tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
+              | grep -Eq '(^|/)(portfile[.]cmake|vcpkg[.]json|GmSSLConfig[.]cmake)$'; then
+            echo "FAIL: Crypto bundle contains vcpkg-owned packaging files" >&2
+            exit 1
+          fi
+          rm "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
+          sha256sum "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz"
+      - name: Upload handoff kit and exact frozen source receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmssl-crypto-provider-import-kit
+          path: |
+            ${{ runner.temp }}/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz
+            ${{ runner.temp }}/gmssl-crypto-handoff/source-receipt.json
+          if-no-files-found: error
