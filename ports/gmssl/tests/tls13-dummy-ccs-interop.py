@@ -87,6 +87,8 @@ def check_one(gmssl: pathlib.Path, root: pathlib.Path,
             "-supported_group", "prime256v1",
             "-sig_alg", "ecdsa_secp256r1_sha256",
         ]
+        if default_groups and use_middlebox:
+            server_args.append("-verbose")  # ephemeral CI-only HRR diagnosis
         daemon = subprocess.Popen(
             server_args, stdout=output, stderr=subprocess.STDOUT)
         try:
@@ -131,6 +133,22 @@ def check_one(gmssl: pathlib.Path, root: pathlib.Path,
                     daemon.wait(timeout=3)
             if daemon.returncode not in (0, -15, 143):
                 log_content = log.read_text(encoding="utf-8", errors="replace")
+                if default_groups and use_middlebox:
+                    # Only public protocol stage labels; never serialize
+                    # certificate, key share, handshake bytes or client
+                    # secrets from the verbose native trace.
+                    stage = [
+                        line.strip()[:135] for line in log_content.splitlines()
+                        if line.strip().startswith(("recv ClientHello",
+                                                    "send HelloRetryRequest",
+                                                    "send ServerHello",
+                                                    "recv [ChangeCipherSpec",
+                                                    "  Type:",
+                                                    "  Extension:",
+                                                    "    Type:"))
+                    ]
+                    print("gmssl.hrr_ccs_stage_diagnostic: "
+                          + " | ".join(stage[-28:]), file=sys.stderr)
                 print("GmSSL test server diagnostic (tail): "
                       + log_content[-1400:], file=sys.stderr)
 
