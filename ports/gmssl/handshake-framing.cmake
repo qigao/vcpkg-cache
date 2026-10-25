@@ -3,6 +3,7 @@ set(_gmssl_tls13 "${SOURCE_PATH}/src/tls13.c")
 file(COPY
     "${CMAKE_CURRENT_LIST_DIR}/tls13-handshake-reader.h"
     "${CMAKE_CURRENT_LIST_DIR}/tls13-compat-ccs.h"
+    "${CMAKE_CURRENT_LIST_DIR}/tls13-hrr-padding.h"
     DESTINATION "${SOURCE_PATH}/src")
 
 gmssl_replace_once("${SOURCE_PATH}/include/gmssl/tls.h"
@@ -560,6 +561,75 @@ gmssl_replace_once("${_gmssl_tls13}"
 		if ((ret = tls_recv_record(conn)) != 1) return ret;
 	}
 	if(conn->verbose) tls_trace("recv ClientHello again\n");]==])
+
+
+
+# RFC 8446 section 4.1.2 specifically permits adding, removing, or
+# changing the length of ClientHello padding on retry. OpenSSL's default
+# X25519-first HRR often adds a zero-filled padding extension to CH2.
+# Do not weaken checks for any other extension, nor duplicate-extension
+# rejection. Both CH1 and CH2 padding must contain only zero octets.
+gmssl_replace_once("${_gmssl_tls13}"
+[==[
+		if (!matching_ext_found) {
+			error_print();
+			tls13_send_alert(conn, TLS_alert_illegal_parameter);
+			return -1;
+		}
+]==]
+[==[
+		if (!matching_ext_found && ext_type != TLS_extension_padding) {
+			error_print();
+			tls13_send_alert(conn, TLS_alert_illegal_parameter);
+			return -1;
+		}
+]==])
+
+gmssl_replace_once("${_gmssl_tls13}"
+[==[
+		// check ext_data
+		switch (ext_type) {
+		case TLS_extension_key_share:
+]==]
+[==[
+		/* RFC8446 4.1.2: second ClientHello padding may be new,
+		 * omitted or resized. RFC7685 still requires all zero bytes. */
+		if (ext_type == TLS_extension_padding) {
+			if (!gmssl_tls13_hrr_padding_valid(ext_data, ext_datalen)) {
+				error_print();
+				tls13_send_alert(conn, TLS_alert_illegal_parameter);
+				return -1;
+			}
+			continue;
+		}
+		// check ext_data
+		switch (ext_type) {
+		case TLS_extension_key_share:
+]==])
+
+gmssl_replace_once("${_gmssl_tls13}"
+[==[
+		if (_ext_type == TLS_extension_early_data) {
+			continue;
+		}
+		if (_ext_type == TLS_extension_key_share && key_share) {
+]==]
+[==[
+		if (_ext_type == TLS_extension_early_data) {
+			continue;
+		}
+		if (_ext_type == TLS_extension_padding) {
+			/* CH1 padding can disappear on HRR. Reject nonzero padding
+			 * even when the second ClientHello omits this extension. */
+			if (!gmssl_tls13_hrr_padding_valid(_ext_data, _ext_datalen)) {
+				error_print();
+				tls13_send_alert(conn, TLS_alert_illegal_parameter);
+				return -1;
+			}
+			continue;
+		}
+		if (_ext_type == TLS_extension_key_share && key_share) {
+]==])
 
 
 unset(_gmssl_tls13)
