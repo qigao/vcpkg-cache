@@ -1,6 +1,9 @@
 # Encrypted TLS 1.3 handshake messages are independent of record boundaries.
 set(_gmssl_tls13 "${SOURCE_PATH}/src/tls13.c")
-file(COPY "${CMAKE_CURRENT_LIST_DIR}/tls13-handshake-reader.h" DESTINATION "${SOURCE_PATH}/src")
+file(COPY
+    "${CMAKE_CURRENT_LIST_DIR}/tls13-handshake-reader.h"
+    "${CMAKE_CURRENT_LIST_DIR}/tls13-compat-ccs.h"
+    DESTINATION "${SOURCE_PATH}/src")
 
 gmssl_replace_once("${SOURCE_PATH}/include/gmssl/tls.h"
 [==[
@@ -12,6 +15,8 @@ gmssl_replace_once("${SOURCE_PATH}/include/gmssl/tls.h"
 	size_t handshake_fragment_offset;
 	size_t handshake_message_len;
 	int handshake_message_pending;
+	/* RFC8446 D.4 one-record limit, lifetime is a single TLS_CONNECT. */
+	unsigned int handshake_compat_ccs_count;
 	uint8_t plain_record[TLS_MAX_RECORD_SIZE];]==])
 
 gmssl_replace_once("${_gmssl_tls13}"
