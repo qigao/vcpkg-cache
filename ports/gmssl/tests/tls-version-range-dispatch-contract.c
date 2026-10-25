@@ -104,7 +104,8 @@ static int client_hello_has_range(const uint8_t *record)
 	return saw_versions && saw_alpn;
 }
 
-static int build_tls12_server_hello(uint8_t *record, size_t *record_len)
+static int build_tls12_server_hello(uint8_t *record, size_t *record_len,
+                                    int with_alpn)
 {
 	uint8_t random[32] = {0};
 	uint8_t exts[64];
@@ -114,15 +115,86 @@ static int build_tls12_server_hello(uint8_t *record, size_t *record_len)
 
 	random[31] = 7;
 	memset(record, 0, TLS_MAX_RECORD_SIZE);
-	if (tls_application_layer_protocol_negotiation_selected_ext_to_bytes(
+	if (with_alpn &&
+		tls_application_layer_protocol_negotiation_selected_ext_to_bytes(
 			selected_alpn, &p, &exts_len) != 1) return -1;
 	if (tls_record_set_protocol(record, TLS_protocol_tls12) != 1
 		|| tls_record_set_handshake_server_hello(
 			record, record_len, TLS_protocol_tls12, random, NULL, 0,
 			TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256,
-			exts, exts_len) != 1
+			with_alpn ? exts : NULL, exts_len) != 1
 		|| tls_record_set_protocol(record, TLS_protocol_tls12) != 1) return -1;
 	return 1;
+}
+
+/* Range admission must not decode an extensionless normal TLS 1.2
+ * ServerHello as a TLS 1.3 HelloRetryRequest. In particular the latter's
+ * mandatory supported_versions/key_share extensions are not required by
+ * TLS 1.2. This reproduces the independent OpenSSL 3.0.13 s_server case.
+ */
+static int test_tls12_server_hello_without_extensions(void)
+{
+	TLS_CTX ctx = {0};
+	TLS_CONNECT conn = {0};
+	probe_io io = {0};
+	TLS_IO callbacks = {&io, probe_send, probe_recv};
+	const int cipher_suites[] = {
+		TLS_cipher_aes_128_gcm_sha256,
+		TLS_cipher_ecdhe_ecdsa_with_aes_128_gcm_sha256,
+	};
+	const int group = TLS_curve_secp256r1;
+	const int sig_alg = TLS_sig_ecdsa_secp256r1_sha256;
+	size_t server_hello_len = 0;
+	int ret;
+	int rc = 0;
+
+	if (tls_ctx_init(&ctx, TLS_protocol_tls13, TLS_client_mode) != 1
+		|| tls_ctx_set_protocol_range(&ctx, TLS_protocol_tls12, TLS_protocol_tls13) != 1
+		|| tls_ctx_set_cipher_suites(&ctx, cipher_suites,
+			sizeof(cipher_suites) / sizeof(cipher_suites[0])) != 1
+		|| tls_ctx_set_supported_groups(&ctx, &group, 1) != 1
+		|| tls_ctx_set_signature_algorithms(&ctx, &sig_alg, 1) != 1
+		|| tls_init(&conn, &ctx) != 1
+		|| tls_set_io(&conn, &callbacks) != 1) {
+		rc = 21;
+		goto done;
+	}
+
+	ret = tls_do_handshake(&conn);
+	if (ret != TLS_ERROR_RECV_AGAIN) {
+		rc = 22;
+		goto done;
+	}
+	if (build_tls12_server_hello(io.input, &server_hello_len, 0) != 1) {
+		rc = 23;
+		goto done;
+	}
+	io.input_len = server_hello_len;
+	io.input_off = 0;
+	ret = tls_do_handshake(&conn);
+	if (ret != TLS_ERROR_RECV_AGAIN) {
+		rc = 24;
+		goto done;
+	}
+	if (conn.protocol != TLS_protocol_tls12
+		|| conn.handshake_state != TLS_state_server_certificate
+		|| io.input_off != io.input_len) {
+		rc = 25;
+		goto done;
+	}
+	/* A second step cannot reinterpret the retained TLS 1.2 ServerHello
+	 * or accept any unverified payload as new client application data. */
+	ret = tls_do_handshake(&conn);
+	if (ret != TLS_ERROR_RECV_AGAIN
+		|| conn.protocol != TLS_protocol_tls12
+		|| conn.handshake_state != TLS_state_server_certificate)
+		rc = 26;
+
+done:
+	tls_cleanup(&conn);
+	tls_ctx_cleanup(&ctx);
+	if (rc) fprintf(stderr, "GmSSL extensionless TLS1.2 ServerHello: error %d\n", rc);
+	return rc;
 }
 
 int main(void)
@@ -163,7 +235,7 @@ int main(void)
 		rc = 4;
 		goto end;
 	}
-	if (build_tls12_server_hello(io.input, &server_hello_len) != 1) {
+	if (build_tls12_server_hello(io.input, &server_hello_len, 1) != 1) {
 		rc = 5;
 		goto end;
 	}
@@ -195,8 +267,9 @@ int main(void)
 		goto end;
 	}
 
-	rc = 0;
-	puts("GmSSL TLS 1.2 fallback on one connection: PASS");
+	rc = test_tls12_server_hello_without_extensions();
+	if (rc != 0) goto end;
+	puts("GmSSL TLS 1.2 fallback with ALPN and without extensions: PASS");
 
 end:
 	tls_cleanup(&conn);
