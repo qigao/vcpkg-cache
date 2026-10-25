@@ -521,4 +521,45 @@ static int tls13_recv_change_cipher_spec_if_present(TLS_CONNECT *conn)
 	/* A coalesced next handshake already rules out an intervening CCS. */
 	if (conn->handshake_fragment_offset < conn->handshake_fragment_len) return 0;]==])
 
+
+# RFC 8446 D.4 permits a client compatibility CCS before its second
+# ClientHello following a HelloRetryRequest. It is NOT a ClientHello record,
+# so the HRR reader must consume one exact bounded CCS before parsing CH2.
+# Reuse the SAME per-TLS_CONNECT one-record budget used by the encrypted
+# handshake path, so sending a second CCS cannot bypass the resource bound.
+gmssl_replace_once("${_gmssl_tls13}"
+[==[
+	if ((ret = tls_recv_record(conn)) != 1) {
+		if (ret != TLS_ERROR_RECV_AGAIN) {
+			error_print();
+		}
+		return ret;
+	}
+	if(conn->verbose) tls_trace("recv ClientHello again\n");]==]
+[==[
+	if ((ret = tls_recv_record(conn)) != 1) {
+		if (ret != TLS_ERROR_RECV_AGAIN) {
+			error_print();
+		}
+		return ret;
+	}
+	if (tls_record_type(conn->record) == TLS_record_change_cipher_spec) {
+		/* Exactly one CCS per connection (shared with encrypted reader).
+		 * Do not hash the record or advance TLS traffic sequence numbers.
+		 * Retry handling remains native tls_recv_record ownership. */
+		ret = gmssl_tls13_compat_ccs_admit(
+			conn->record, conn->recordlen,
+			conn->handshake_fragment_len - conn->handshake_fragment_offset,
+			conn->handshake_message_len,
+			&conn->handshake_compat_ccs_count);
+		if (ret != 1) {
+			tls13_send_alert(conn, TLS_alert_unexpected_message);
+			return -1;
+		}
+		tls_clean_record(conn);
+		if ((ret = tls_recv_record(conn)) != 1) return ret;
+	}
+	if(conn->verbose) tls_trace("recv ClientHello again\n");]==])
+
+
 unset(_gmssl_tls13)
