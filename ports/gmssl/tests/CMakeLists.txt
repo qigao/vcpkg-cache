@@ -328,3 +328,16 @@ if(NOT CMAKE_CROSSCOMPILING)
         COMMAND "$<TARGET_FILE:gmssl-tls-abi-layout-contract>"
         COMMENT "Verify installed TLS_CTX and TLS_CONNECT header/library ABI sizes")
 endif()
+
+# RFC 8446 D.4: compatibility CCS must be an exact one-byte record, not
+# a replacement for encrypted handshake records or bounded receive credit.
+# Also checks installed TLS_CONNECT ABI against the compiled provider.
+add_executable(gmssl-tls13-dummy-ccs-contract tls13-dummy-ccs-contract.c)
+target_link_libraries(gmssl-tls13-dummy-ccs-contract PRIVATE GmSSL::GmSSL)
+set_target_properties(gmssl-tls13-dummy-ccs-contract PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+if(NOT CMAKE_CROSSCOMPILING)
+    add_custom_command(TARGET gmssl-tls13-dummy-ccs-contract POST_BUILD
+        COMMAND "$<TARGET_FILE:gmssl-tls13-dummy-ccs-contract>"
+        COMMENT "Qualify TLS1.3 dummy CCS admission, rejection and installed ABI")
+endif()
