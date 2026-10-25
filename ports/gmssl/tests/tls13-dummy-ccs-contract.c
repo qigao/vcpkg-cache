@@ -6,6 +6,7 @@
  * The full OpenSSL/GmSSL wire handshake remains a SEPARATE acceptance gate.
  */
 #include "../tls13-compat-ccs.h"
+#include "../tls13-hrr-padding.h"
 #include <gmssl/tls.h>
 #include <stdio.h>
 #include <stddef.h>
@@ -68,6 +69,21 @@ int main(void)
     CHECK(gmssl_tls13_compat_ccs_admit(
         good, sizeof(good), 0u, 0u, NULL) == -1);
     CHECK(seen == 0u);
+    /* RFC8446 4.1.2 / RFC7685: zero-filled optional HRR padding is
+     * the one extension whose presence or length may vary on CH2. */
+    {
+        uint8_t zero[1024] = {0};
+        uint8_t bad[1024] = {0};
+        CHECK(gmssl_tls13_hrr_padding_valid(NULL, 0u) == 1);
+        CHECK(gmssl_tls13_hrr_padding_valid(zero, 0u) == 1);
+        CHECK(gmssl_tls13_hrr_padding_valid(zero, sizeof(zero)) == 1);
+        CHECK(gmssl_tls13_hrr_padding_valid(NULL, 1u) == 0);
+        for (i = 0u; i < sizeof(bad); ++i) {
+            bad[i] = 0x01u;
+            CHECK(gmssl_tls13_hrr_padding_valid(bad, sizeof(bad)) == 0);
+            bad[i] = 0u;
+        }
+    }
     puts("gmssl.tls13_dummy_ccs_contract: PASS");
     return 0;
 }
