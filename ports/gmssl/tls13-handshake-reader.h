@@ -1,5 +1,6 @@
 /* Private TLS 1.3 encrypted-handshake framing. Included by upstream tls13.c. */
 #include "tls13-compat-ccs.h"
+#include "tls13-hrr-padding.h"
 static int tls13_recv_handshake_message(TLS_CONNECT *conn, int from_server)
 {
 	uint8_t *seq = from_server ? conn->server_seq_num : conn->client_seq_num;
