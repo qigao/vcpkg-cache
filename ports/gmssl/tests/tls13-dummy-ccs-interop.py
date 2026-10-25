@@ -69,10 +69,12 @@ def free_port() -> int:
 
 def check_one(gmssl: pathlib.Path, root: pathlib.Path,
               fixture_files: tuple[pathlib.Path, ...],
-              use_middlebox: bool) -> None:
+              use_middlebox: bool, default_groups: bool = False) -> None:
     ca, server, skey, client, ckey = fixture_files
     port = free_port()
-    log = root / ("default-ccs" if use_middlebox else "no-ccs")
+    label = ("default-openssl-groups" if default_groups else
+             ("default-ccs" if use_middlebox else "no-ccs"))
+    log = root / label
     with log.open("w", encoding="utf-8") as output:
         server_args = [
             str(gmssl), "tls13_server",
@@ -94,7 +96,11 @@ def check_one(gmssl: pathlib.Path, root: pathlib.Path,
             context = ssl.create_default_context(cafile=str(ca))
             context.minimum_version = ssl.TLSVersion.TLSv1_3
             context.maximum_version = ssl.TLSVersion.TLSv1_3
-            context.set_ecdh_curve("prime256v1")
+            # The default OpenSSL key-share offer starts with X25519.
+            # A P-256-only GmSSL server must correctly handle the resulting
+            # HelloRetryRequest, never crash or weaken peer verification.
+            if not default_groups:
+                context.set_ecdh_curve("prime256v1")
             context.load_cert_chain(str(client), str(ckey))
             if not use_middlebox:
                 context.options &= ~ssl.OP_ENABLE_MIDDLEBOX_COMPAT
@@ -111,8 +117,9 @@ def check_one(gmssl: pathlib.Path, root: pathlib.Path,
                         raise AssertionError(
                             "validated client payload did not reach server")
             print("gmssl.tls13_dummy_ccs_interop: PASS "
-                  + ("default OpenSSL CCS" if use_middlebox
-                     else "no middlebox CCS"), flush=True)
+                  + ("default groups/HelloRetryRequest" if default_groups
+                     else ("default OpenSSL CCS" if use_middlebox
+                           else "no middlebox CCS")), flush=True)
         finally:
             if daemon.poll() is None:
                 daemon.terminate()
@@ -139,6 +146,10 @@ def main() -> None:
         # Control on identical CA/leaf/key suite, then default OpenSSL.
         check_one(gmssl, folder, material, use_middlebox=False)
         check_one(gmssl, folder, material, use_middlebox=True)
+        # Do not declare provider completion while default client group
+        # negotiation can crash the server in HelloRetryRequest.
+        check_one(gmssl, folder, material, use_middlebox=True,
+                  default_groups=True)
 
 
 if __name__ == "__main__":
