@@ -45,13 +45,28 @@ jobs:
             --export "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
           cmp "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
               "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
-          test "$(tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" | wc -l)" -eq 95
-          tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
-            | grep -qx "providers/gmssl/patches/backports/secp384r1_verify.c"
-          tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
-            | grep -qx "providers/gmssl/tests/fixtures/p384-ca-sha384.pem"
-          if tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" \
-              | grep -Eq '(^|/)(portfile[.]cmake|vcpkg[.]json|GmSSLConfig[.]cmake)$'; then
+          # Never pipe tar into grep -q with pipefail: grep's early exit
+          # SIGPIPEs tar even though the complete archive is valid.
+          listing="$RUNNER_TEMP/gmssl-crypto-handoff/archive-files.txt"
+          tar -tzf "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz" > "$listing"
+          test "$(wc -l < "$listing")" -eq 95
+          grep -Fxq "providers/gmssl/patches/backports/secp384r1_verify.c" "$listing"
+          grep -Fxq "providers/gmssl/tests/fixtures/p384-ca-sha384.pem" "$listing"
+          if grep -Eq '(^|/)(portfile[.]cmake|vcpkg[.]json|GmSSLConfig[.]cmake)
+            echo "FAIL: Crypto bundle contains vcpkg-owned packaging files" >&2
+            exit 1
+          fi
+          rm "$RUNNER_TEMP/gmssl-crypto-handoff/second-pass.tar.gz"
+          sha256sum "$RUNNER_TEMP/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz"
+      - name: Upload handoff kit and exact frozen source receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmssl-crypto-provider-import-kit
+          path: |
+            ${{ runner.temp }}/gmssl-crypto-handoff/gmssl-provider-handoff.tar.gz
+            ${{ runner.temp }}/gmssl-crypto-handoff/source-receipt.json
+          if-no-files-found: error
+ "$listing"; then
             echo "FAIL: Crypto bundle contains vcpkg-owned packaging files" >&2
             exit 1
           fi
