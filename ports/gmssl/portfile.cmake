@@ -60,6 +60,10 @@ include("${CMAKE_CURRENT_LIST_DIR}/handshake-framing.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/tls13-fatal-alert.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/x509-p384-sha384.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
+# Reviewable hardening moved from the former Crypto-local GmSSL assembly.
+# These source adaptations are owned by the vcpkg port and fail closed.
+include("${CMAKE_CURRENT_LIST_DIR}/hardening/ubsan-undefined-behavior.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/hardening/tls13-hrr-compat-ccs.cmake")
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
