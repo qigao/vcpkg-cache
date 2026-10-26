@@ -1,0 +1,154 @@
+name: Flowie Windows exact ABI L2
+
+on:
+  push:
+    branches: [feature/flowie-windows-exact-abi]
+    paths: [".github/workflows/flowie-windows-exact-abi.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: flowie-exact-l2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLOWIE_SHA: e13cde9cecb9fd93d4c6191033d2cfc6a0149752
+  EXPECT_CACHE_REVISION: 195d4d06a28fc913dc4ad071a8c77e6344d69a1e1d4efbd3cbc64419cd4e39b6
+
+jobs:
+  producer:
+    name: Warm exact x64-windows ABI graph
+    runs-on: windows-2022
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/flowie
+          ref: e13cde9cecb9fd93d4c6191033d2cfc6a0149752
+          path: consumer/flowie
+          persist-credentials: false
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - uses: ./.github/actions/setup-re2c-tools
+      - name: Verify exact manifest, registry and immutable ABI toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:GITHUB_WORKSPACE 'consumer/flowie'
+          if ((& git -C $root rev-parse HEAD).Trim() -ne $env:FLOWIE_SHA) { throw 'Consumer checkout changed' }
+          $m = Get-Content (Join-Path $root 'vcpkg.json') -Raw | ConvertFrom-Json
+          $cfg = Get-Content (Join-Path $root 'vcpkg-configuration.json') -Raw | ConvertFrom-Json
+          if ($m.'builtin-baseline' -ne 'b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01') { throw 'Flowie builtin-baseline mismatch' }
+          if ($cfg.registries.Count -ne 1 -or $cfg.registries[0].baseline -ne 'd4afc8cd2f5ed3585c1e26469e379a087ce9ecf3' -or $cfg.registries[0].reference -ne 'd4afc8cd2f5ed3585c1e26469e379a087ce9ecf3') { throw 'Flowie registry pin mismatch' }
+          if ($env:VCPKG_CACHE_REVISION -ne $env:EXPECT_CACHE_REVISION) { throw 'Cache ABI overlay revision changed' }
+          @(
+            "flowie=$env:FLOWIE_SHA"
+            "cache_revision=$env:VCPKG_CACHE_REVISION"
+            "tool_revision=$env:VCPKG_TOOL_REVISION"
+            "scripts_revision=$env:VCPKG_SCRIPTS_REVISION"
+            'triplet=x64-windows'
+            "manifest_sha256=$((Get-FileHash (Join-Path $root 'vcpkg.json') -Algorithm SHA256).Hash)"
+            "registry_sha256=$((Get-FileHash (Join-Path $root 'vcpkg-configuration.json') -Algorithm SHA256).Hash)"
+          ) | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'flowie-warm-provenance.txt')
+      - name: Prepare identical downstream Windows tools
+        shell: pwsh
+        run: |
+          choco install ninja -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Ninja install failed' }
+      - name: Warm exact downstream Flowie manifest into NuGet L2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:GITHUB_WORKSPACE 'consumer/flowie'
+          $root = Join-Path $env:RUNNER_TEMP 'flowie-warm-installed'
+          $log = Join-Path $env:RUNNER_TEMP 'flowie-warm.log'
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$root" --triplet=x64-windows --host-triplet=x64-windows 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw 'Exact ABI producer build or publication failed' }
+          foreach ($header in @('gmssl/tls.h','ares.h','llhttp.h','xxhash.h')) {
+            $file = Join-Path $root ("x64-windows/include/" + $header)
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing exact consumer include: $file" }
+          }
+      - name: Archive producer provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowie-exact-warm-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/flowie-warm.log
+            ${{ runner.temp }}/flowie-warm-provenance.txt
+
+  clean-l2:
+    name: Clean L1 strict NuGet-only Flowie restore
+    needs: producer
+    runs-on: windows-2022
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/flowie
+          ref: e13cde9cecb9fd93d4c6191033d2cfc6a0149752
+          path: consumer/flowie
+          persist-credentials: false
+      - name: Force an empty local cache
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'empty-flowie-l1'
+          if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+          New-Item -Path $dir -ItemType Directory -Force | Out-Null
+          "VCPKG_BINARY_CACHE=$dir" >> $env:GITHUB_ENV
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - uses: ./.github/actions/setup-re2c-tools
+      - name: Prepare identical downstream Windows tools
+        shell: pwsh
+        run: |
+          choco install ninja -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Ninja install failed' }
+      - name: Require exact original Flowie ABI and complete read-only NuGet restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:GITHUB_WORKSPACE 'consumer/flowie'
+          if ((& git -C $manifest rev-parse HEAD).Trim() -ne $env:FLOWIE_SHA) { throw 'Consumer source pin changed' }
+          if ($env:VCPKG_CACHE_REVISION -ne $env:EXPECT_CACHE_REVISION) { throw 'Cache ABI overlay revision changed' }
+          $installed = Join-Path $env:RUNNER_TEMP 'flowie-clean-installed'
+          $log = Join-Path $env:RUNNER_TEMP 'flowie-clean-l2.log'
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installed" --triplet=x64-windows --host-triplet=x64-windows --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          $exit = $LASTEXITCODE
+          if ($exit -ne 0) { throw "Exact Flowie clean-L2 restore failed with $exit" }
+          $body = Get-Content -LiteralPath $log -Raw
+          if ($body -match '(?m)^Building [^:]+:') { throw 'Unauthorized source build occurred during read-only consumer restore' }
+          if ($body -notmatch 'Restored [1-9][0-9]* package\(s\) from NuGet') { throw 'No clean NuGet L2 hit observed' }
+          foreach ($port in @('gmssl','c-ares','llhttp','xxhash','vcpkg-cmake','vcpkg-cmake-config')) {
+            if ($body -notmatch [regex]::Escape($port)) { throw "Expected exact downstream port not restored: $port" }
+          }
+          @(
+            'status=PASS'
+            "consumer=$env:FLOWIE_SHA"
+            "cache_revision=$env:VCPKG_CACHE_REVISION"
+            'triplet=x64-windows'
+            'fallback=FORBIDDEN'
+          ) | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'flowie-clean-proof.txt')
+      - name: Archive consumer read-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowie-exact-clean-l2-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/flowie-clean-l2.log
+            ${{ runner.temp }}/flowie-clean-proof.txt
