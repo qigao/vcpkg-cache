@@ -87,6 +87,11 @@ jobs:
             fi
           fi
 
+      - name: Require cryptographic source ownership only in qigao/crypto
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-crypto-source-ownership.py
       - name: Verify canonical contract identity
         shell: bash
         env:
@@ -200,7 +205,7 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl",
+
               "miniaudio",
               {"name":"zeromq","default-features":false}
             ],
@@ -213,7 +218,6 @@ jobs:
             --triplet arm64-linux \
             --host-triplet arm64-linux
           test -f "$install_root/arm64-linux/include/zmq.h"
-          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
 
   macos:

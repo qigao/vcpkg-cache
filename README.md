@@ -20,6 +20,32 @@ Product repositories must own:
 
 Accordingly, this repository must not contain a product `manifests/` tree, product SDK packaging directories, or product release workflows. Consumers use the shared setup action and binary cache, but keep dependency policy in their own repository.
 
+## Crypto/GmSSL sole source ownership
+
+All future cryptographic algorithms, TLS/TLCP/DTLS, X.509, provider hardening
+and native cryptographic tests are owned by
+[qigao/crypto](https://github.com/qigao/crypto) and its pinned GmSSL source.
+The only installed native consumer target is static `Salts::Crypto`, loaded
+with `find_package(Crypto CONFIG REQUIRED)`.
+
+The former `ports/gmssl` overlay, custom registry version and its
+GmSSL-only CI were **removed from this retirement candidate**. Do not
+reintroduce `GmSSL::GmSSL`, port build patches, a forwarding package or
+algorithm implementation here. Keep only general vcpkg infrastructure and
+non-Crypto overlay ports.
+
+The historical GmSSL 3.2.0#13 source is attested byte-for-byte in
+Crypto master `a99f29a569af14b865c9e713360aa81d39a04bf0`;
+additional former port14 CCS/HRR code is tracked in Crypto PR #28 as
+an isolated unshipped candidate. The old vcpkg revision remains available
+in Git history for provenance, **not as an active package**.
+
+**This removal must stay Draft until downstream Salts/CNet/CHttp and any
+other consumers using the old registered GmSSL 3.2.0#13
+complete exact-head transition to static `Salts::Crypto`.**
+This candidate deliberately offers no legacy aliases or compatibility
+fallbacks.
+
 ## Shared vcpkg baseline
 
 The generic warm-cache manifest at the repository root uses:

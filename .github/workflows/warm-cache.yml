@@ -223,8 +223,7 @@ jobs:
               "aklomp-base64",
               "c-ares",
               "libuv",
-              "kcp",
-              "gmssl"
+              "kcp"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -237,7 +236,7 @@ jobs:
                 "repository": "https://github.com/qigao/vcpkg-cache",
                 "reference": "b8bcce436838b716522bb2c8b35438b47ac1830b",
                 "baseline": "b8bcce436838b716522bb2c8b35438b47ac1830b",
-                "packages": ["aklomp-base64", "c-ares", "zstd", "gmssl"]
+                "packages": ["aklomp-base64", "c-ares", "zstd"]
               }
             ]
           }
@@ -253,7 +252,6 @@ jobs:
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
             --x-install-root="$install_root" \
             --triplet arm64-linux
-          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
 
   linux-arm64-sdk-deps-cache-contract:
@@ -303,8 +301,7 @@ jobs:
               "aklomp-base64",
               "c-ares",
               "libuv",
-              "kcp",
-              "gmssl"
+              "kcp"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -317,7 +314,7 @@ jobs:
                 "repository": "https://github.com/qigao/vcpkg-cache",
                 "reference": "b8bcce436838b716522bb2c8b35438b47ac1830b",
                 "baseline": "b8bcce436838b716522bb2c8b35438b47ac1830b",
-                "packages": ["aklomp-base64", "c-ares", "zstd", "gmssl"]
+                "packages": ["aklomp-base64", "c-ares", "zstd"]
               }
             ]
           }
@@ -345,7 +342,6 @@ jobs:
             exit 1
           fi
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
           echo "Linux arm64 SDK dependency clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
 
@@ -528,8 +524,7 @@ jobs:
               "libuv",
               "kcp",
               "boringssl",
-              "gmssl",
-              "miniaudio",
+                            "miniaudio",
               "libyuv",
               "llhttp",
               "tree-sitter",
@@ -602,8 +597,7 @@ jobs:
               "libuv",
               "kcp",
               "boringssl",
-              "gmssl",
-              "miniaudio",
+                            "miniaudio",
               "libyuv",
               "llhttp",
               "tree-sitter",
