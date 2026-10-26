@@ -8,6 +8,7 @@ find_path(_GMSSL_INCLUDE_DIR
     NAMES gmssl/tls.h
     PATHS "${_GMSSL_PREFIX}/include"
     NO_DEFAULT_PATH
+    NO_CMAKE_FIND_ROOT_PATH
     REQUIRED
 )
 
@@ -15,6 +16,7 @@ find_library(_GMSSL_RELEASE_LIBRARY
     NAMES gmssl
     PATHS "${_GMSSL_PREFIX}/lib"
     NO_DEFAULT_PATH
+    NO_CMAKE_FIND_ROOT_PATH
     REQUIRED
 )
 
@@ -22,6 +24,7 @@ find_library(_GMSSL_DEBUG_LIBRARY
     NAMES gmssl
     PATHS "${_GMSSL_PREFIX}/debug/lib"
     NO_DEFAULT_PATH
+    NO_CMAKE_FIND_ROOT_PATH
 )
 
 add_library(GmSSL::GmSSL UNKNOWN IMPORTED)

@@ -1,0 +1,120 @@
+name: GmSSL source sanitizer qualification
+
+on:
+  pull_request:
+    paths:
+      - "ports/gmssl/**"
+      - "tests/gmssl-source-sanitizers/**"
+      - ".github/workflows/gmssl-source-sanitizers.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  gmssl-source-sanitizers:
+    name: "GmSSL source ${{ matrix.mode }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [asan-ubsan-lsan, tsan]
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      LSAN_OPTIONS: exitcode=23
+      TSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Prepare isolated source-instrumented vcpkg triplet
+        shell: bash
+        run: |
+          set -euo pipefail
+          triplets="$RUNNER_TEMP/gmssl-sanitizer-triplets"
+          mkdir -p "$triplets"
+          if [[ "${{ matrix.mode }}" == tsan ]]; then
+            sanitizer="-fsanitize=thread"
+            symbol="__tsan_"
+          else
+            sanitizer="-fsanitize=address,undefined"
+            symbol="__asan_"
+          fi
+          flags="-O1 -g -fno-omit-frame-pointer $sanitizer"
+          triplet="x64-linux-gmssl-${{ matrix.mode }}"
+          cat > "$triplets/$triplet.cmake" <<EOF
+          set(VCPKG_TARGET_ARCHITECTURE x64)
+          set(VCPKG_CMAKE_SYSTEM_NAME Linux)
+          set(VCPKG_CRT_LINKAGE dynamic)
+          set(VCPKG_LIBRARY_LINKAGE static)
+          set(VCPKG_BUILD_TYPE release)
+          set(VCPKG_C_FLAGS "$flags")
+          set(VCPKG_CXX_FLAGS "$flags")
+          set(VCPKG_LINKER_FLAGS "$sanitizer")
+          EOF
+          printf 'GMSSL_SANITIZER_TRIPLET=%s\n' "$triplet" >> "$GITHUB_ENV"
+          printf 'GMSSL_SANITIZER_FLAGS=%s\n' "$flags" >> "$GITHUB_ENV"
+          printf 'GMSSL_SANITIZER_LINKER=%s\n' "$sanitizer" >> "$GITHUB_ENV"
+          printf 'GMSSL_SANITIZER_SYMBOL=%s\n' "$symbol" >> "$GITHUB_ENV"
+          printf 'GMSSL_SANITIZER_TRIPLETS=%s\n' "$triplets" >> "$GITHUB_ENV"
+      - name: Build actual port14 GmSSL source without any binary restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/gmssl-sanitizer-manifest"
+          installed="$RUNNER_TEMP/gmssl-sanitizer-installed"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "gmssl-sanitizer-port-contract",
+            "version-string": "1",
+            "dependencies": ["gmssl"]
+          }
+          EOF
+          # Bypass ALL binary caches so actual GmSSL .c sources are compiled
+          # with the sanitizer flags specified by our isolated vcpkg triplet.
+          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$manifest" "--x-install-root=$installed" \
+            "--triplet=$GMSSL_SANITIZER_TRIPLET" "--host-triplet=x64-linux" \
+            "--overlay-triplets=$GMSSL_SANITIZER_TRIPLETS" \
+            "--overlay-ports=$GITHUB_WORKSPACE/ports" --no-binarycaching
+          prefix="$installed/$GMSSL_SANITIZER_TRIPLET"
+          test -s "$prefix/lib/libgmssl.a"
+          test -s "$prefix/include/gmssl/tls.h"
+          test -s "$prefix/share/gmssl/GmSSLConfig.cmake"
+          test -s "$prefix/share/gmssl/copyright"
+          # Symbol check prevents falsely reporting sanitizer coverage based
+          # solely on the consumer test build's compiler flags.
+          nm -u "$prefix/lib/libgmssl.a" > "$RUNNER_TEMP/gmssl-source-symbols.txt"
+          grep -q "$GMSSL_SANITIZER_SYMBOL" "$RUNNER_TEMP/gmssl-source-symbols.txt"
+          if [[ "${{ matrix.mode }}" == asan-ubsan-lsan ]]; then
+            grep -q '__ubsan_' "$RUNNER_TEMP/gmssl-source-symbols.txt"
+          fi
+          printf 'GMSSL_SANITIZED_PREFIX=%s\n' "$prefix" >> "$GITHUB_ENV"
+      - name: Execute all original 29 C11 TLS/X509 contracts against sanitized installed GmSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S tests/gmssl-source-sanitizers -B build-gmssl-sanitizers -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            "-DCMAKE_C_FLAGS=$GMSSL_SANITIZER_FLAGS" \
+            "-DCMAKE_EXE_LINKER_FLAGS=$GMSSL_SANITIZER_LINKER" \
+            "-DGMSSL_SANITIZED_PREFIX=$GMSSL_SANITIZED_PREFIX"
+          cmake --build build-gmssl-sanitizers --parallel 2
+          count="$(ctest --test-dir build-gmssl-sanitizers -N | sed -n 's/^Total Tests: //p')"
+          test "$count" = 29
+          ctest --test-dir build-gmssl-sanitizers --output-on-failure \
+            --no-tests=error --timeout 120 --parallel 1 --repeat until-fail:2
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmssl-port14-source-${{ matrix.mode }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/gmssl-source-symbols.txt
+            build-gmssl-sanitizers/CMakeCache.txt
+            build-gmssl-sanitizers/Testing/Temporary/LastTest.log
