@@ -17,6 +17,11 @@ on:
         description: Exact 40-hex master commit; wrong HEAD fails closed
         required: true
         type: string
+      require_new_upload:
+        description: Qualify a real new NuGet V3 PUT, not just reuse an existing package
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -184,6 +189,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          REQUIRE_NEW_UPLOAD: ${{ inputs.require_new_upload }}
         run: |
           set -euo pipefail
           stage="$GITHUB_WORKSPACE/build/curl-native-producer"
@@ -193,6 +199,13 @@ jobs:
             | tee "$RUNNER_TEMP/approved-native-publish-proof.txt"
           grep -E 'publish_summary total=[1-9][0-9]*' \
             "$RUNNER_TEMP/approved-native-publish-proof.txt"
+          if [[ "$REQUIRE_NEW_UPLOAD" == "true" ]]; then
+            if ! grep -Eq 'uploaded=[1-9][0-9]*' \
+              "$RUNNER_TEMP/approved-native-publish-proof.txt"; then
+              echo 'No real newly published package: existing-only verification cannot qualify curl upload' >&2
+              exit 1
+            fi
+          fi
       - name: Retain approved exact upload attestation
         if: always()
         uses: actions/upload-artifact@v4
