@@ -1,0 +1,13 @@
+{
+  "name": "qigao-wabt-producer",
+  "version-string": "1",
+  "dependencies": [
+    {
+      "name": "wabt",
+      "features": [
+        "tools"
+      ]
+    }
+  ],
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}
