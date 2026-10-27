@@ -229,7 +229,7 @@ jobs:
           retention-days: 30
 
   read-back:
-    name: Fresh runner: exact binary-only GitHub Packages read-back
+    name: "Fresh runner: exact binary-only GitHub Packages read-back"
     if: ${{ inputs.publish }}
     needs: native-publish
     runs-on: ubuntu-24.04
