@@ -158,7 +158,8 @@ def publisher_url(client: Curl) -> str:
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or parsed.hostname != "nuget.pkg.github.com"
         or parsed.username or parsed.password or parsed.port not in (None, 443)
-        or not parsed.path.startswith("/qigao") or parsed.query or parsed.fragment):
+        or not (parsed.path == "/qigao" or parsed.path.startswith("/qigao/"))
+        or parsed.query or parsed.fragment):
         raise ValueError("unsafe NuGet PackagePublish URL")
     return url
 
