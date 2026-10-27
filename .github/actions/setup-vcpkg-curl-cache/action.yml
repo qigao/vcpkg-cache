@@ -21,6 +21,10 @@ inputs:
     description: Product-owned vcpkg.json directory, relative to GITHUB_WORKSPACE.
     required: false
     default: .
+  features:
+    description: Comma-separated exact product manifest feature names; empty for defaults.
+    required: false
+    default: ""
 
 outputs:
   contract_version:
@@ -75,11 +79,21 @@ runs:
         INPUT_TRIPLET: ${{ inputs.triplet  }}
         INPUT_HOST_TRIPLET: ${{ inputs.host-triplet  }}
         INPUT_MANIFEST_ROOT: ${{ inputs.manifest-root  }}
+        INPUT_FEATURES: ${{ inputs.features }}
       run: |
         $ErrorActionPreference = 'Stop'
         $root = (Resolve-Path (Join-Path '${{ github.action_path  }}' '../../..')).Path
         $manifest = (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE $env:INPUT_MANIFEST_ROOT)).Path
         $hostTriplet = $env:INPUT_HOST_TRIPLET
         if (-not $hostTriplet) { $hostTriplet = $env:INPUT_TRIPLET }
-        python (Join-Path $root 'scripts/restore-manifest-cache.py') --manifest-root $manifest --triplet $env:INPUT_TRIPLET --host-triplet $hostTriplet
+        $features = @()
+        if ($env:INPUT_FEATURES) {
+          foreach ($feature in $env:INPUT_FEATURES.Split(',')) {
+            if ($feature -notmatch '^[a-z0-9-]+
+        if ($LASTEXITCODE -ne 0) { throw 'curl-only GitHub Packages restore failed' }
+) { throw "Invalid manifest feature: $feature" }
+            $features += @('--feature', $feature)
+          }
+        }
+        python (Join-Path $root 'scripts/restore-manifest-cache.py') --manifest-root $manifest --triplet $env:INPUT_TRIPLET --host-triplet $hostTriplet @features
         if ($LASTEXITCODE -ne 0) { throw 'curl-only GitHub Packages restore failed' }
