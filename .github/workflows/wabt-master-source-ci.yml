@@ -1,0 +1,93 @@
+name: WABT current master source CI (NO PUBLISH)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/wabt-master-source-ci.yml"
+      - ".github/workflows/curl-wabt-source-package-qualification.yml"
+      - "scripts/ci/verify-wabt-master-source.sh"
+      - "scripts/tests/test_wabt_master_source_ci.py"
+      - "cache-contracts/wabt-producer/vcpkg.json"
+      - "ports/wabt/**"
+      - "triplets/**"
+      - "versions/**"
+      - "vcpkg-tool-version.txt"
+      - "vcpkg-scripts-revision.txt"
+      - "scripts/setup-vcpkg-curl-cache.py"
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/wabt-master-source-ci.yml"
+      - "scripts/ci/verify-wabt-master-source.sh"
+      - "scripts/tests/test_wabt_master_source_ci.py"
+      - "cache-contracts/wabt-producer/vcpkg.json"
+      - "ports/wabt/**"
+      - "triplets/**"
+      - "versions/**"
+      - "vcpkg-tool-version.txt"
+      - "vcpkg-scripts-revision.txt"
+      - "scripts/setup-vcpkg-curl-cache.py"
+
+# WABT is source-built from the current master-owned manifest. No package
+# registry credential, PackagePublish, or native binary-cache provider.
+permissions:
+  contents: read
+
+jobs:
+  static-policy:
+    name: Verify explicit master source-only WABT contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Reject accidental package publish and binary fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/ci/verify-wabt-master-source.sh
+          python3 -m unittest discover -s scripts/tests \
+            -p 'test_wabt_master_source_ci.py' -v
+
+  wabt-source:
+    name: Compile WABT tools from current master source and run wast2json
+    needs: static-policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prepare toolchain dependencies before vcpkg source admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config nasm autoconf automake libtool curl
+          command -v cc
+          command -v c++
+          command -v ninja
+      - name: Set a fresh, empty local files cache with no L2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/wabt-current-source-empty-cache"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          test -z "$(find "$cache" -type f -name '*.zip' -print -quit)"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - name: Bootstrap pinned toolchain from this repository checkout (no NuGet restore)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/setup-vcpkg-curl-cache.py "$GITHUB_WORKSPACE"
+      - name: Build WABT and check real WAST to JSON semantics, source-only
+        shell: bash
+        run: bash scripts/ci/verify-wabt-master-source.sh
