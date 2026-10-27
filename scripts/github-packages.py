@@ -395,7 +395,9 @@ def main():
     if args.command == "release":
         release_asset(client, args.repository, args.tag, args.asset, args.destination)
     elif args.command == "cache":
-        restore_cache(NugetFeed(client), args.config, args.destination)
+        restored, misses = restore_cache(NugetFeed(client), args.config, args.destination)
+        if misses:
+            raise ValueError(f"{misses} exact GitHub Packages cache artifacts were unavailable; no NuGet/Mono or ABI fallback")
     elif args.command == "package":
         NugetFeed(client).package(args.package_id, args.version, args.destination)
     elif args.command == "floating":
