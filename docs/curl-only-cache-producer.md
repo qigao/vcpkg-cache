@@ -40,6 +40,22 @@ explicit audited sets: `simde` and `wabt`. It also requires the exact
 40-hex `expected_master_sha`; a wrong HEAD, non-master ref or foreign
 repository fails closed. `publish=false` is the default.
 
+A live `publish=true` also requires the operator to provide **both**
+`expected_native_id` and `expected_native_version`, with the complete,
+64-lowercase-hex vcpkg ABI suffix. For the missing WABT package tracked in
+[Issue #230](https://github.com/qigao/vcpkg-cache/issues/230), enter:
+
+- `package_set=wabt`, `expected_native_id=wabt_x64-linux`
+- `expected_native_version=1.0.42-vcpkgcbc2c2ae595865ddfbb317e7822e4f81633cb5dae4103085140643d7fb77f946`
+
+The canonical source-build ABI plan must include exactly that ID/version,
+checked **before** staging artifacts and checked **again after approval**.
+The operator-specified identity is captured in `source-proof.txt` and
+covered by the artifact SHA256 manifest. A different ABI is rejected even
+when it came from an otherwise successful WABT source build. For
+read-only exploratory `publish=false` dispatch, these two inputs can remain
+empty; supplying one without the other fails closed.
+
 Three **separate jobs** enforce least privilege:
 1. `native-producer` has only `packages:read`. It compiles from an empty
    local files cache with `VCPKG_BINARY_SOURCES=clear;files,...,write`

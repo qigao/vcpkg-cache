@@ -20,6 +20,16 @@ on:
         description: Exact 40-hex master commit; wrong HEAD fails closed
         required: true
         type: string
+      expected_native_id:
+        description: Exact selected target package ID (e.g. wabt_x64-linux); required to publish
+        required: false
+        type: string
+        default: ""
+      expected_native_version:
+        description: Exact 64-hex native ABI version, including vcpkg prefix; required to publish
+        required: false
+        type: string
+        default: ""
       require_new_upload:
         description: Qualify a real new NuGet V3 PUT, not just reuse an existing package
         required: true
@@ -116,6 +126,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PACKAGE_SET: ${{ inputs.package_set }}
+          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
+          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
+          DO_PUBLISH: ${{ inputs.publish }}
         run: |
           set -euo pipefail
           export VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"
@@ -133,6 +147,13 @@ jobs:
             --dry-run "--x-write-nuget-packages-config=$plan"
           test -s "$plan"
           test "$VCPKG_BINARY_SOURCES" = "clear;files,$VCPKG_BINARY_CACHE,write"
+          # Source-build producer is read-only, but must verify the intended
+          # immutable target before any future authorized write stage.
+          if [[ "$DO_PUBLISH" == "true" || -n "$EXPECTED_NATIVE_ID" || -n "$EXPECTED_NATIVE_VERSION" ]]; then
+            python3 scripts/ci/verify-native-publish-target.py \
+              --plan "$plan" --package-set "$PACKAGE_SET" \
+              --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION"
+          fi
           python3 scripts/publish-vcpkg-curl-cache.py \
             --packages-config "$plan" --cache "$VCPKG_BINARY_CACHE" \
             | tee "$stage/curl-publish-proof.txt"
@@ -141,16 +162,17 @@ jobs:
             echo 'Read-only native ABI producer unexpectedly reported remote upload' >&2
             exit 1
           fi
+          printf 'source_sha=%s\npackage_set=%s\nexpected_id=%s\nexpected_version=%s\n' \
+            "$GITHUB_SHA" "$PACKAGE_SET" "$EXPECTED_NATIVE_ID" "$EXPECTED_NATIVE_VERSION" \
+            > "$stage/source-proof.txt"
           (
             cd "$stage"
             find cache -type f -name '*.zip' -print0 \
               | sort -z | xargs -0 -r sha256sum > SHA256SUMS
-            sha256sum packages.config >> SHA256SUMS
+            sha256sum packages.config source-proof.txt >> SHA256SUMS
             test -s SHA256SUMS
             sha256sum --check --status SHA256SUMS
           )
-          printf 'source_sha=%s\npackage_set=%s\n' \
-            "$GITHUB_SHA" "${{ inputs.package_set }}" > "$stage/source-proof.txt"
       - name: Preserve native ABI ZIPs for a separately approved write job
         uses: actions/upload-artifact@v4
         with:
@@ -200,6 +222,9 @@ jobs:
         shell: bash
         env:
           EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+          PACKAGE_SET: ${{ inputs.package_set }}
+          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
+          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -217,8 +242,15 @@ jobs:
           cd build/curl-native-producer
           grep -Fx "source_sha=$EXPECTED_MASTER_SHA" source-proof.txt
           grep -Fx 'package_set=${{ inputs.package_set }}' source-proof.txt
+          grep -Fx "expected_id=$EXPECTED_NATIVE_ID" source-proof.txt
+          grep -Fx "expected_version=$EXPECTED_NATIVE_VERSION" source-proof.txt
           sha256sum --check --status SHA256SUMS
           test -s packages.config
+          # Revalidate the exact operator intent AFTER environment approval,
+          # from the downloaded, SHA-attested source ABI plan.
+          python3 "$GITHUB_WORKSPACE/scripts/ci/verify-native-publish-target.py" \
+            --plan packages.config --package-set "$PACKAGE_SET" \
+            --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION"
       - name: Upload exact immutable ABI through canonical native curl producer
         shell: bash
         env:

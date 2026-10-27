@@ -6,6 +6,7 @@ on:
       - scripts/setup-vcpkg-curl-cache.py
       - scripts/restore-manifest-cache.py
       - scripts/publish-vcpkg-curl-cache.py
+      - scripts/ci/verify-native-publish-target.py
       - cache-contracts/optional-feature/**
       - scripts/tests/**
       - .github/actions/setup-vcpkg-curl-cache/**
@@ -31,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/github-packages.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py
+          python -m py_compile scripts/github-packages.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py scripts/ci/verify-native-publish-target.py
           python -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
           test "$(grep -Ec 'mono-complete|brew install mono|dotnet restore|vcpkg fetch nuget' .github/actions/setup-vcpkg-curl-cache/action.yml || true)" -eq 0
       - name: Parse privileged producer workflow using pinned actionlint
