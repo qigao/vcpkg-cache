@@ -16,9 +16,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Bootstrap pinned curl-only vcpkg for source-build Linux x64
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
       - name: Build GmSSL overlay
         shell: bash
         run: |
@@ -33,7 +37,11 @@ jobs:
             "dependencies": ["gmssl"]
           }
           EOF
-          "$VCPKG_ROOT/vcpkg" install --x-manifest-root="$manifest" --x-install-root="$install" --triplet x64-linux
+          # Native GmSSL port verification must compile the port, not reuse a
+          # previously published or legacy NuGet cache ABI.
+          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" --x-install-root="$install" \
+            --triplet x64-linux --host-triplet x64-linux
           test -f "$install/x64-linux/include/gmssl/tls.h"
           test -f "$install/x64-linux/lib/libgmssl.a"
       - name: Compile and link consumer
@@ -287,9 +295,13 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Bootstrap pinned curl-only vcpkg for source-build macOS arm64
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: arm64-osx
+          host-triplet: arm64-osx
       - name: Build GmSSL overlay
         shell: bash
         run: |
@@ -305,7 +317,9 @@ jobs:
             "dependencies": ["gmssl"]
           }
           EOF
-          "$VCPKG_ROOT/vcpkg" install --x-manifest-root="$manifest" --x-install-root="$install" --triplet "$triplet"
+          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" --x-install-root="$install" \
+            --triplet "$triplet" --host-triplet arm64-osx
           test -f "$install/$triplet/include/gmssl/tls.h"
           test -f "$install/$triplet/lib/libgmssl.a"
       - name: Compile and link consumer
@@ -542,9 +556,13 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Bootstrap pinned curl-only vcpkg for source-build Windows v145
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: qigao-x64-windows-v145
+          host-triplet: qigao-x64-windows-v145
       - name: Build GmSSL overlay
         shell: pwsh
         run: |
@@ -560,6 +578,7 @@ jobs:
             "dependencies": ["gmssl"]
           }
           '@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          $env:VCPKG_BINARY_SOURCES = 'clear'
           & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$install" "--triplet=$triplet" "--host-triplet=$triplet"
           if ($LASTEXITCODE -ne 0) { throw "GmSSL vcpkg install failed" }
           $root = Join-Path $install $triplet
@@ -683,9 +702,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Bootstrap pinned curl-only vcpkg for source-build Android arm64
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: arm64-android
+          host-triplet: x64-linux
       - name: Build overlay and link Android API24 consumer
         shell: bash
         run: |
@@ -701,7 +724,9 @@ jobs:
             "dependencies": ["gmssl"]
           }
           EOF
-          "$VCPKG_ROOT/vcpkg" install             --x-manifest-root="$manifest"             --x-install-root="$install"             --triplet arm64-android
+          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" --x-install-root="$install" \
+            --triplet arm64-android --host-triplet x64-linux
           root="$install/arm64-android"
           test -f "$root/include/gmssl/rand.h"
           test -f "$root/lib/libgmssl.a"
@@ -740,9 +765,13 @@ jobs:
           ref: 97ef1c24f168ace334320043324b3c1f7e7adce2
           path: _crypto-consumer
           persist-credentials: false
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Bootstrap pinned curl-only vcpkg for source-build Crypto Linux x64
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
       - name: Install port15 solely from the candidate vcpkg overlay
         shell: bash
         run: |
@@ -763,9 +792,10 @@ jobs:
           m = json.loads(Path("ports/gmssl/vcpkg.json").read_text())
           assert (m["name"], m["version"], m["port-version"]) == ("gmssl", "3.2.0", 15)
           PY
-          "$VCPKG_ROOT/vcpkg" install \
+          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$manifest" \
-            "--x-install-root=$installed" --triplet x64-linux
+            "--x-install-root=$installed" --triplet x64-linux \
+            --host-triplet x64-linux
           prefix="$installed/x64-linux"
           test -s "$prefix/include/gmssl/tls.h"
           test -s "$prefix/include/gmssl/sm3.h"
