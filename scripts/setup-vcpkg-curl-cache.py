@@ -31,6 +31,23 @@ def append_outputs(values: dict[str, str]) -> None:
             output.write(f"{key}={value}\n")
 
 
+def require_native_curl_owner(infrastructure: Path) -> None:
+    """Validate the active curl-only transport, not the deprecated Mono action.
+
+    The old action can be deleted after consumer/producer migration without
+    becoming an accidental runtime dependency of the new native transport.
+    """
+    required = (
+        ".github/actions/setup-vcpkg-curl-cache/action.yml",
+        "scripts/github-packages.py",
+        "scripts/restore-manifest-cache.py",
+        "scripts/setup-vcpkg-curl-cache.py",
+    )
+    for name in required:
+        if not (infrastructure / name).is_file():
+            raise ValueError(f"incomplete canonical curl-only cache checkout: {name}")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         raise SystemExit("usage: setup-vcpkg-curl-cache.py <shared-cache-checkout>")
@@ -38,8 +55,7 @@ def main() -> int:
     infrastructure = Path(sys.argv[1]).resolve()
     workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
     temporary = Path(os.environ["RUNNER_TEMP"]).resolve()
-    if not (infrastructure / ".github/actions/setup-vcpkg-cache/action.yml").is_file():
-        raise ValueError("shared vcpkg-cache checkout is incomplete")
+    require_native_curl_owner(infrastructure)
 
     scripts = (infrastructure / "vcpkg-scripts-revision.txt").read_text().strip()
     expected_tool_version = (infrastructure / "vcpkg-tool-version.txt").read_text().strip()
