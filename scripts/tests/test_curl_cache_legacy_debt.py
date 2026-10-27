@@ -17,17 +17,13 @@ WORKFLOW_DIR = ".github/workflows"
 LEGACY_MAX = {
     ".github/workflows/gmssl-x509-candidate.yml": 1,
     ".github/workflows/turbomedia-media-cache.yml": 1,
-    ".github/workflows/validate-cache-contract.yml": 4,
-    ".github/workflows/validate-gmssl-port.yml": 5,
-    ".github/workflows/validate-libpq-no-ssl.yml": 2,
-    ".github/workflows/validate-libpq-openssl.yml": 2,
     ".github/workflows/warm-cache.yml": 13,
 }
 LEGACY_WRITE_MAX = {
     ".github/workflows/turbomedia-media-cache.yml": 1,
     ".github/workflows/warm-cache.yml": 7,
 }
-LEGACY_TOTAL_MAX = 28
+LEGACY_TOTAL_MAX = 15
 WRITER_TOTAL_MAX = 8
 
 USES = re.compile(r'^\s*(?:-\s*)?uses:\s*["\x27]?([^\s"#\x27]+)', re.I)
