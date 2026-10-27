@@ -61,4 +61,4 @@ jobs:
           host-triplet: x64-linux
       - name: Install only exact native binary packages (no source fallback)
         shell: bash
-        run: bash scripts/ci/verify-native-linux-l2.sh
+        run: bash scripts/ci/verify-native-linux-l2.sh generic
