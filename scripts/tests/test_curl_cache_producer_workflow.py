@@ -45,6 +45,8 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("actions/download-artifact@v4", self.publisher)
         self.assertIn("sha256sum --check --status SHA256SUMS", self.publisher)
         self.assertIn("test \"$EXPECTED_MASTER_SHA\" = \"$(git rev-parse HEAD)\"", self.publisher)
+        self.assertIn("git ls-remote --exit-code", self.publisher)
+        self.assertIn('test "$remote_master" = "$EXPECTED_MASTER_SHA"', self.publisher)
         self.assertIn("--publish", self.publisher)
         self.assertIn("REQUIRE_NEW_UPLOAD", self.publisher)
         self.assertIn("existing-only verification cannot qualify", self.publisher)
