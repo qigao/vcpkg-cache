@@ -121,9 +121,14 @@ jobs:
           export VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"
           stage="$GITHUB_WORKSPACE/build/curl-native-producer"
           plan="$stage/packages.config"
+          # Plan admission must use a fresh install root: the source-build
+          # installation above is intentionally populated and can hide ABIs
+          # from a dry-run computed against that same installed state.
+          probe="$RUNNER_TEMP/native-producer-abi-probe"
+          test ! -e "$probe"
           "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$ABI_MANIFEST" \
-            "--x-install-root=$RUNNER_TEMP/native-producer-install" \
+            "--x-install-root=$probe" \
             --triplet=x64-linux --host-triplet=x64-linux \
             --dry-run "--x-write-nuget-packages-config=$plan"
           test -s "$plan"
