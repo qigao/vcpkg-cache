@@ -33,6 +33,13 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("VCPKG_BINARY_SOURCES=\"clear;files,$VCPKG_BINARY_CACHE,write\"", self.producer)
         self.assertIn("test \"$EXPECTED_MASTER_SHA\" = \"$GITHUB_SHA\"", self.producer)
         self.assertIn("curl-native-producer/cache", self.producer)
+        self.assertIn('probe="$RUNNER_TEMP/native-producer-abi-probe"', self.producer)
+        self.assertIn('"--x-install-root=$probe"', self.producer)
+        self.assertIn('test ! -e "$probe"', self.producer)
+        # Installed state from the previous real source build must not hide
+        # packages from the immutable ABI plan.
+        self.assertEqual(self.producer.count(
+            '"--x-install-root=$RUNNER_TEMP/native-producer-install"'), 1)
         self.assertIn("sha256sum --check --status SHA256SUMS", self.producer)
         self.assertIn("actions/upload-artifact@v4", self.producer)
         self.assertNotIn("packages: write", self.producer)
