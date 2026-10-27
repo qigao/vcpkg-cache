@@ -90,9 +90,12 @@ jobs:
     name: Linux x64 cache-only restore
     needs: linux
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
-      - name: Use empty L1 cache
+      - name: Use genuinely empty local L1 before authenticated curl download
         shell: bash
         run: |
           set -euo pipefail
@@ -100,33 +103,22 @@ jobs:
           rm -rf "$cache"
           mkdir -p "$cache"
           echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: read
-      - name: Prepare host dependencies
+      - name: Prepare native Linux host tools before exact ABI detection
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm libudev-dev autoconf automake libtool
-      - name: Verify generic cache-only restore
+      - name: Download source-derived exact generic ABI packages over curl V3
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          manifest-root: .
+          triplet: x64-linux
+          host-triplet: x64-linux
+      - name: Require only downloaded native ABI packages without source fallback
         shell: bash
-        run: |
-          set -euo pipefail
-          install_root="$RUNNER_TEMP/vcpkg-root-linux"
-          log="$RUNNER_TEMP/vcpkg-root-linux.log"
-          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
-          mkdir -p "$VCPKG_BINARY_CACHE"
-          set +e
-          "$VCPKG_ROOT/vcpkg" install             --x-manifest-root=.             --x-install-root="$install_root"             --triplet x64-linux             --only-binarycaching 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
-          set -e
-          test "$status" -eq 0
-          if grep -Eq '^Building [^:]+:x64-linux' "$log"; then
-            echo "generic Linux shared-cache miss detected" >&2
-            exit 1
-          fi
-          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+        run: bash scripts/ci/verify-native-linux-l2.sh
 
   linux-arm64-sdk-deps:
     name: Linux arm64 SDK deps
