@@ -11,6 +11,7 @@ on:
       - "cmake/**"
       - "scripts/cache-contract-revision.py"
       - "scripts/vcpkg-required-commits.py"
+      - "scripts/tests/test_curl_cache_legacy_debt.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
@@ -33,6 +34,11 @@ jobs:
       contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Reject new Mono/NuGet native cache callers before legacy bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p test_curl_cache_legacy_debt.py -v
       - id: cache
         uses: ./.github/actions/setup-vcpkg-cache
         with:
