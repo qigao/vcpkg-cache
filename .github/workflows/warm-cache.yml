@@ -679,67 +679,36 @@ jobs:
     name: WABT tools clean L2 / x64-linux
     needs: [linux]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
-      - name: Use empty L1 cache
+      - name: Prepare exact native Linux host tools before ABI calculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm libudev-dev autoconf automake libtool
+      - name: Use empty local files L1 before downloading immutable ABI
         shell: bash
         run: |
           set -euo pipefail
           cache="$RUNNER_TEMP/empty-wabt-tools-l1"
           rm -rf "$cache"
           mkdir -p "$cache"
+          test -z "$(find "$cache" -type f -name '*.zip' -print -quit)"
           echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Curl restore exact WABT tools ABI using canonical manifest
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
-      - name: Create focused WABT tools manifest
+          manifest-root: cache-contracts/wabt-producer
+          triplet: x64-linux
+          host-triplet: x64-linux
+      - name: Verify WABT binary-only native L2 consumer without any fallback
         shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$RUNNER_TEMP/wabt-tools-manifest"
-          rm -rf "$manifest"
-          mkdir -p "$manifest"
-          cat > "$manifest/vcpkg.json" <<'EOF'
-          {
-            "name": "qigao-wabt-tools-cache-contract",
-            "version-string": "1",
-            "dependencies": [
-              {
-                "name": "wabt",
-                "features": ["tools"]
-              }
-            ]
-          }
-          EOF
-          echo "WABT_TOOLS_MANIFEST_ROOT=$manifest" >> "$GITHUB_ENV"
-      - name: Verify WABT tools cache-only restore
-        shell: bash
-        run: |
-          set -euo pipefail
-          install_root="$RUNNER_TEMP/wabt-tools-install"
-          log="$RUNNER_TEMP/wabt-tools.log"
-          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
-          mkdir -p "$VCPKG_BINARY_CACHE"
-          set +e
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root="$WABT_TOOLS_MANIFEST_ROOT" \
-            --x-install-root="$install_root" \
-            --triplet x64-linux \
-            --only-binarycaching 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [[ "$status" -ne 0 ]]; then
-            echo "wabt tools shared-cache restore failed" >&2
-            exit "$status"
-          fi
-          if grep -Eq '^Building wabt(?:\[[^]]+\])?:' "$log"; then
-            echo "wabt source build detected during cache-only qualification" >&2
-            exit 1
-          fi
-          grep -Fq 'wabt' "$log"
-          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          test -x "$install_root/x64-linux/tools/wabt/wast2json"
-          echo "WABT tools clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/ci/verify-native-linux-l2.sh wabt
 
   android:
     name: Android arm64
