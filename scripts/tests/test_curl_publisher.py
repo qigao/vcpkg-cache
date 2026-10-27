@@ -83,6 +83,55 @@ class NativeCurlPublisherTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "existing producer"):
                 publisher.pack_archive(cache, NAME, VERSION, target)
 
+    def test_identical_abi_ignores_source_zip_order_timestamps_and_extras(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"X_VCPKG_NUGET_ID_PREFIX": ""}
+        ):
+            base = Path(tmp)
+            outputs = []
+            payloads = {
+                "CONTROL": (
+                    f"Package: simde\nArchitecture: x64-linux\n"
+                    f"Version: 1.2.3\nAbi: {ABI}\n").encode(),
+                "BUILD_INFO": b"CRTLinkage: dynamic\n",
+                "tools/simde/tool": b"#!/bin/sh\necho verified\n",
+                "include/simde/simde.h": b"same header\n",
+            }
+            for run in range(2):
+                cache = base / f"cache{run}"
+                source = cache / ABI[:2] / (ABI + ".zip")
+                source.parent.mkdir(parents=True)
+                entries = list(payloads.items())
+                if run:
+                    entries.reverse()
+                with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as z:
+                    for name, payload in entries:
+                        stamp = (2026, 10, 27, 12, 0, 0) if run else (
+                            2001, 2, 3, 4, 5, 6)
+                        entry = zipfile.ZipInfo(name, date_time=stamp)
+                        entry.create_system = 3
+                        entry.compress_type = zipfile.ZIP_STORED if run else zipfile.ZIP_DEFLATED
+                        entry.external_attr = (
+                            (0o100755 if name == "tools/simde/tool" else 0o100644)
+                            << 16
+                        )
+                        if run:
+                            entry.extra = b"\xfe\xca\x04\x00abcd"
+                            entry.comment = b"local-build-timestamp"
+                        z.writestr(entry, payload)
+                destination = base / f"same-abi-{run}.nupkg"
+                publisher.pack_archive(cache, NAME, VERSION, destination)
+                outputs.append(destination)
+            self.assertEqual(outputs[0].read_bytes(), outputs[1].read_bytes(),
+                             "same native bytes and ABI must produce one NuGet digest")
+            with zipfile.ZipFile(outputs[0]) as published:
+                self.assertEqual(published.namelist()[:4], sorted(payloads))
+                tool = published.getinfo("tools/simde/tool")
+                self.assertEqual(tool.date_time, (1980, 1, 1, 0, 0, 0))
+                self.assertEqual(tool.extra, b"")
+                self.assertEqual(tool.comment, b"")
+                self.assertEqual((tool.external_attr >> 16) & 0o111, 0o111)
+
     def test_multi_megabyte_native_library_preserves_exact_payload(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
             os.environ, {"X_VCPKG_NUGET_ID_PREFIX": ""}
