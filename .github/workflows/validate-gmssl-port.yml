@@ -821,9 +821,16 @@ jobs:
           CRYPTO_TLS_TEST_HRR_ONLY=1 bash \
             "$source/tools/qualify_crypto_server_openssl.sh" \
             "$sdk/crypto_sdk_openssl_server" "$work" 9920
-          bash "$source/tools/qualify_crypto_hrr_ccs_negative.sh" \
-            "$sdk/crypto_sdk_openssl_server" \
-            "$sdk/crypto_sdk_openssl_api_peer_client" "$work" 9970
+          # This original security-negative harness launches the pinned
+          # mutation proxy using a tools/ path relative to Crypto's root.
+          # Preserve both negative tests; execute from that root rather than
+          # the vcpkg-cache workspace so the proxy is actually exercised.
+          (
+            cd "$source"
+            bash "$source/tools/qualify_crypto_hrr_ccs_negative.sh" \
+              "$sdk/crypto_sdk_openssl_server" \
+              "$sdk/crypto_sdk_openssl_api_peer_client" "$work" 9970
+          )
       - if: always()
         uses: actions/upload-artifact@v4
         with:
