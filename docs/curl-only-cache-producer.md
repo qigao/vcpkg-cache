@@ -51,6 +51,9 @@ Three **separate jobs** enforce least privilege:
    Environment with isolated `packages:write`. Its first step validates
    the reviewed master SHA and every artifact checksum before calling the
    **single** native `scripts/publish-vcpkg-curl-cache.py` executable.
+   `require_new_upload=true` is the default: successful verification of
+   previously published packages alone **does not** qualify a new HTTP PUT.
+   Set it to `false` only for separately documented idempotent maintenance.
    Repository administrators must configure required reviewers on this
    environment before enabling actual uploads. Merely naming an environment
    is **not** proof that approval rules have been configured.
