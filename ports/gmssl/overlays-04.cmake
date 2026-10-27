@@ -1,10 +1,58 @@
+# GmSSL port source transformations (phase 4/4): P384, ABI and security hardening.
+# Order-preserving consolidation: original source-bearing C/H inputs are now pinned in qigao/crypto.
+
+# --- begin original tls13-fatal-alert.cmake (Git blob 575ba319d7f927f4af0720c5afb934f6891e4a39) ---
+# GmSSL TLS 1.3 reuses conn->record for both inbound and outbound records.
+# After tls_recv_record() completes, recordlen/record_offset still describe
+# the just-consumed ClientHello. In tls13_send_alert(), treating this as an
+# outstanding outbound record skips alert encoding and tls_io_send() entirely.
+#
+# Clear *only* an already fully consumed record. A partial outbound send is
+# still owned by the provider and must not be erased or retried implicitly.
+# Fatal Alert code/level selection remains GmSSL's responsibility.
+set(_gmssl_tls13_fatal_alert_c "${SOURCE_PATH}/src/tls13.c")
+
+gmssl_replace_once(
+    "${_gmssl_tls13_fatal_alert_c}"
+[==[
+int tls13_send_alert(TLS_CONNECT *conn, int alert)
+{
+	int ret;
+	size_t padding_len;
+
+	if(conn->verbose) tls_trace("send {Alert}\n");
+
+	if (conn->recordlen == 0) {
+]==]
+[==[
+int tls13_send_alert(TLS_CONNECT *conn, int alert)
+{
+	int ret;
+	size_t padding_len;
+
+	if(conn->verbose) tls_trace("send {Alert}\n");
+
+	/* A complete inbound handshake record must not be mistaken for a
+	 * pending outbound alert record. Preserve any partially sent record. */
+	if (conn->recordlen != 0 && conn->record_offset == conn->recordlen) {
+		tls_clean_record(conn);
+	}
+
+	if (conn->recordlen == 0) {
+]==]
+)
+
+unset(_gmssl_tls13_fatal_alert_c)
+# --- end original tls13-fatal-alert.cmake ---
+
+# --- begin original x509-p384-sha384.cmake (Git blob d6e27e55cb4b19e4fb3ba542a56ddd4c3f921d31) ---
 # Verify-only P-384 / ECDSA-SHA384 backport for X.509 issuing CA chains.
 # Source: guanzhi/GmSSL 24ae482701a7b124826c382fffc55c19f76d475d (Apache-2.0), trimmed to verifier.
 # No P-384 TLS key agreement, no new TLS scheduler, no OpenSSL fallback.
 
-configure_file("${CMAKE_CURRENT_LIST_DIR}/backports/secp384r1_verify.c"
+configure_file("${GMSSL_CRYPTO_EXTENSIONS_SOURCE}/src/secp384r1_verify.c"
                "${SOURCE_PATH}/src/secp384r1.c" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/backports/secp384r1_verify.h"
+configure_file("${GMSSL_CRYPTO_EXTENSIONS_SOURCE}/include/gmssl/secp384r1_verify.h"
                "${SOURCE_PATH}/include/gmssl/secp384r1.h" COPYONLY)
 
 set(_gmssl_p384_cmake "${SOURCE_PATH}/CMakeLists.txt")
@@ -609,3 +657,198 @@ gmssl_replace_once(
 unset(_gmssl_p384_tls_trace)
 unset(_gmssl_p384_tls12)
 unset(_gmssl_p384_tls13)
+# --- end original x509-p384-sha384.cmake ---
+
+# --- begin original abi-contract.cmake (Git blob 3b5d39db836572c486769a6793633515163e342a) ---
+# Expose runtime size probes for GmSSL's caller-owned public TLS structs.
+# Their layout depends on public feature macros, so the package must be able to
+# prove that consumer headers and the compiled library agree.
+
+set(_gmssl_tls_h "${SOURCE_PATH}/include/gmssl/tls.h")
+set(_gmssl_tls_c "${SOURCE_PATH}/src/tls.c")
+
+vcpkg_replace_string(
+    "${_gmssl_tls_h}"
+    "int tls_ctx_init(TLS_CTX *ctx, int protocol, int is_client);"
+    "size_t tls_ctx_sizeof(void);\nint tls_ctx_init(TLS_CTX *ctx, int protocol, int is_client);"
+)
+
+vcpkg_replace_string(
+    "${_gmssl_tls_h}"
+    "int tls_init(TLS_CONNECT *conn, TLS_CTX *ctx);"
+    "size_t tls_connect_sizeof(void);\nint tls_init(TLS_CONNECT *conn, TLS_CTX *ctx);"
+)
+
+vcpkg_replace_string(
+    "${_gmssl_tls_c}"
+    "int tls_ctx_init(TLS_CTX *ctx, int protocol, int is_client)\n{"
+    "size_t tls_ctx_sizeof(void)\n{\n\treturn sizeof(TLS_CTX);\n}\n\nint tls_ctx_init(TLS_CTX *ctx, int protocol, int is_client)\n{"
+)
+
+vcpkg_replace_string(
+    "${_gmssl_tls_c}"
+    "int tls_init(TLS_CONNECT *conn, TLS_CTX *ctx)\n{"
+    "size_t tls_connect_sizeof(void)\n{\n\treturn sizeof(TLS_CONNECT);\n}\n\nint tls_init(TLS_CONNECT *conn, TLS_CTX *ctx)\n{"
+)
+# --- end original abi-contract.cmake ---
+
+# --- begin original hardening/ubsan-undefined-behavior.cmake (Git blob 9ef3faf05394082618dceb2d811ce7e4e9a84546) ---
+# Crypto-owned post-import hardening. Do not edit the frozen 92 imported source
+# blobs or change the 40 attested GmSSL 3.2.0#13 original transformations.
+# All substitutions fail closed on source drift or ambiguous anchors.
+
+function(crypto_gmssl_harden_once filename original fixed)
+  if(NOT EXISTS "${filename}" OR "${original}" STREQUAL "")
+    message(FATAL_ERROR "Invalid crypto source-hardening input: ${filename}")
+  endif()
+  set(_expected 1)
+  if(ARGC EQUAL 4)
+    set(_expected "${ARGV3}")
+  elseif(NOT ARGC EQUAL 3)
+    message(FATAL_ERROR "Invalid source hardening call arity")
+  endif()
+  file(READ "${filename}" _before)
+  string(LENGTH "${original}" _length)
+  set(_remainder "${_before}")
+  set(_found 0)
+  while(TRUE)
+    string(FIND "${_remainder}" "${original}" _at)
+    if(_at EQUAL -1)
+      break()
+    endif()
+    math(EXPR _found "${_found} + 1")
+    math(EXPR _after_offset "${_at} + ${_length}")
+    string(SUBSTRING "${_remainder}" ${_after_offset} -1 _remainder)
+  endwhile()
+  if(NOT _found EQUAL _expected)
+    message(FATAL_ERROR
+      "Crypto hardening expected ${_expected} source anchors but found ${_found}: ${filename}")
+  endif()
+  string(REPLACE "${original}" "${fixed}" _after "${_before}")
+  if("${_after}" STREQUAL "${_before}")
+    message(FATAL_ERROR "Crypto hardening produced no source edit: ${filename}")
+  endif()
+  file(WRITE "${filename}" "${_after}")
+endfunction()
+
+# bn_add() returns an int carry bit. Signed (c & 1) << 31 has undefined
+# behavior when c == 1. Cast the bit to a uint32_t before shifting to the
+# high bit of the unsigned limb; the mathematical field operation is unchanged.
+crypto_gmssl_harden_once(
+  "${SOURCE_PATH}/src/secp256r1.c"
+  [==[r[7] = (r[7] >> 1) | ((c & 1) << 31);]==]
+  [==[r[7] = (r[7] >> 1) | ((uint32_t)(c & 1) << 31);]==])
+
+crypto_gmssl_harden_once(
+  "${SOURCE_PATH}/src/secp384r1.c"
+  [==[r[11] = (r[11] >> 1) | ((c & 1) << 31);]==]
+  [==[r[11] = (r[11] >> 1) | ((uint32_t)(c & 1) << 31);]==])
+
+# TLS 1.2 ServerHello may contain a zero-length legacy session ID. The
+# decoder's data pointer may legitimately be NULL for the empty vector.
+# Never pass NULL to memcpy (even with size 0); also reject oversized IDs
+# before copying to conn->session_id[32].
+crypto_gmssl_harden_once(
+  "${SOURCE_PATH}/src/tls12.c"
+  [==[	// session_id
+	memcpy(conn->session_id, session_id, session_id_len);
+	conn->session_id_len = session_id_len;]==]
+  [==[	// session_id
+	if (session_id_len > sizeof(conn->session_id)
+		|| (session_id_len && !session_id)) {
+		error_print();
+		tls_send_alert(conn, TLS_alert_decode_error);
+		return -1;
+	}
+	if (session_id_len) {
+		memcpy(conn->session_id, session_id, session_id_len);
+	}
+	conn->session_id_len = session_id_len;]==])
+
+# TLS 1.3 ServerHello is also allowed to return an empty legacy
+# session_id_echo. The decoder can represent the zero-length vector as
+# NULL; memcmp(NULL, ..., 0) is undefined. Reject mismatched lengths or
+# invalid nonempty pointers, and compare bytes only for a nonempty echo.
+crypto_gmssl_harden_once(
+  "${SOURCE_PATH}/src/tls13.c"
+  [==[	// legacy_session_id_echo
+	if (legacy_session_id_echo_len != conn->session_id_len
+		|| memcmp(legacy_session_id_echo, conn->session_id, conn->session_id_len) != 0) {]==]
+  [==[	// legacy_session_id_echo
+	if (conn->session_id_len > sizeof(conn->session_id)
+		|| legacy_session_id_echo_len != conn->session_id_len
+		|| (conn->session_id_len
+			&& (!legacy_session_id_echo
+				|| memcmp(legacy_session_id_echo, conn->session_id, conn->session_id_len) != 0))) {]==]
+  2)
+
+message(STATUS "Applied 5 Crypto-owned post-import UB hardening edits")
+# --- end original hardening/ubsan-undefined-behavior.cmake ---
+
+# --- begin original hardening/tls13-hrr-compat-ccs.cmake (Git blob e21404c4c285590f1140707e9caab6f255344471) ---
+# Crypto-owned POST-IMPORT protocol fix, separate from 40 original
+# adaptations and five existing Crypto undefined-behavior hardenings.
+# RFC 8446 section 5.1 / appendix D.4 allows a single strict dummy
+# ChangeCipherSpec between HRR and the second ClientHello.
+#
+# The native opaque Crypto C11 facade enables accept_change_cipher_spec
+# ONLY for its TLS1.3 server profile. No public C11 ABI or GmSSL
+# private function table is exposed or replaced.
+#
+# A malformed / duplicate CCS or non-handshake record FAILS CLOSED,
+# never skipped, and only one validated 0x01 byte can be discarded.
+# The cached first ClientHello, transcript hashes and Finished checks
+# remain completely unchanged.
+crypto_gmssl_harden_once(
+  "${SOURCE_PATH}/include/gmssl/tls.h"
+  [==[	// HelloRetryRequest
+	int hello_retry_request;]==]
+  [==[	// HelloRetryRequest
+	int hello_retry_request;
+	// Private per-session bounded TLS1.3 compatibility CCS after HRR.
+	unsigned int crypto_hrr_ccs_seen;]==])
+
+crypto_gmssl_harden_once(
+  "${SOURCE_PATH}/src/tls13.c"
+  [==[	if ((ret = tls_recv_record(conn)) != 1) {
+		if (ret != TLS_ERROR_RECV_AGAIN) {
+			error_print();
+		}
+		return ret;
+	}
+	if(conn->verbose) tls_trace("recv ClientHello again\n");]==]
+  [==[	if ((ret = tls_recv_record(conn)) != 1) {
+		if (ret != TLS_ERROR_RECV_AGAIN) {
+			error_print();
+		}
+		return ret;
+	}
+	// OpenSSL3's middlebox compatibility mode may send exactly one
+	// RFC8446 dummy CCS (type 20, legacy 0x0303, length 1, byte 0x01)
+	// before ClientHello2 after a legitimate HelloRetryRequest.
+	// Consume only when explicitly configured in the private TLS_CTX.
+	// Returning AGAIN allows the existing state machine to receive and
+	// *fully authenticate* ClientHello2 on its next bounded drive.
+	if (tls_record_type(conn->record) == TLS_record_change_cipher_spec) {
+		if (!conn->ctx->accept_change_cipher_spec
+			|| conn->crypto_hrr_ccs_seen != 0u) {
+			tls13_send_alert(conn, TLS_alert_unexpected_message);
+			return -1;
+		}
+		if (conn->recordlen != TLS_RECORD_HEADER_SIZE + 1u
+			|| tls_record_protocol(conn->record) != TLS_protocol_tls12
+			|| tls_record_get_change_cipher_spec(conn->record) != 1) {
+			tls13_send_alert(conn, TLS_alert_decode_error);
+			return -1;
+		}
+		conn->crypto_hrr_ccs_seen = 1u;
+		tls_clean_record(conn);
+		return TLS_ERROR_RECV_AGAIN;
+	}
+	if (tls_record_type(conn->record) != TLS_record_handshake) {
+		tls13_send_alert(conn, TLS_alert_unexpected_message);
+		return -1;
+	}
+	if(conn->verbose) tls_trace("recv ClientHello again\n");]==])
+# --- end original hardening/tls13-hrr-compat-ccs.cmake ---
+
