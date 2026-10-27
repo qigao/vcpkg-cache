@@ -2,6 +2,7 @@
 """Restore exact vcpkg ABI packages over curl GitHub NuGet V3; no Mono/NuGet."""
 from __future__ import annotations
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -10,7 +11,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 
-def validate(config: Path) -> int:
+def validate(config: Path, allow_empty: bool = False) -> int:
     root = ET.parse(config).getroot()
     if root.tag != "packages":
         raise ValueError("vcpkg emitted invalid packages.config")
@@ -41,8 +42,8 @@ def validate(config: Path) -> int:
         if key in seen:
             raise ValueError(f"duplicate ABI: {ident}/{version}")
         seen.add(key)
-    if not seen:
-        raise ValueError("empty canonical ABI set, refusing silent no-op")
+    if not seen and not allow_empty:
+        raise ValueError("vcpkg did not resolve expected packages; refusing silent no-op")
     ET.ElementTree(root).write(config, encoding="utf-8", xml_declaration=True)
     return len(seen)
 
@@ -52,13 +53,42 @@ def main() -> int:
     p.add_argument("--manifest-root", required=True, type=Path)
     p.add_argument("--triplet", required=True)
     p.add_argument("--host-triplet", required=True)
+    p.add_argument("--feature", action="append", default=[],
+                   help="Exact product-owned manifest feature (repeatable)")
     args = p.parse_args()
     for name in ("triplet", "host_triplet"):
         if not re.fullmatch(r"[A-Za-z0-9_.+-]+", getattr(args, name)):
             raise ValueError(f"invalid {name}")
     manifest = args.manifest_root.resolve()
-    if not (manifest / "vcpkg.json").is_file():
+    manifest_file = manifest / "vcpkg.json"
+    if not manifest_file.is_file():
         raise ValueError(f"product-owned manifest is missing: {manifest}")
+    manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+    if not isinstance(manifest_data, dict):
+        raise ValueError("invalid vcpkg manifest object")
+    all_features = manifest_data.get("features", {})
+    if not isinstance(all_features, dict):
+        raise ValueError("vcpkg manifest features must be an object")
+    for name in args.feature:
+        if not re.fullmatch(r"[A-Za-z0-9-]+", name):
+            raise ValueError(f"invalid vcpkg feature name: {name!r}")
+        if name not in all_features:
+            raise ValueError(f"undeclared product feature: {name!r}")
+    if len(args.feature) != len(set(args.feature)):
+        raise ValueError("duplicate feature requested")
+    selected = manifest_data.get("dependencies", [])
+    if not isinstance(selected, list):
+        raise ValueError("manifest dependencies must be an array")
+    # The full vcpkg resolver still owns transitive and platform-dependent
+    # dependency selection; this admission check only distinguishes an
+    # intentionally empty root graph from accidentally omitted features.
+    selected_features = list(manifest_data.get("default-features", [])) + args.feature
+    for feature in selected_features:
+        payload = all_features.get(feature)
+        if not isinstance(payload, dict):
+            raise ValueError(f"invalid vcpkg feature metadata: {feature!r}")
+        selected.extend(payload.get("dependencies", []))
+    graph_intentionally_empty = len(selected) == 0
     root = Path(os.environ["VCPKG_ROOT"])
     vcpkg = root / ("vcpkg.exe" if os.name == "nt" else "vcpkg")
     if not vcpkg.is_file():
@@ -76,11 +106,15 @@ def main() -> int:
         f"--triplet={args.triplet}",
         f"--host-triplet={args.host_triplet}",
         "--dry-run",
+        *[f"--x-feature={name}" for name in args.feature],
         f"--x-write-nuget-packages-config={config}",
     ], cwd=manifest, check=True)
     if not config.is_file():
         raise ValueError("canonical vcpkg did not emit package/ABI references")
-    count = validate(config)
+    count = validate(config, allow_empty=graph_intentionally_empty)
+    if count == 0:
+        print("vcpkg manifest has no dependencies or selected feature packages; no HTTP downloads required", flush=True)
+        return 0
     print(f"Verified {count} canonical vcpkg package/ABI references", flush=True)
     subprocess.run([
         sys.executable, str(Path(__file__).with_name("github-packages.py")),
