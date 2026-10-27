@@ -7,6 +7,7 @@ on:
       - scripts/restore-manifest-cache.py
       - scripts/tests/**
       - .github/actions/setup-vcpkg-curl-cache/**
+      - .github/actions/setup-re2c-tools/**
       - .github/workflows/curl-only-github-packages.yml
   workflow_dispatch:
 
@@ -54,3 +55,27 @@ jobs:
             "--x-install-root=$RUNNER_TEMP/curl-only-smoke-installed" \
             --only-binarycaching
           test -f "$RUNNER_TEMP/curl-only-smoke-installed/x64-linux/share/simde/vcpkg_abi_info.txt"
+
+  re2c-curl:
+    name: Real re2c GitHub Package via curl / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-re2c-tools
+      - name: Require exact host binary and Unicode data from package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:RE2C_ROOT -or -not $env:RE2C_PACKAGE_VERSION) { throw 'Missing verified re2c package identity' }
+          $exe = Join-Path $env:RE2C_ROOT ('bin/re2c' + $(if ($IsWindows) { '.exe' } else { '' }))
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Missing package-owned re2c binary' }
+          foreach ($member in @('share/re2c/stdlib/unicode_categories.re','share/re2c/stdlib/unicode_properties.re')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:RE2C_ROOT $member))) { throw "Missing standard Unicode data: $member" }
+          }
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Published re2c binary failed' }
