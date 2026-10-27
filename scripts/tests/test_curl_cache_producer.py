@@ -63,6 +63,116 @@ class CurlCachePublisherTests(unittest.TestCase):
                 self.assertIn("bin/qualified-binary", archive.namelist())
                 publisher.packages.package_metadata(archive, PACKAGE, VERSION)
 
+    def test_same_abi_same_nupkg_bytes_despite_zip_order_and_timestamps(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            payloads = {
+                "CONTROL": f"Package: simde\nArchitecture: x64-linux\nAbi: {ABI}\n".encode(),
+                "BUILD_INFO": b"vcpkg-tool=v1\n",
+                "include/simde/simde.h": b"/* source */\n",
+                "bin/qualified-binary": b"\x7fELFsame executable bytes",
+            }
+            results = []
+            for attempt in range(2):
+                source = root / f"source-{attempt}.zip"
+                files = list(payloads.items())
+                if attempt:
+                    files.reverse()
+                with zipfile.ZipFile(source, "w") as archive:
+                    for name, data in files:
+                        entry = zipfile.ZipInfo(name,
+                            (2001, 1, 1, 0, 0, 0) if not attempt
+                            else (2026, 10, 27, 18, 0, 0))
+                        entry.create_system = 3
+                        entry.compress_type = (zipfile.ZIP_DEFLATED if attempt
+                                               else zipfile.ZIP_STORED)
+                        entry.external_attr = (
+                            (0o100755 if name.startswith("bin/") else 0o100644)
+                            << 16)
+                        if attempt:
+                            entry.extra = b"\xfe\xca\x04\x00abcd"
+                            entry.comment = b"producer-side-clock-and-tool"
+                        archive.writestr(entry, data)
+                destination = root / f"native-{attempt}.nupkg"
+                publisher.build_nupkg(source, PACKAGE, VERSION, destination)
+                self.assertEqual(publisher.check_roundtrip(
+                    source, destination, PACKAGE, VERSION), publisher.entries_digest(source))
+                results.append(destination)
+            self.assertEqual(results[0].read_bytes(), results[1].read_bytes())
+            with zipfile.ZipFile(results[0]) as produced:
+                self.assertEqual(produced.namelist()[3:], sorted(payloads))
+                binary = produced.getinfo("bin/qualified-binary")
+                self.assertEqual(binary.date_time, (1980, 1, 1, 0, 0, 0))
+                self.assertEqual(binary.extra, b"")
+                self.assertEqual(binary.comment, b"")
+                self.assertEqual((binary.external_attr >> 16) & 0o111, 0o111)
+
+    def test_large_native_lib_and_metadata_size_limits(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            native = root / "large.zip"
+            binary_package(native)
+            payload = bytes(range(256)) * 16384
+            with zipfile.ZipFile(native, "a", zipfile.ZIP_DEFLATED) as source:
+                source.writestr("lib/libexample.a", payload)
+            output = root / "large.nupkg"
+            publisher.build_nupkg(native, PACKAGE, VERSION, output)
+            self.assertEqual(publisher.check_roundtrip(native, output,
+                PACKAGE, VERSION), publisher.entries_digest(native))
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(archive.read("lib/libexample.a"), payload)
+            with mock.patch.object(publisher, "MAX_NATIVE_UNCOMPRESSED_BYTES", 1024):
+                with self.assertRaisesRegex(ValueError, "bounded uncompressed"):
+                    publisher.identify_source(native, PACKAGE, VERSION)
+            with mock.patch.object(publisher, "MAX_SOURCE_ARCHIVE_BYTES", 1):
+                with self.assertRaisesRegex(ValueError, "oversized"):
+                    publisher.identify_source(native, PACKAGE, VERSION)
+
+    def test_remote_sha_mismatch_is_not_published_success(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            native = root / "native.zip"
+            binary_package(native)
+            tampered = root / "same-payload-different-archive.nupkg"
+            publisher.build_nupkg(native, PACKAGE, VERSION, tampered)
+            with zipfile.ZipFile(tampered, "a") as altered:
+                altered.comment = b"server changed NuGet bytes"
+            class LateFeed(StubFeed):
+                def package(self, package_id, version, destination, allow_not_found=False):
+                    self.requests.append((package_id, version, allow_not_found))
+                    if len(self.requests) == 1:
+                        return False
+                    import shutil
+                    shutil.copyfile(tampered, destination)
+                    return True
+            feed = LateFeed()
+            feed.client = object()
+            with mock.patch.object(publisher, "resource",
+                                   return_value="https://nuget.pkg.github.com/qigao/api/v2/package"):
+                with mock.patch.object(publisher, "upload"):
+                    with self.assertRaisesRegex(ValueError, "SHA256"):
+                        publisher.publish(feed, PACKAGE, VERSION, native, True)
+            self.assertEqual(len(feed.requests), 2)
+
+    def test_untrusted_context_cannot_invoke_native_publish(self):
+        import os
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config = root / "packages.config"
+            plan = ET.Element("packages")
+            ET.SubElement(plan, "package", id=PACKAGE, version=VERSION)
+            ET.ElementTree(plan).write(config)
+            with mock.patch.dict(os.environ, {
+                "GITHUB_EVENT_NAME": "pull_request",
+                "GITHUB_REPOSITORY": "qigao/vcpkg-cache",
+                "GITHUB_REF": "refs/heads/master",
+            }):
+                with mock.patch("sys.argv", ["publisher",
+                    "--packages-config", str(config), "--cache", str(root),
+                    "--publish"]):
+                    with self.assertRaisesRegex(ValueError, "trusted manual master"):
+                        publisher.main()
+
     def test_native_zip_wrong_abi_id_missing_build_info_and_traversal(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
