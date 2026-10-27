@@ -197,7 +197,7 @@ class NugetFeed:
         stable = [v for v in self.versions(package_id)
                   if re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?", v)]
         if not stable:
-            raise ValueError("no stable re2c binary package is published")
+            raise ValueError(f"no stable GitHub Packages version exists for {package_id}")
         return max(stable, key=lambda v: tuple(int(n) for n in v.split(".")) + (0,) * (4-len(v.split("."))))
 
     def floating(self, package_id, requirement, destination, version_file):
@@ -375,6 +375,10 @@ def main():
     package.add_argument("package_id")
     package.add_argument("version")
     package.add_argument("destination")
+    latest = commands.add_parser("latest")
+    latest.add_argument("package_id")
+    latest.add_argument("destination")
+    latest.add_argument("version_file")
     floating = commands.add_parser("floating")
     floating.add_argument("package_id")
     floating.add_argument("requirement")
@@ -403,6 +407,12 @@ def main():
     elif args.command == "floating":
         NugetFeed(client).floating(
             args.package_id, args.requirement, args.destination, args.version_file)
+    elif args.command == "latest":
+        feed = NugetFeed(client)
+        version = feed.latest_stable(args.package_id)
+        feed.package(args.package_id, version, args.destination)
+        Path(args.version_file).write_text(version + "\n", encoding="utf-8")
+        print(f"latest_stable={args.package_id}/{version}", flush=True)
     elif args.command == "re2c":
         restore_re2c(NugetFeed(client), args.destination)
     else:
