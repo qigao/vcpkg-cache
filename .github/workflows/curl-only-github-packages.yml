@@ -59,6 +59,8 @@ jobs:
           test -f "$RUNNER_TEMP/curl-only-smoke-installed/x64-linux/share/simde/vcpkg_abi_info.txt"
       - name: Roundtrip and independently check NuGet producer against published exact ABI cache
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           config="$RUNNER_TEMP/qigao-curl-vcpkg-abi/packages.config"
