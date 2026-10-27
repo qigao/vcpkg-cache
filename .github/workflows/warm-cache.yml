@@ -118,7 +118,7 @@ jobs:
           host-triplet: x64-linux
       - name: Require only downloaded native ABI packages without source fallback
         shell: bash
-        run: bash scripts/ci/verify-native-linux-l2.sh
+        run: bash scripts/ci/verify-native-linux-l2.sh generic
 
   linux-arm64-sdk-deps:
     name: Linux arm64 SDK deps
