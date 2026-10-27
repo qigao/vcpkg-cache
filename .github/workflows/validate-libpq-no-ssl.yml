@@ -17,9 +17,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Bootstrap canonical vcpkg without Mono/NuGet (source-only Linux)
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
       - name: Build no-SSL profile
         shell: bash
         run: |
@@ -42,7 +46,11 @@ jobs:
             "builtin-baseline": "$baseline"
           }
           EOF
-          "$VCPKG_ROOT/vcpkg" install --x-manifest-root="$manifest" --x-install-root="$install" --triplet x64-linux
+          # This profile qualifies an actual libpq source build; no cache
+          # binary (including a different TLS provider) may substitute for it.
+          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" --x-install-root="$install" \
+            --triplet x64-linux --host-triplet x64-linux
           status="$install/vcpkg/status"
           if grep -Eq '^Package: (openssl|boringssl)$' "$status"; then
             echo "TLS provider leaked into no-SSL libpq closure" >&2
@@ -127,9 +135,13 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - name: Bootstrap canonical vcpkg without Mono/NuGet (source-only Windows)
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: qigao-x64-windows-v145
+          host-triplet: qigao-x64-windows-v145
       - name: Build no-SSL profile
         shell: pwsh
         run: |
@@ -153,6 +165,9 @@ jobs:
             "builtin-baseline": "$baseline"
           }
           "@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          # A real v145 libpq build must use the pinned source graph only.
+          # No restored binary ABI or legacy Mono/NuGet provider is acceptable.
+          $env:VCPKG_BINARY_SOURCES = 'clear'
           & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$install" "--triplet=$triplet" "--host-triplet=$triplet"
           if ($LASTEXITCODE -ne 0) { throw "libpq no-SSL vcpkg install failed" }
           $status = Get-Content -LiteralPath (Join-Path $install "vcpkg\status") -Raw
