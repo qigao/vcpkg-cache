@@ -1,0 +1,64 @@
+name: Curl-only WABT tools cold-L2 native package qualification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/warm-cache.yml"
+      - ".github/workflows/curl-warm-wabt-reader-preflight.yml"
+      - "scripts/ci/verify-native-linux-l2.sh"
+      - "scripts/tests/test_curl_cache_warm_wabt_reader.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  policy:
+    name: WABT and generic native L2 consumer share one verifier
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require exact ABI manifest and no old native cache provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests \
+            -p test_curl_cache_warm_wabt_reader.py -v
+
+  exact-wabt-l2:
+    name: Installed wast2json from empty local L1, official remote L2 only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install required native host tools before exact ABI calculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config nasm libudev-dev autoconf automake libtool
+      - name: Start with truly empty native files L1
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-wabt-native-abi"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          test -z "$(find "$cache" -type f -name '*.zip' -print -quit)"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - name: Exact WABT tools ABI read via authenticated curl V3
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          manifest-root: cache-contracts/wabt-producer
+          triplet: x64-linux
+          host-triplet: x64-linux
+      - name: Require installed WABT tool from immutable L2 without source
+        shell: bash
+        run: bash scripts/ci/verify-native-linux-l2.sh wabt
