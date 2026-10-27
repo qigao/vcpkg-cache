@@ -59,9 +59,43 @@ class NativeCurlPublisherTest(unittest.TestCase):
                 self.assertIn("[Content_Types].xml", archive.namelist())
                 self.assertIn("_rels/.rels", archive.namelist())
                 self.assertIn(NAME + ".nuspec", archive.namelist())
+                # OPC content types must cover extensionless native ABI metadata
+                # and every ordinary payload extension, not only NuGet files.
+                types = ET.fromstring(archive.read("[Content_Types].xml"))
+                defaults = {x.attrib["Extension"]: x.attrib["ContentType"]
+                            for x in types if x.tag.endswith("Default")}
+                overrides = {x.attrib["PartName"] for x in types
+                             if x.tag.endswith("Override")}
+                self.assertEqual(defaults["h"], "application/octet")
+                self.assertEqual(defaults["rels"],
+                    "application/vnd.openxmlformats-package.relationships+xml")
+                self.assertIn("/CONTROL", overrides)
+                self.assertIn("/BUILD_INFO", overrides)
+                for name in (NAME + ".nuspec", "[Content_Types].xml",
+                             "_rels/.rels"):
+                    self.assertEqual(archive.getinfo(name).date_time,
+                                     (1980, 1, 1, 0, 0, 0))
+            second = base / "dist" / "same-identity-second-run.nupkg"
+            publisher.pack_archive(cache, NAME, VERSION, second)
+            self.assertEqual(target.read_bytes(), second.read_bytes(),
+                             "same exact native ABI must reproduce identical NuGet bytes")
             self.assertGreater(len(publisher.sha256(target)), 63)
             with self.assertRaisesRegex(ValueError, "existing producer"):
                 publisher.pack_archive(cache, NAME, VERSION, target)
+
+    def test_opc_part_types_with_spaces_and_extensionless_paths(self):
+        data = publisher.content_types_for_native_members([
+            "CONTROL", "BUILD_INFO", "include/native.h",
+            "docs/read me", "lib/libexample.so.2",
+        ])
+        root = ET.fromstring(data)
+        defaults = {x.attrib["Extension"] for x in root
+                    if x.tag.endswith("Default")}
+        overrides = {x.attrib["PartName"] for x in root
+                     if x.tag.endswith("Override")}
+        self.assertTrue({"h", "2", "rels", "nuspec"} <= defaults)
+        self.assertTrue({"/CONTROL", "/BUILD_INFO", "/docs/read%20me"} <= overrides)
+        self.assertEqual(len(overrides), len(set(overrides)))
 
     def test_abi_prefix_and_wrong_control_must_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
