@@ -5,6 +5,7 @@ on:
       - scripts/github-packages.py
       - scripts/setup-vcpkg-curl-cache.py
       - scripts/restore-manifest-cache.py
+      - cache-contracts/optional-feature/**
       - scripts/tests/**
       - .github/actions/setup-vcpkg-curl-cache/**
       - .github/actions/setup-re2c-tools/**
@@ -55,6 +56,54 @@ jobs:
             "--x-install-root=$RUNNER_TEMP/curl-only-smoke-installed" \
             --only-binarycaching
           test -f "$RUNNER_TEMP/curl-only-smoke-installed/x64-linux/share/simde/vcpkg_abi_info.txt"
+
+  optional-feature-abi:
+    name: Optional feature explicitly selected over curl-only GitHub Packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore the exact pinned simde feature only
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
+          features: simde-test
+      - name: Install from local ABI cache with explicitly selected feature
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$GITHUB_WORKSPACE/cache-contracts/optional-feature" \
+            --triplet=x64-linux --host-triplet=x64-linux \
+            --x-feature=simde-test \
+            "--x-install-root=$RUNNER_TEMP/optional-curl-installed" \
+            --only-binarycaching
+          test -f "$RUNNER_TEMP/optional-curl-installed/x64-linux/share/simde/vcpkg_abi_info.txt"
+
+  empty-manifest:
+    name: Valid empty native manifest requires no NuGet client or HTTP download
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: No optional features selected
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
+      - name: Demand no materialized cache packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$VCPKG_BINARY_CACHE" -type f -name '*.zip' | grep -q .; then
+            echo "An empty manifest must not install hidden package dependencies" >&2
+            exit 1
+          fi
 
   re2c-curl:
     name: Real re2c GitHub Package via curl / ${{ matrix.os }}
