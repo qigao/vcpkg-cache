@@ -55,8 +55,12 @@ Three **separate jobs** enforce least privilege:
    previously published packages alone **does not** qualify a new HTTP PUT.
    Set it to `false` only for separately documented idempotent maintenance.
    Repository administrators must configure required reviewers on this
-   environment before enabling actual uploads. Merely naming an environment
-   is **not** proof that approval rules have been configured.
+   environment **and an environment-scoped secret** `NATIVE_CACHE_PUBLISH_ARM`
+   with the literal value `native-cache-publish-v1` before enabling actual
+   uploads. The write job fails closed if this explicit arm is absent.
+   Merely naming an environment is **not** proof that approval rules have
+   been configured, and a repository-wide secret is not a substitute for
+   configuring environment approvals.
 3. `read-back` gets only `packages:read` on a fresh GitHub-hosted
    runner. It restores the published immutable ABI using curl and requires
    `vcpkg install --only-binarycaching`, without any source substitution.
