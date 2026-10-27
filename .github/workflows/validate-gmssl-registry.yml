@@ -33,6 +33,14 @@ jobs:
           with open("versions/g-/gmssl.json", encoding="utf-8") as f:
               versions = json.load(f)["versions"]
 
+          # Deliberately retain no historical GmSSL versions. An old port
+          # record, even if not selected by baseline, must fail this gate.
+          if len(versions) != 1:
+              raise SystemExit(
+                  f"gmssl registry must contain exactly one current entry, "
+                  f"found {len(versions)}"
+              )
+
           version_keys = ("version", "version-semver", "version-string", "version-date")
           port_key = next((key for key in version_keys if key in port), None)
           if port_key is None:
@@ -97,7 +105,12 @@ jobs:
               p256-ecdsa-der-signature-parsing.patch; do
             grep -qx "$required" "$listing"
           done
+          # This registry has no BoringSSL port, historical version entry,
+          # or dedicated test workflow. Product-specific overlays live with
+          # the products that use them.
           test ! -e ports/boringssl
+          test ! -e versions/b-/boringssl.json
+          test ! -e .github/workflows/validate-boringssl-no-go.yml
           grep -Fq 'REF d88d90dfd81df2320e6d47a92ad58c1eac9e0a17' \
             ports/gmssl/portfile.cmake
           printf 'gmssl registry tree=%s\n' "$VERSION_TREE"

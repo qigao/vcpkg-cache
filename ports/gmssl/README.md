@@ -27,10 +27,15 @@ the one original `.patch` remains a true upstream patch, and
 scripts: these are **tests, not alternative implementations**.
 
 This is a source/package ownership refactor **only**, versioned as
-`gmssl 3.2.0#15` because port source and ABI hash change. Historical
-`3.2.0#14` and `#13` remain immutable in the custom registry; Crypto's
-current validated `#14` consumer and production CNet's explicit `#13`
-pin are unchanged.
+`gmssl 3.2.0#15` because the port source and ABI hash changed.
+
+**Registry policy:** This repository now lists only the current
+`3.2.0#15` port revision in `versions/g-/gmssl.json`, and the default
+baseline also selects `#15`. All earlier GmSSL port-version entries were
+intentionally removed. This does not rewrite Git history or revoke
+previously published binary packages. Consumers explicitly resolving an
+older port revision through this registry must update their own dependency
+selection; this change does not silently migrate Crypto or production CNet.
 
 Acceptance must include GmSSL native conformance on Linux/macOS/Windows,
 Android ABI linkage, source ASan/UBSan/LSan and TSan, custom registry and

@@ -61,7 +61,7 @@ jobs:
           printf 'GMSSL_SANITIZER_LINKER=%s\n' "$sanitizer" >> "$GITHUB_ENV"
           printf 'GMSSL_SANITIZER_SYMBOL=%s\n' "$symbol" >> "$GITHUB_ENV"
           printf 'GMSSL_SANITIZER_TRIPLETS=%s\n' "$triplets" >> "$GITHUB_ENV"
-      - name: Build actual port14 GmSSL source without any binary restore
+      - name: Build actual port15 GmSSL source without any binary restore
         shell: bash
         run: |
           set -euo pipefail
@@ -112,7 +112,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gmssl-port14-source-${{ matrix.mode }}
+          name: gmssl-port15-source-${{ matrix.mode }}
           if-no-files-found: warn
           path: |
             ${{ runner.temp }}/gmssl-source-symbols.txt
