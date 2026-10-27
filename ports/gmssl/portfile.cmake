@@ -13,7 +13,7 @@ vcpkg_replace_string(
     "# CMAKE_INSTALL_PREFIX is provided by vcpkg"
 )
 
-# GmSSL is a private implementation dependency for consumers such as CNet.
+# Static GmSSL is the single vcpkg-source owner for TLS and algorithms.
 # Force a static provider regardless of the triplet's default library linkage.
 vcpkg_replace_string(
     "${SOURCE_PATH}/CMakeLists.txt"
@@ -21,49 +21,44 @@ vcpkg_replace_string(
     "add_library(gmssl STATIC \${src})"
 )
 
-include("${CMAKE_CURRENT_LIST_DIR}/legacy-md5.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/legacy-des.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/key-wrap.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/portability.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/external-io.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/standard-tls.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls13-certificate-selection.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/alpn-capacity.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/trust-anchors.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/external-trust.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls-lifecycle.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/x509-compat.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/x509-ca-eku.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/certificate-chain-capacity.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/inspection.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/exporter.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/version-range.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/strict-versions.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/signature-capacity.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/ec-plain-pkcs8.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-verify.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-signatures.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-private.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-op.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-pkcs8.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-private-signatures.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-ext.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/x509-rsa-signing.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/rsa-encrypted-pkcs8.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa-server-signing.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls12-rsa-mtls.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls13-rsa-signing.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/handshake-framing.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/tls13-fatal-alert.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/x509-p384-sha384.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/abi-contract.cmake")
-# Reviewable hardening moved from the former Crypto-local GmSSL assembly.
-# These source adaptations are owned by the vcpkg port and fail closed.
-include("${CMAKE_CURRENT_LIST_DIR}/hardening/ubsan-undefined-behavior.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/hardening/tls13-hrr-compat-ccs.cmake")
+# Native C/H extensions live solely in qigao/crypto.
+# This is a pinned SOURCE-ONLY fetch, not a second GmSSL package dependency.
+# vcpkg builds these same sources once into its GmSSL static archive; the
+# installed Salts::Crypto later embeds that archive, without rebuilding them.
+vcpkg_from_git(
+    OUT_SOURCE_PATH GMSSL_CRYPTO_REPO
+    URL "https://github.com/qigao/crypto.git"
+    REF d88d90dfd81df2320e6d47a92ad58c1eac9e0a17
+)
+set(GMSSL_CRYPTO_EXTENSIONS_SOURCE
+    "${GMSSL_CRYPTO_REPO}/vendor/gmssl-extensions")
+foreach(_gmssl_extension IN ITEMS
+    src/aes_key_wrap.c
+    src/des.c
+    src/md5.c
+    src/rsa_ext.c
+    src/rsa_private_op.c
+    src/secp384r1_verify.c
+    src/tls13-handshake-reader.h
+    include/gmssl/aes_key_wrap.h
+    include/gmssl/des.h
+    include/gmssl/md5.h
+    include/gmssl/rsa_components.h
+    include/gmssl/rsa_ext.h
+    include/gmssl/secp384r1_verify.h)
+    if(NOT EXISTS "${GMSSL_CRYPTO_EXTENSIONS_SOURCE}/${_gmssl_extension}")
+        message(FATAL_ERROR
+            "Pinned Crypto GmSSL extension source missing: ${_gmssl_extension}")
+    endif()
+endforeach()
+unset(_gmssl_extension)
+
+# Source adaptations are consolidated into four ordered, port-owned phases.
+# They preserve the exact historical transform order and fail-closed anchors.
+include("${CMAKE_CURRENT_LIST_DIR}/overlays-01.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/overlays-02.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/overlays-03.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/overlays-04.cmake")
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"

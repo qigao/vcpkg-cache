@@ -727,3 +727,117 @@ jobs:
             echo "Android API24 consumer still depends on getentropy" >&2
             exit 1
           fi
+
+  crypto-installed-interop:
+    name: Salts::Crypto consumer / GmSSL port15 OpenSSL3 interop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/crypto
+          ref: 97ef1c24f168ace334320043324b3c1f7e7adce2
+          path: _crypto-consumer
+          persist-credentials: false
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Install port15 solely from the candidate vcpkg overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/gmssl-crypto15-manifest"
+          installed="$RUNNER_TEMP/gmssl-crypto15-installed"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "gmssl-port15-crypto-consumer",
+            "version-string": "1",
+            "dependencies": ["gmssl"]
+          }
+          EOF
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          m = json.loads(Path("ports/gmssl/vcpkg.json").read_text())
+          assert (m["name"], m["version"], m["port-version"]) == ("gmssl", "3.2.0", 15)
+          PY
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$manifest" \
+            "--x-install-root=$installed" --triplet x64-linux
+          prefix="$installed/x64-linux"
+          test -s "$prefix/include/gmssl/tls.h"
+          test -s "$prefix/include/gmssl/sm3.h"
+          test -s "$prefix/lib/libgmssl.a"
+          test -s "$prefix/share/gmssl/GmSSLConfig.cmake"
+          printf 'CRYPTO_TEST_GMSSL_ROOT=%s\n' "$prefix" >> "$GITHUB_ENV"
+      - name: Build one Crypto archive and independent installed SDKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$GITHUB_WORKSPACE/_crypto-consumer"
+          prefix="$RUNNER_TEMP/crypto15-installed"
+          cmake -S "$source" -B build-crypto15 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+            "-DCRYPTO_GMSSL_ROOT=$CRYPTO_TEST_GMSSL_ROOT"
+          cmake --build build-crypto15 --parallel 2
+          ctest --test-dir build-crypto15 --no-tests=error --output-on-failure
+          cmake --install build-crypto15 --prefix "$prefix"
+          python3 "$source/tools/audit_static_crypto.py" \
+            --prefix "$prefix" --report build-crypto15/static-audit.json
+
+          cmake -S "$source/tests/owner" -B build-crypto-owner15 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix"
+          cmake --build build-crypto-owner15 --parallel 2
+          ctest --test-dir build-crypto-owner15 --no-tests=error --output-on-failure
+
+          cmake -S "$source/tests/sdk" -B build-crypto-sdk15 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix" \
+            -DCRYPTO_SDK_ENABLE_CIPHER_BIO=ON \
+            -DCRYPTO_SDK_ENABLE_OPENSSL_PEER=ON \
+            -DCRYPTO_SDK_ENABLE_INDEPENDENT_EXPORTER=ON \
+            "-DCRYPTO_TEST_FIXTURES=$source/tests/fixtures"
+          cmake --build build-crypto-sdk15 --parallel 2
+          ctest --test-dir build-crypto-sdk15 --no-tests=error --output-on-failure
+      - name: Qualify installed Crypto with independent OpenSSL3 TLS/HRR and negative peers
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl version | grep -q '^OpenSSL 3[.]'
+          source="$GITHUB_WORKSPACE/_crypto-consumer"
+          sdk="$GITHUB_WORKSPACE/build-crypto-sdk15"
+          work="$RUNNER_TEMP/gmssl-port15-crypto-peer"
+          bash "$source/tools/qualify_crypto_shared_openssl.sh" \
+            "$sdk/crypto_sdk_openssl_client" "$work" 9740
+          bash "$source/tools/qualify_crypto_exporter_openssl.sh" \
+            "$sdk/crypto_sdk_openssl_client" \
+            "$sdk/crypto_sdk_openssl_exporter_oracle" "$work" 9830
+          bash "$source/tools/qualify_crypto_server_openssl.sh" \
+            "$sdk/crypto_sdk_openssl_server" "$work" 9900
+          bash "$source/tools/qualify_crypto_server_api_openssl.sh" \
+            "$sdk/crypto_sdk_openssl_server" \
+            "$sdk/crypto_sdk_openssl_api_peer_client" "$work" 9950
+          CRYPTO_TLS_TEST_HRR_ONLY=1 bash \
+            "$source/tools/qualify_crypto_server_openssl.sh" \
+            "$sdk/crypto_sdk_openssl_server" "$work" 9920
+          # This original security-negative harness launches the pinned
+          # mutation proxy using a tools/ path relative to Crypto's root.
+          # Preserve both negative tests; execute from that root rather than
+          # the vcpkg-cache workspace so the proxy is actually exercised.
+          (
+            cd "$source"
+            bash "$source/tools/qualify_crypto_hrr_ccs_negative.sh" \
+              "$sdk/crypto_sdk_openssl_server" \
+              "$sdk/crypto_sdk_openssl_api_peer_client" "$work" 9970
+          )
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmssl-port15-crypto-installed-evidence
+          if-no-files-found: warn
+          path: |
+            build-crypto15/static-audit.json
+            build-crypto15/Testing/Temporary/LastTest.log
+            build-crypto-owner15/Testing/Temporary/LastTest.log
+            build-crypto-sdk15/Testing/Temporary/LastTest.log
