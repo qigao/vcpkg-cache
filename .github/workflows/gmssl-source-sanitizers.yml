@@ -28,9 +28,12 @@ jobs:
       TSAN_OPTIONS: halt_on_error=1
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
       - name: Prepare isolated source-instrumented vcpkg triplet
         shell: bash
         run: |
