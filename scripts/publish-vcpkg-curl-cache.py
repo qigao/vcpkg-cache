@@ -232,7 +232,16 @@ def publish(feed: packages.NugetFeed, package_id: str, version: str,
         expected = check_roundtrip(native_zip, candidate, package_id, version)
         existing = Path(temporary) / "existing.nupkg"
         if feed.package(package_id, version, existing, allow_not_found=True):
-            received = check_roundtrip(native_zip, existing, package_id, version)
+            # check_roundtrip itself rejects a mismatched payload before it
+            # returns any digest. Preserve a specific immutable-conflict
+            # diagnostic rather than misreporting a structurally valid,
+            # differently built package as an OPC/ZIP conversion failure.
+            try:
+                received = check_roundtrip(native_zip, existing, package_id, version)
+            except ValueError as exc:
+                raise ValueError(
+                    "immutable GitHub Package exists with DIFFERENT native ABI payload"
+                ) from exc
             if received != expected:
                 raise ValueError("immutable GitHub Package exists with DIFFERENT native ABI payload")
             print(f"already_published={package_id}/{version} sha256={expected}", flush=True)
