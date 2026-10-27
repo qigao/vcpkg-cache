@@ -26,6 +26,7 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read\n  packages: read", self.header)
         self.assertIn("expected_master_sha:", self.header)
         self.assertIn("default: false", self.header)
+        self.assertIn("require_new_upload:", self.header)
         self.assertIn("VCPKG_BINARY_SOURCES=\"clear;files,$VCPKG_BINARY_CACHE,write\"", self.producer)
         self.assertIn("test \"$EXPECTED_MASTER_SHA\" = \"$GITHUB_SHA\"", self.producer)
         self.assertIn("curl-native-producer/cache", self.producer)
@@ -45,6 +46,8 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("sha256sum --check --status SHA256SUMS", self.publisher)
         self.assertIn("test \"$EXPECTED_MASTER_SHA\" = \"$(git rev-parse HEAD)\"", self.publisher)
         self.assertIn("--publish", self.publisher)
+        self.assertIn("REQUIRE_NEW_UPLOAD", self.publisher)
+        self.assertIn("existing-only verification cannot qualify", self.publisher)
 
     def test_clean_consumer_starts_only_after_approved_upload(self):
         self.assertIn("needs: native-publish", self.reader)
