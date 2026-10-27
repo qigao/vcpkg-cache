@@ -50,6 +50,8 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.source.count("packages: write"), 1)
         self.assertIn("needs: native-producer", self.publisher)
         self.assertIn("environment: native-cache-publish", self.publisher)
+        self.assertIn("secrets.NATIVE_CACHE_PUBLISH_ARM", self.publisher)
+        self.assertIn("native-cache-publish-v1", self.publisher)
         self.assertIn("inputs.publish == true", self.publisher)
         self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
         self.assertIn("actions/download-artifact@v4", self.publisher)
