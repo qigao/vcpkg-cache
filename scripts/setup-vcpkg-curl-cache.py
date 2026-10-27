@@ -164,7 +164,7 @@ def main() -> int:
         assets / "cmake/QigaoVcpkgToolchain.cmake",
     )
 
-    cache = workspace / "build/vcpkg-binary-cache"
+    cache = Path(os.environ.get("VCPKG_BINARY_CACHE") or (workspace / "build/vcpkg-binary-cache")).resolve()
     cache.mkdir(parents=True, exist_ok=True)
     values = {
         "VCPKG_ROOT": root.as_posix(),
