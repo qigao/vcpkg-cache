@@ -11,6 +11,11 @@ on:
       - "cmake/**"
       - "scripts/cache-contract-revision.py"
       - "scripts/vcpkg-required-commits.py"
+      - "scripts/github-packages.py"
+      - "scripts/setup-vcpkg-curl-cache.py"
+      - "scripts/restore-manifest-cache.py"
+      - "cache-contracts/optional-feature/**"
+      - ".github/actions/setup-vcpkg-curl-cache/**"
       - "scripts/tests/test_curl_cache_legacy_debt.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
@@ -105,6 +110,15 @@ jobs:
           OUTPUT_SCRIPTS: ${{ steps.cache.outputs.scripts_revision }}
         run: |
           set -euo pipefail
+          # Native package restoration uses only local ABI files; no NuGet/
+          # Mono provider may be silently added to contract validation.
+          case "$VCPKG_BINARY_SOURCES" in
+            clear\;files,*) ;;
+            *) echo 'A NuGet provider was configured for curl-only validation' >&2; exit 1 ;;
+          esac
+          if [[ "$VCPKG_BINARY_SOURCES" == *';nuget'* ]]; then
+            echo 'Legacy NuGet native cache source is forbidden' >&2; exit 1
+          fi
           expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
           expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
           expected_tool="$(tr -d '\r\n' < vcpkg-tool-version.txt)"
@@ -170,6 +184,15 @@ jobs:
           OUTPUT_TOOL: ${{ steps.cache.outputs.tool_revision }}
         run: |
           set -euo pipefail
+          # Native package restoration uses only local ABI files; no NuGet/
+          # Mono provider may be silently added to contract validation.
+          case "$VCPKG_BINARY_SOURCES" in
+            clear\;files,*) ;;
+            *) echo 'A NuGet provider was configured for curl-only validation' >&2; exit 1 ;;
+          esac
+          if [[ "$VCPKG_BINARY_SOURCES" == *';nuget'* ]]; then
+            echo 'Legacy NuGet native cache source is forbidden' >&2; exit 1
+          fi
           expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
           expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
           expected_tool="$(tr -d '\r\n' < vcpkg-tool-version.txt)"
@@ -255,6 +278,15 @@ jobs:
           OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
         run: |
           set -euo pipefail
+          # Native package restoration uses only local ABI files; no NuGet/
+          # Mono provider may be silently added to contract validation.
+          case "$VCPKG_BINARY_SOURCES" in
+            clear\;files,*) ;;
+            *) echo 'A NuGet provider was configured for curl-only validation' >&2; exit 1 ;;
+          esac
+          if [[ "$VCPKG_BINARY_SOURCES" == *';nuget'* ]]; then
+            echo 'Legacy NuGet native cache source is forbidden' >&2; exit 1
+          fi
           expected_revision="$(python3 scripts/cache-contract-revision.py "$GITHUB_WORKSPACE")"
           expected_contract="$(tr -d '\r\n' < cache-contract-version.txt)"
           test "$OUTPUT_CONTRACT" = "$expected_contract"
@@ -289,6 +321,10 @@ jobs:
           OUTPUT_REVISION: ${{ steps.cache.outputs.cache_revision }}
         run: |
           $ErrorActionPreference = "Stop"
+          if (-not $env:VCPKG_BINARY_SOURCES.StartsWith('clear;files,') -or
+              $env:VCPKG_BINARY_SOURCES -match '(?i)(^|;)nuget') {
+            throw 'Legacy NuGet provider configured in canonical curl-only contract'
+          }
           $expectedRevision = (& python scripts/cache-contract-revision.py $env:GITHUB_WORKSPACE).Trim()
           if ($LASTEXITCODE -ne 0) { throw "revision calculation failed" }
           $expectedContract = (Get-Content cache-contract-version.txt -Raw).Trim()
