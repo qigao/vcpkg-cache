@@ -34,6 +34,13 @@ jobs:
           python -m py_compile scripts/github-packages.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py
           python -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
           test "$(grep -Ec 'mono-complete|brew install mono|dotnet restore|vcpkg fetch nuget' .github/actions/setup-vcpkg-curl-cache/action.yml || true)" -eq 0
+      - name: Parse privileged producer workflow using pinned actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          go version
+          GOWORK=off go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -oneline \
+            .github/workflows/curl-only-vcpkg-producer.yml
 
   real-packages:
     name: Genuine Linux native vcpkg ABI GitHub Packages HTTP restore
