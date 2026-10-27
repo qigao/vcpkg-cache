@@ -83,12 +83,11 @@ jobs:
           git cat-file -e "$VERSION_TREE^{tree}"
           listing="$RUNNER_TEMP/gmssl-registry-tree.txt"
           git archive "$VERSION_TREE" | tar -tf - > "$listing"
-          # Source-only architecture: native C/H extension owners are in
-          # qigao/crypto, never duplicated in the vcpkg GmSSL port.
-          unexpected="$(grep -E '[.][ch]          printf 'gmssl registry tree=%s\n' "$VERSION_TREE"
- "$listing" | grep -Ev '^tests/' || true)"
+          # The port must contain no added C implementations or headers.
+          # Its tests remain independent C11 reference contract programs.
+          unexpected="$(grep -E '[.][ch]$' "$listing" | grep -Ev '^tests/' || true)"
           if [ -n "$unexpected" ]; then
-            echo "GmSSL port illegally contains C/H implementations:" >&2
+            echo "GmSSL port illegally contains C/H source:" >&2
             echo "$unexpected" >&2
             exit 1
           fi
