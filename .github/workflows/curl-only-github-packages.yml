@@ -81,6 +81,94 @@ jobs:
           grep -E 'publish_summary total=[1-9][0-9]*' "$RUNNER_TEMP/curl-producer-dry-run.log"
           ! grep -Eq '(uploaded=[1-9]|publish_rejected)' "$RUNNER_TEMP/curl-producer-dry-run.log"
 
+  source-built-native-abi:
+    name: Fresh source-built simde ABI ZIP to canonical NuGet roundtrip (NO PUBLISH)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare native compiler tools before ABI calculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm curl
+      - name: Bootstrap pinned vcpkg and central exact package transport
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          triplet: x64-linux
+          host-triplet: x64-linux
+          manifest-root: cache-contracts/header-only
+      - name: Build actual native files-cache ZIP and derive source-independent ABI plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/source-built-native-L1"
+          installed="$RUNNER_TEMP/source-built-native-installed"
+          probe="$RUNNER_TEMP/source-built-abi-probe"
+          plan="$RUNNER_TEMP/source-built-exact.packages.config"
+          manifest="$GITHUB_WORKSPACE/cache-contracts/header-only"
+          rm -rf "$cache" "$installed" "$probe" "$plan"
+          mkdir -p "$cache"
+          export VCPKG_BINARY_CACHE="$cache"
+          export VCPKG_BINARY_SOURCES="clear;files,$cache,write"
+          # A real source compilation MUST fill an initially empty local cache.
+          test -z "$(find "$cache" -name '*.zip' -type f -print -quit)"
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$manifest" "--x-install-root=$installed" \
+            --triplet=x64-linux --host-triplet=x64-linux
+          test -n "$(find "$cache" -name '*.zip' -type f -print -quit)"
+          # vcpkg must resolve ABI against an empty installation, not the
+          # already installed source-build root which can hide every package.
+          test ! -e "$probe"
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$manifest" "--x-install-root=$probe" \
+            --triplet=x64-linux --host-triplet=x64-linux --dry-run \
+            "--x-write-nuget-packages-config=$plan"
+          test -s "$plan"
+          python3 - "$plan" "$cache" "$RUNNER_TEMP/source-built-nupkg" <<'PY'
+          import importlib.util
+          import pathlib
+          import sys
+          import xml.etree.ElementTree as ET
+          plan, cache, output = map(pathlib.Path, sys.argv[1:])
+          spec = importlib.util.spec_from_file_location(
+              "native_publisher", "scripts/publish-vcpkg-curl-cache.py")
+          assert spec and spec.loader
+          publisher = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(publisher)
+          root = ET.parse(plan).getroot()
+          assert root.tag == "packages"
+          items = list(root)
+          assert items, "source-build dry-run did not emit any exact package ABIs"
+          output.mkdir(parents=True, exist_ok=True)
+          for element in items:
+              assert element.tag == "package"
+              assert set(element.attrib) == {"id", "version"}
+              identity, version = element.attrib["id"], element.attrib["version"]
+              matched = publisher.ABI_VERSION.fullmatch(version)
+              assert matched, (identity, version)
+              abi = matched[1]
+              source = cache / abi[:2] / (abi + ".zip")
+              assert source.is_file(), "exact source ABI was not materialized: " + abi
+              publisher.identify_source(source, identity, version)
+              nupkg = output / (identity + "." + version + ".nupkg")
+              publisher.build_nupkg(source, identity, version, nupkg)
+              assert publisher.check_roundtrip(source, nupkg, identity, version) == \
+                     publisher.entries_digest(source)
+              print("source_built_native_abi=" + abi +
+                    " nupkg_sha256=" + publisher.packages.sha256(nupkg))
+          PY
+          test -n "$(find "$RUNNER_TEMP/source-built-nupkg" -type f -name '*.nupkg' -print -quit)"
+          echo 'New source-built ABI → files ZIP → NuGet → byte-exact files ZIP: qualified, never published' \
+            >> "$GITHUB_STEP_SUMMARY"
+
   optional-feature-abi:
     name: Optional feature explicitly selected over curl-only GitHub Packages
     runs-on: ubuntu-24.04
