@@ -83,8 +83,22 @@ jobs:
           git cat-file -e "$VERSION_TREE^{tree}"
           listing="$RUNNER_TEMP/gmssl-registry-tree.txt"
           git archive "$VERSION_TREE" | tar -tf - > "$listing"
-          grep -qx 'md5.h' "$listing"
-          grep -qx 'md5.c' "$listing"
-          grep -qx 'des.h' "$listing"
-          grep -qx 'des.c' "$listing"
+          # Source-only architecture: native C/H extension owners are in
+          # qigao/crypto, never duplicated in the vcpkg GmSSL port.
+          unexpected="$(grep -E '[.][ch]          printf 'gmssl registry tree=%s\n' "$VERSION_TREE"
+ "$listing" | grep -Ev '^tests/' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "GmSSL port illegally contains C/H implementations:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          for required in portfile.cmake GmSSLConfig.cmake \
+              overlays-01.cmake overlays-02.cmake \
+              overlays-03.cmake overlays-04.cmake \
+              p256-ecdsa-der-signature-parsing.patch; do
+            grep -qx "$required" "$listing"
+          done
+          test ! -e ports/boringssl
+          grep -Fq 'REF d88d90dfd81df2320e6d47a92ad58c1eac9e0a17' \
+            ports/gmssl/portfile.cmake
           printf 'gmssl registry tree=%s\n' "$VERSION_TREE"
