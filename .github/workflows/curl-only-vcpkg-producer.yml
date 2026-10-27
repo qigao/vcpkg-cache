@@ -1,6 +1,9 @@
 name: Explicit native GitHub Packages cache producer (curl-only)
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/curl-only-vcpkg-producer.yml"
   workflow_dispatch:
     inputs:
       package_set:
@@ -34,6 +37,10 @@ concurrency:
 jobs:
   native-producer:
     name: Native Linux x64 ABI source build and read-only admission
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master' &&
+      github.repository == 'qigao/vcpkg-cache'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
