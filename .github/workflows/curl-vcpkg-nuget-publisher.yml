@@ -64,3 +64,54 @@ jobs:
           count="$(find "$RUNNER_TEMP/qualified-native-nupkg" -maxdepth 1 -name '*.nupkg' -type f | wc -l)"
           test "$count" -ge 1
           echo "native_nuget_archive_count=$count" >> "$GITHUB_STEP_SUMMARY"
+
+  source-built-producer:
+    name: Fresh native simde source build to exact ABI NuGet (offline, no publish)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare native tools before package ABI calculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm curl
+      - name: Bootstrap immutable vcpkg and curl NuGet V3 transport
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          triplet: x64-linux
+          host-triplet: x64-linux
+          manifest-root: cache-contracts/header-only
+      - name: Recompute exact ABI and build native files cache from source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/source-built-empty-L1"
+          install_root="$RUNNER_TEMP/source-built-native-installed"
+          config="$RUNNER_TEMP/source-built-exact-abi.packages.config"
+          rm -rf "$cache" "$install_root" "$config"
+          mkdir -p "$cache"
+          # Clear the curl-restored L1 deliberately: a producer must prove it
+          # can create a new native zip, not merely repackage an L2 download.
+          export VCPKG_BINARY_CACHE="$cache"
+          export VCPKG_BINARY_SOURCES="clear;files,$cache,readwrite"
+          manifest="$GITHUB_WORKSPACE/cache-contracts/header-only"
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$manifest" \
+            "--x-install-root=$RUNNER_TEMP/source-build-abi-probe" \
+            --triplet=x64-linux --host-triplet=x64-linux --dry-run \
+            "--x-write-nuget-packages-config=$config"
+          test -s "$config"
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$manifest" "--x-install-root=$install_root" \
+            --triplet=x64-linux --host-triplet=x64-linux
+          test -n "$(find "$cache" -type f -name '*.zip' -print -quit)"
+          python3 scripts/publish-vcpkg-curl.py \
+            --packages-config "$config" --cache "$cache" \
+            --output "$RUNNER_TEMP/source-built-qualified-nupkg"
+          count="$(find "$RUNNER_TEMP/source-built-qualified-nupkg" -maxdepth 1 -type f -name '*.nupkg' | wc -l)"
+          test "$count" -ge 1
+          echo "source_built_native_nuget_archive_count=$count" >> "$GITHUB_STEP_SUMMARY"
+          echo "Native packages were generated from a fresh empty files cache; no NuGet CLI/Mono/provider or remote publish was used." >> "$GITHUB_STEP_SUMMARY"
