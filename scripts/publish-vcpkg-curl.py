@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -75,11 +75,49 @@ def nuspec(package_id: str, version: str):
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-CONTENT_TYPES = b'''<?xml version="1.0" encoding="utf-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="nuspec" ContentType="application/octet"/>
-</Types>'''
+CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+
+
+def content_types_for_native_members(members: list[str]) -> bytes:
+    """Describe every OPC package part, including extensionless CONTROL/BUILD_INFO.
+
+    NuGet's package builder declares content types for native extensions and
+    uses explicit overrides for extensionless paths. An incomplete content
+    types stream can pass ZIP round-trip checks but fail a real NuGet server.
+    """
+    ET.register_namespace("", CONTENT_TYPES_NS)
+    ns = "{" + CONTENT_TYPES_NS + "}"
+    root = ET.Element(ns + "Types")
+    extensions = {"rels", "nuspec"}
+    overrides = set()
+    for name in members:
+        if name.endswith("/"):
+            continue
+        leaf = name.rsplit("/", 1)[-1]
+        extension = leaf.rsplit(".", 1)[-1] if "." in leaf and not leaf.startswith(".") else ""
+        if re.fullmatch(r"[A-Za-z0-9]+", extension):
+            extensions.add(extension.casefold())
+        else:
+            overrides.add("/" + quote(name, safe="/-._~"))
+    for extension in sorted(extensions):
+        content_type = ("application/vnd.openxmlformats-package.relationships+xml"
+                        if extension == "rels" else "application/octet")
+        ET.SubElement(root, ns + "Default", Extension=extension,
+                      ContentType=content_type)
+    for part in sorted(overrides):
+        ET.SubElement(root, ns + "Override", PartName=part,
+                      ContentType="application/octet")
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def stable_metadata(name: str) -> zipfile.ZipInfo:
+    """Identical NuGet OPC metadata bytes for repeated publication of one ABI."""
+    entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    entry.create_system = 3
+    entry.compress_type = zipfile.ZIP_DEFLATED
+    entry.external_attr = (stat.S_IFREG | 0o644) << 16
+    return entry
+
 RELATIONSHIPS = b'''<?xml version="1.0" encoding="utf-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="R1" Type="http://schemas.microsoft.com/packaging/2010/07/manifest" Target="/PACKAGE.nuspec"/>
@@ -123,9 +161,11 @@ def pack_archive(files_cache: Path, package_id: str, version: str,
             with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as out:
                 for entry in items:
                     out.writestr(copy.copy(entry), z.read(entry))
-                out.writestr(f"{package_id}.nuspec", nuspec(package_id, version))
-                out.writestr("[Content_Types].xml", CONTENT_TYPES)
-                out.writestr("_rels/.rels", RELATIONSHIPS.replace(
+                out.writestr(stable_metadata(f"{package_id}.nuspec"),
+                             nuspec(package_id, version))
+                out.writestr(stable_metadata("[Content_Types].xml"),
+                             content_types_for_native_members([x.filename for x in items]))
+                out.writestr(stable_metadata("_rels/.rels"), RELATIONSHIPS.replace(
                     b"PACKAGE.nuspec", f"{package_id}.nuspec".encode("utf-8")))
             if not output.is_file() or output.stat().st_size > MAX_PUBLISH_SIZE:
                 raise ValueError("native NuGet archive missing or exceeds GitHub 2 GB bound")
