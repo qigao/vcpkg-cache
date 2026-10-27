@@ -132,7 +132,10 @@ jobs:
             --packages-config "$plan" --cache "$VCPKG_BINARY_CACHE" \
             | tee "$stage/curl-publish-proof.txt"
           grep -E 'publish_summary total=[1-9][0-9]*' "$stage/curl-publish-proof.txt"
-          ! grep -Eq 'uploaded=[1-9]' "$stage/curl-publish-proof.txt"
+          if grep -Eq 'uploaded=[1-9][0-9]*' "$stage/curl-publish-proof.txt"; then
+            echo 'Read-only native ABI producer unexpectedly reported remote upload' >&2
+            exit 1
+          fi
           (
             cd "$stage"
             find cache -type f -name '*.zip' -print0 \
