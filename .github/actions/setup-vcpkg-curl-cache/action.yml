@@ -89,9 +89,9 @@ runs:
         $features = @()
         if ($env:INPUT_FEATURES) {
           foreach ($feature in $env:INPUT_FEATURES.Split(',')) {
-            if ($feature -notmatch '^[a-z0-9-]+
-        if ($LASTEXITCODE -ne 0) { throw 'curl-only GitHub Packages restore failed' }
-) { throw "Invalid manifest feature: $feature" }
+            if (-not $feature -or ($feature -replace '[a-z0-9-]', '') -ne '') {
+              throw "Invalid manifest feature: $feature"
+            }
             $features += @('--feature', $feature)
           }
         }
