@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import runpy
+import shutil
 import stat
 import subprocess
 import sys
@@ -34,6 +35,7 @@ sha256 = native["sha256"]
 VERSION = re.compile(r"([0-9]+)\.([0-9]+)\.([0-9]+)-vcpkg([0-9a-f]{64})\Z")
 IDENTITY = re.compile(r"[A-Za-z0-9_.+-]+\Z")
 MAX_PUBLISH_SIZE = 2_000_000_000
+MAX_NATIVE_UNCOMPRESSED_SIZE = 8_000_000_000
 
 
 def requested_packages(config: Path):
@@ -133,6 +135,8 @@ def pack_archive(files_cache: Path, package_id: str, version: str,
     source = files_cache / abi[:2] / (abi + ".zip")
     if not source.is_file():
         raise ValueError(f"missing exact local files cache ABI: {abi}")
+    if source.stat().st_size > MAX_PUBLISH_SIZE:
+        raise ValueError("native files-cache archive exceeds the bounded producer size")
     if output.exists():
         raise ValueError(f"refusing to overwrite existing producer package: {output}")
     with zipfile.ZipFile(source) as z:
@@ -140,6 +144,8 @@ def pack_archive(files_cache: Path, package_id: str, version: str,
         names = {x.filename for x in items}
         if not {"CONTROL", "BUILD_INFO"}.issubset(names):
             raise ValueError("vcpkg cache lacks canonical CONTROL or BUILD_INFO")
+        if sum(item.file_size for item in items) > MAX_NATIVE_UNCOMPRESSED_SIZE:
+            raise ValueError("native files-cache archive exceeds bounded unpacked size")
         fields = control_identity(z.read("CONTROL"))
         ident = fields.get("Package", "") + "_" + fields.get("Architecture", "")
         prefix = os.environ.get("X_VCPKG_NUGET_ID_PREFIX", "")
@@ -160,7 +166,14 @@ def pack_archive(files_cache: Path, package_id: str, version: str,
         try:
             with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as out:
                 for entry in items:
-                    out.writestr(copy.copy(entry), z.read(entry))
+                    copied = copy.copy(entry)
+                    if entry.is_dir():
+                        out.writestr(copied, b"")
+                    else:
+                        # Stream native binaries; never materialize a whole
+                        # static library or SDK object in process memory.
+                        with z.open(entry) as src, out.open(copied, "w") as dst:
+                            shutil.copyfileobj(src, dst, 1024 * 1024)
                 out.writestr(stable_metadata(f"{package_id}.nuspec"),
                              nuspec(package_id, version))
                 out.writestr(stable_metadata("[Content_Types].xml"),
@@ -177,11 +190,21 @@ def pack_archive(files_cache: Path, package_id: str, version: str,
             with tempfile.TemporaryDirectory() as temp:
                 rebuilt = cache_package(output, package_id, version, temp)
                 with zipfile.ZipFile(rebuilt) as duplicate:
-                    if {x.filename: duplicate.read(x.filename)
-                        for x in archive_members(duplicate)} != {
-                        x.filename: z.read(x) for x in items
-                    }:
-                        raise ValueError("native package round-trip changed cached bytes")
+                    actual = {entry.filename for entry in archive_members(duplicate)}
+                    if actual != names:
+                        raise ValueError("native package round-trip changed member identity")
+                    for entry in items:
+                        if entry.is_dir():
+                            continue
+                        with z.open(entry) as original, duplicate.open(entry.filename) as recovered:
+                            while True:
+                                before = original.read(1024 * 1024)
+                                after = recovered.read(1024 * 1024)
+                                if before != after:
+                                    raise ValueError(
+                                        f"native package round-trip changed bytes: {entry.filename}")
+                                if not before:
+                                    break
             return output
         except BaseException:
             output.unlink(missing_ok=True)
