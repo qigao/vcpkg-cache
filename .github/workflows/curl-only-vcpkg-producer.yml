@@ -177,6 +177,12 @@ jobs:
           [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
           test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
+          # A master update during approval must not turn an old artifact
+          # into a new immutable cache publication.
+          remote_master="$(git ls-remote --exit-code \
+            https://github.com/qigao/vcpkg-cache.git refs/heads/master | cut -f1)"
+          [[ "$remote_master" =~ ^[0-9a-f]{40}$ ]]
+          test "$remote_master" = "$EXPECTED_MASTER_SHA"
           test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/master
