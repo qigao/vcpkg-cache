@@ -8,7 +8,6 @@ Never install Mono, nuget.exe or a .NET SDK to publish vcpkg binary caches.
 from __future__ import annotations
 
 import argparse
-import copy
 import hashlib
 import os
 from pathlib import Path
@@ -112,12 +111,21 @@ def content_types_for_native_members(members: list[str]) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def stable_metadata(name: str) -> zipfile.ZipInfo:
-    """Identical NuGet OPC metadata bytes for repeated publication of one ABI."""
+def stable_metadata(name: str, *, original: zipfile.ZipInfo | None = None) -> zipfile.ZipInfo:
+    """Canonical NuGet ZIP fields, without source ZIP timestamp/order variance.
+
+    Keep the only source permission bit meaningful to installed native tools:
+    executable vs non-executable. Explicitly discard producer-specific ZIP
+    extra fields, comments and filesystem time metadata. Do not alter bytes.
+    """
     entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
     entry.create_system = 3
     entry.compress_type = zipfile.ZIP_DEFLATED
-    entry.external_attr = (stat.S_IFREG | 0o644) << 16
+    if original is not None and original.is_dir():
+        entry.external_attr = (stat.S_IFDIR | 0o755) << 16
+    else:
+        executable = bool(original and ((original.external_attr >> 16) & 0o111))
+        entry.external_attr = (stat.S_IFREG | (0o755 if executable else 0o644)) << 16
     return entry
 
 RELATIONSHIPS = b'''<?xml version="1.0" encoding="utf-8"?>
@@ -140,7 +148,7 @@ def pack_archive(files_cache: Path, package_id: str, version: str,
     if output.exists():
         raise ValueError(f"refusing to overwrite existing producer package: {output}")
     with zipfile.ZipFile(source) as z:
-        items = list(archive_members(z))
+        items = sorted(archive_members(z), key=lambda item: item.filename)
         names = {x.filename for x in items}
         if not {"CONTROL", "BUILD_INFO"}.issubset(names):
             raise ValueError("vcpkg cache lacks canonical CONTROL or BUILD_INFO")
@@ -166,7 +174,7 @@ def pack_archive(files_cache: Path, package_id: str, version: str,
         try:
             with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as out:
                 for entry in items:
-                    copied = copy.copy(entry)
+                    copied = stable_metadata(entry.filename, original=entry)
                     if entry.is_dir():
                         out.writestr(copied, b"")
                     else:
