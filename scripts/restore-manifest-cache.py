@@ -27,9 +27,16 @@ def validate(config: Path) -> int:
             raise ValueError("invalid exact package ID")
         if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}", version):
             raise ValueError(f"missing canonical vcpkg ABI: {ident}/{version}")
-        if prefix and not ident.startswith(prefix + "."):
-            ident = prefix + "." + ident
-            item.attrib["id"] = ident
+        if prefix:
+            canonical = prefix + "_"
+            if not ident.startswith(canonical):
+                if not ident.startswith(prefix):
+                    raise ValueError(f"package ID does not use pinned prefix: {ident}")
+                suffix = ident[len(prefix):]
+                if not suffix:
+                    raise ValueError("empty package suffix after prefix")
+                ident = canonical + suffix
+                item.attrib["id"] = ident
         key = (ident.lower(), version.lower())
         if key in seen:
             raise ValueError(f"duplicate ABI: {ident}/{version}")
