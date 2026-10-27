@@ -107,10 +107,12 @@ class CurlCachePublisherTests(unittest.TestCase):
                 upload.assert_not_called()
             # Same ID/version but different binary contents must never "skip".
             different = root / "different.zip"
-            with zipfile.ZipFile(native) as source, zipfile.ZipFile(different, "w") as dst:
-                for name in source.namelist():
-                    data = source.read(name)
-                    dst.writestr(name, b"different" if name.endswith("simde.h") else data)
+            binary_package(different, info="source=other immutable revision\n")
+            # The different archive remains structurally valid and passes its
+            # independent NuGet roundtrip before comparing the fixed version.
+            alternative = root / "alternative.nupkg"
+            publisher.build_nupkg(different, PACKAGE, VERSION, alternative)
+            publisher.check_roundtrip(different, alternative, PACKAGE, VERSION)
             with self.assertRaisesRegex(ValueError, "DIFFERENT"):
                 publisher.publish(StubFeed(existing), PACKAGE, VERSION, different, False)
 
@@ -158,14 +160,13 @@ class CurlCachePublisherTests(unittest.TestCase):
             ET.SubElement(config, "package", id=PACKAGE, version=VERSION)
             ET.SubElement(config, "package", id=PACKAGE, version=VERSION)
             ET.ElementTree(config).write(manifest)
-            with mock.patch.object(publisher, "packages") as mocked:
-                mocked.NugetFeed = mock.Mock(side_effect=AssertionError("network forbidden"))
-                # local plan admission must reject duplicate before constructing feed
-                with mock.patch("sys.argv", [
-                    "publish", "--packages-config", str(manifest), "--cache", str(root)
-                ]):
-                    with self.assertRaisesRegex(ValueError, "duplicate"):
-                        publisher.main()
+            # Admission must reject duplicates before any network client is
+            # created; no mocking of archive_members or CONTROL is permitted.
+            with mock.patch("sys.argv", [
+                "publish", "--packages-config", str(manifest), "--cache", str(root)
+            ]):
+                with self.assertRaisesRegex(ValueError, "duplicate"):
+                    publisher.main()
 
 
 if __name__ == "__main__":
