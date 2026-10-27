@@ -20,7 +20,7 @@ import sys
 import tempfile
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, quoteattr
 import zipfile
 
 
@@ -63,6 +63,9 @@ def identify_source(archive: Path, package_id: str, version: str) -> str:
             raise ValueError("vcpkg package ID does not match CONTROL Package/Architecture")
         if any(i.filename.lower().endswith(".nuspec") for i in names):
             raise ValueError("source binary cache ZIP must not contain NuGet metadata")
+        if any(i.filename == "[Content_Types].xml" or i.filename.startswith("_rels/")
+               for i in names):
+            raise ValueError("source binary cache ZIP must not carry OPC metadata")
         if len(source.read("BUILD_INFO")) == 0:
             raise ValueError("vcpkg cache BUILD_INFO is empty")
     return abi
@@ -109,14 +112,39 @@ def build_nupkg(binary_zip: Path, package_id: str, version: str, destination: Pa
         '<repository type="git" url="https://github.com/qigao/vcpkg-cache" />'
         '</metadata></package>\n'
     )
+    # OPC requires a MIME declaration for every unique file extension and an
+    # explicit PartName override for extensionless CONTROL / BUILD_INFO.
+    with zipfile.ZipFile(binary_zip) as original:
+        members = sorted(packages.archive_members(original), key=lambda e: e.filename)
+    types = {
+        "rels": "application/vnd.openxmlformats-package.relationships+xml",
+        "nuspec": "application/octet",
+        "xml": "application/xml",
+    }
+    overrides = set()
+    for member in members:
+        if member.is_dir():
+            continue
+        basename = member.filename.rsplit("/", 1)[-1]
+        extension = basename.rsplit(".", 1)[-1] if "." in basename and not basename.startswith(".") else ""
+        if extension and re.fullmatch(r"[a-zA-Z0-9_-]+", extension):
+            types.setdefault(extension.lower(), "application/octet-stream")
+        else:
+            overrides.add(member.filename)
+    type_parts = [
+        "<Default Extension=" + quoteattr(extension) + " ContentType="
+        + quoteattr(mime) + "/>"
+        for extension, mime in sorted(types.items())
+    ]
+    type_parts += [
+        "<Override PartName=" + quoteattr("/" + name)
+        + ' ContentType="application/octet-stream"/>'
+        for name in sorted(overrides)
+    ]
     types_xml = (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        '<Default Extension="nuspec" ContentType="application/octet"/>'
-        '<Default Extension="xml" ContentType="application/xml"/>'
-        '<Default Extension="bin" ContentType="application/octet-stream"/>'
-        '</Types>'
+        + "".join(type_parts) + '</Types>'
     )
     relationships_xml = (
         '<?xml version="1.0" encoding="utf-8"?>\n'
