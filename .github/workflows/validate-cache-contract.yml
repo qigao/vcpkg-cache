@@ -40,9 +40,12 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s scripts/tests -p test_curl_cache_legacy_debt.py -v
       - id: cache
-        uses: ./.github/actions/setup-vcpkg-cache
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
       - name: Enforce infrastructure-only ownership boundary
         shell: bash
         run: |
@@ -153,9 +156,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: cache
-        uses: ./.github/actions/setup-vcpkg-cache
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: arm64-linux
+          host-triplet: arm64-linux
       - name: Verify canonical contract identity
         shell: bash
         env:
@@ -213,6 +219,11 @@ jobs:
             "builtin-baseline": "$baseline"
           }
           EOF
+          # Resolve the exact source-owned arm64 manifest and its host
+          # closure over curl NuGet V3; no NuGet/Mono provider is consulted.
+          GH_TOKEN="${{ github.token }}" python3 scripts/restore-manifest-cache.py \
+            --manifest-root "$manifest" \
+            --triplet arm64-linux --host-triplet arm64-linux
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$manifest" \
             --x-install-root="$install_root" \
@@ -231,9 +242,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: cache
-        uses: ./.github/actions/setup-vcpkg-cache
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: arm64-osx
+          host-triplet: arm64-osx
       - name: Verify canonical contract identity
         shell: bash
         env:
@@ -262,9 +276,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: cache
-        uses: ./.github/actions/setup-vcpkg-cache
+        uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: qigao-x64-windows-v145
+          host-triplet: qigao-x64-windows-v145
       - name: Verify canonical contract identity
         shell: pwsh
         env:
@@ -278,15 +295,19 @@ jobs:
           if ($env:OUTPUT_CONTRACT -ne $expectedContract) { throw "contract output mismatch" }
           if ($env:OUTPUT_REVISION -ne $expectedRevision) { throw "revision output mismatch" }
           $expectedRoot = Join-Path $env:RUNNER_TEMP "qigao-vcpkg-contract-v$expectedContract-$expectedRevision"
-          if ($env:VCPKG_CACHE_REPOSITORY_ROOT -ne $expectedRoot) {
-            throw "cache assets are not materialized at the canonical runner path"
+          # Canonical curl transport emits Windows paths with forward slashes.
+          # Compare resolved filesystem identities, not separator spelling.
+          function Assert-SamePath([string]$actual, [string]$expected, [string]$label) {
+            if ([string]::IsNullOrWhiteSpace($actual)) { throw "$label path missing" }
+            $resolvedActual = [System.IO.Path]::GetFullPath($actual).TrimEnd('\', '/')
+            $resolvedExpected = [System.IO.Path]::GetFullPath($expected).TrimEnd('\', '/')
+            if (-not [string]::Equals($resolvedActual, $resolvedExpected, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "$label path mismatch: actual=$resolvedActual expected=$resolvedExpected"
+            }
           }
-          if ($env:VCPKG_OVERLAY_PORTS -ne (Join-Path $expectedRoot "ports")) {
-            throw "canonical overlay ports path mismatch"
-          }
-          if ($env:VCPKG_OVERLAY_TRIPLETS -ne (Join-Path $expectedRoot "triplets")) {
-            throw "canonical overlay triplets path mismatch"
-          }
+          Assert-SamePath $env:VCPKG_CACHE_REPOSITORY_ROOT $expectedRoot "cache root"
+          Assert-SamePath $env:VCPKG_OVERLAY_PORTS (Join-Path $expectedRoot "ports") "overlay ports"
+          Assert-SamePath $env:VCPKG_OVERLAY_TRIPLETS (Join-Path $expectedRoot "triplets") "overlay triplets"
           if (-not (Test-Path -LiteralPath (Join-Path $expectedRoot "cmake\QigaoVcpkgToolchain.cmake") -PathType Leaf)) {
             throw "canonical toolchain copy is missing"
           }
