@@ -36,12 +36,33 @@ https://learn.microsoft.com/en-us/nuget/api/package-publish-resource
 ## Manual admission (bounded dispatch only)
 
 The workflow `.github/workflows/curl-only-vcpkg-producer.yml` has two
-explicit choices: `simde` or `wabt`, and `publish=false` by default.
-It runs source builds on Ubuntu x64 and records ABI/payload provenance.
-`publish=true` requires workflow `packages:write`, and only then uploads.
-A second **fresh GitHub-hosted runner** must restore the exact published
-binary with the merged curl-only read action and install with
-`--only-binarycaching`. Publishing and consuming do not use the same L1.
+explicit audited sets: `simde` and `wabt`. It also requires the exact
+40-hex `expected_master_sha`; a wrong HEAD, non-master ref or foreign
+repository fails closed. `publish=false` is the default.
+
+Three **separate jobs** enforce least privilege:
+1. `native-producer` has only `packages:read`. It compiles from an empty
+   local files cache with `VCPKG_BINARY_SOURCES=clear;files,...,write`
+   (never from NuGet). The canonical vcpkg executable derives the exact
+   package ID/ABI manifest. Offline NuGet package preflight, SHA256 manifest,
+   source SHA and native ABI ZIPs are saved in a same-run artifact.
+2. `native-publish` runs **only** when `publish=true`, only after a
+   successful source build, and uses the `native-cache-publish` GitHub
+   Environment with isolated `packages:write`. Its first step validates
+   the reviewed master SHA and every artifact checksum before calling the
+   **single** native `scripts/publish-vcpkg-curl-cache.py` executable.
+   Repository administrators must configure required reviewers on this
+   environment before enabling actual uploads. Merely naming an environment
+   is **not** proof that approval rules have been configured.
+3. `read-back` gets only `packages:read` on a fresh GitHub-hosted
+   runner. It restores the published immutable ABI using curl and requires
+   `vcpkg install --only-binarycaching`, without any source substitution.
+
+The exact downloaded `.nupkg` SHA256 must match the local upload bytes
+for **new** publication. Older already-published immutable ABI versions
+are independently verified by canonical native payload digest, not silently
+replaced by repackaged bytes. A success in a source-only or offline run
+never substitutes for the separately approved real server PUT admission.
 
 PRs never publish: `.github/workflows/curl-only-github-packages.yml`
 runs offline negative/security tests and exercises roundtrip/dry-run
