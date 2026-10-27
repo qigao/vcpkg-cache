@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   native-producer:
-    name: Native Linux x64 ABI, source build and explicit curl-only publish
+    name: Native Linux x64 ABI source build and read-only admission
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -52,8 +52,6 @@ jobs:
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
           test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
-        with:
-          python-version: "3.12"
       - name: Prepare native compiler and source build tools
         shell: bash
         run: |
