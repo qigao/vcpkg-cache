@@ -11,6 +11,7 @@ on:
       - .github/actions/setup-vcpkg-curl-cache/**
       - .github/actions/setup-re2c-tools/**
       - .github/workflows/curl-only-github-packages.yml
+      - .github/workflows/curl-only-vcpkg-producer.yml
   workflow_dispatch:
 
 permissions:
