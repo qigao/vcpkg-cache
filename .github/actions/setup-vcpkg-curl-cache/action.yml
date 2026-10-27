@@ -1,0 +1,99 @@
+name: Setup canonical vcpkg with curl-only GitHub Packages
+description: Bootstrap pinned vcpkg and restore exact ABI packages with curl without Mono/NuGet.
+
+inputs:
+  mode:
+    description: Remote cache mode. Only read supported; publishing requires a separately qualified curl producer.
+    required: false
+    default: read
+  token:
+    description: GitHub Packages token; defaults to github.token.
+    required: false
+    default: ""
+  triplet:
+    description: Exact target vcpkg triplet.
+    required: true
+  host-triplet:
+    description: Exact host vcpkg triplet; defaults to target.
+    required: false
+    default: ""
+  manifest-root:
+    description: Product-owned vcpkg.json directory, relative to GITHUB_WORKSPACE.
+    required: false
+    default: .
+  features:
+    description: Comma-separated exact product manifest feature names; empty for defaults.
+    required: false
+    default: ""
+
+outputs:
+  contract_version:
+    value: ${{ steps.setup.outputs.contract_version  }}
+    description: Shared cache contract version.
+  cache_revision:
+    value: ${{ steps.setup.outputs.cache_revision  }}
+    description: ABI overlay revision.
+  tool_revision:
+    value: ${{ steps.setup.outputs.tool_revision  }}
+    description: Canonical vcpkg tool identity.
+  scripts_revision:
+    value: ${{ steps.setup.outputs.scripts_revision  }}
+    description: Canonical vcpkg scripts identity.
+  toolchain_file:
+    value: ${{ steps.setup.outputs.toolchain_file  }}
+    description: Canonical vcpkg toolchain.
+
+runs:
+  using: composite
+  steps:
+    - name: Require read-only GitHub Packages transport and pinned ABI identity
+      shell: bash
+      env:
+        CACHE_MODE: ${{ inputs.mode  }}
+        TARGET_TRIPLET: ${{ inputs.triplet  }}
+      run: |
+        set -euo pipefail
+        if [ "$CACHE_MODE" != read ]; then
+          echo "NuGet/Mono writes are forbidden: qualified curl-only publisher required." >&2
+          exit 1
+        fi
+        if [[ ! "$TARGET_TRIPLET" =~ ^[A-Za-z0-9_.+-]+$ ]]; then
+          echo "An exact target triplet is mandatory for curl-only ABI restore." >&2
+          exit 1
+        fi
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Bootstrap pinned vcpkg and local files cache
+      id: setup
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $root = (Resolve-Path (Join-Path '${{ github.action_path  }}' '../../..')).Path
+        python (Join-Path $root 'scripts/setup-vcpkg-curl-cache.py') $root
+        if ($LASTEXITCODE -ne 0) { throw 'Canonical vcpkg bootstrap failed' }
+    - name: Download exact GitHub NuGet V3 ABI packages using curl
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token  }}
+        INPUT_TRIPLET: ${{ inputs.triplet  }}
+        INPUT_HOST_TRIPLET: ${{ inputs.host-triplet  }}
+        INPUT_MANIFEST_ROOT: ${{ inputs.manifest-root  }}
+        INPUT_FEATURES: ${{ inputs.features }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $root = (Resolve-Path (Join-Path '${{ github.action_path  }}' '../../..')).Path
+        $manifest = (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE $env:INPUT_MANIFEST_ROOT)).Path
+        $hostTriplet = $env:INPUT_HOST_TRIPLET
+        if (-not $hostTriplet) { $hostTriplet = $env:INPUT_TRIPLET }
+        $features = @()
+        if ($env:INPUT_FEATURES) {
+          foreach ($feature in $env:INPUT_FEATURES.Split(',')) {
+            if (-not $feature -or ($feature -replace '[a-z0-9-]', '') -ne '') {
+              throw "Invalid manifest feature: $feature"
+            }
+            $features += @('--feature', $feature)
+          }
+        }
+        python (Join-Path $root 'scripts/restore-manifest-cache.py') --manifest-root $manifest --triplet $env:INPUT_TRIPLET --host-triplet $hostTriplet @features
+        if ($LASTEXITCODE -ne 0) { throw 'curl-only GitHub Packages restore failed' }

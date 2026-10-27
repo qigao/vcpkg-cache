@@ -1,0 +1,15 @@
+{
+  "name": "qigao-feature-cache-contract",
+  "version-string": "1",
+  "description": "isolated optional feature cache test, no default dependencies",
+  "dependencies": [],
+  "features": {
+    "simde-test": {
+      "description": "host-only pinned header-only dependency",
+      "dependencies": [
+        "simde"
+      ]
+    }
+  },
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}

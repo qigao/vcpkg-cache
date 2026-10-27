@@ -1,0 +1,130 @@
+name: Curl-only GitHub Packages transport qualification
+on:
+  pull_request:
+    paths:
+      - scripts/github-packages.py
+      - scripts/setup-vcpkg-curl-cache.py
+      - scripts/restore-manifest-cache.py
+      - cache-contracts/optional-feature/**
+      - scripts/tests/**
+      - .github/actions/setup-vcpkg-curl-cache/**
+      - .github/actions/setup-re2c-tools/**
+      - .github/workflows/curl-only-github-packages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  policy:
+    name: Exact ABI, prefix normalization and fail-closed parser
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify all native curl package helper syntax and policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/github-packages.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py
+          python -m unittest discover -s scripts/tests -p test_curl_cache_policy.py -v
+          test "$(grep -Ec 'mono-complete|brew install mono|dotnet restore|vcpkg fetch nuget' .github/actions/setup-vcpkg-curl-cache/action.yml || true)" -eq 0
+
+  real-packages:
+    name: Genuine Linux native vcpkg ABI GitHub Packages HTTP restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap pinned tool and restore immutable header-only ABI packages
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          triplet: x64-linux
+          host-triplet: x64-linux
+          manifest-root: cache-contracts/header-only
+      - name: Require native offline binary-cache install, no NuGet execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$GITHUB_WORKSPACE/cache-contracts/header-only" \
+            --triplet=x64-linux --host-triplet=x64-linux \
+            "--x-install-root=$RUNNER_TEMP/curl-only-smoke-installed" \
+            --only-binarycaching
+          test -f "$RUNNER_TEMP/curl-only-smoke-installed/x64-linux/share/simde/vcpkg_abi_info.txt"
+
+  optional-feature-abi:
+    name: Optional feature explicitly selected over curl-only GitHub Packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore the exact pinned simde feature only
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
+          features: simde-test
+      - name: Install from local ABI cache with explicitly selected feature
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            "--x-manifest-root=$GITHUB_WORKSPACE/cache-contracts/optional-feature" \
+            --triplet=x64-linux --host-triplet=x64-linux \
+            --x-feature=simde-test \
+            "--x-install-root=$RUNNER_TEMP/optional-curl-installed" \
+            --only-binarycaching
+          test -f "$RUNNER_TEMP/optional-curl-installed/x64-linux/share/simde/vcpkg_abi_info.txt"
+
+  empty-manifest:
+    name: Valid empty native manifest requires no NuGet client or HTTP download
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: No optional features selected
+        uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          manifest-root: cache-contracts/optional-feature
+          triplet: x64-linux
+          host-triplet: x64-linux
+      - name: Demand no materialized cache packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$VCPKG_BINARY_CACHE" -type f -name '*.zip' | grep -q .; then
+            echo "An empty manifest must not install hidden package dependencies" >&2
+            exit 1
+          fi
+
+  re2c-curl:
+    name: Real re2c GitHub Package via curl / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-re2c-tools
+      - name: Require exact host binary and Unicode data from package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:RE2C_ROOT -or -not $env:RE2C_PACKAGE_VERSION) { throw 'Missing verified re2c package identity' }
+          $exe = Join-Path $env:RE2C_ROOT ('bin/re2c' + $(if ($IsWindows) { '.exe' } else { '' }))
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Missing package-owned re2c binary' }
+          foreach ($member in @('share/re2c/stdlib/unicode_categories.re','share/re2c/stdlib/unicode_properties.re')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:RE2C_ROOT $member))) { throw "Missing standard Unicode data: $member" }
+          }
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Published re2c binary failed' }

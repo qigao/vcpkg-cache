@@ -1,159 +1,24 @@
-name: Set up re2c binary
-description: Restore the latest published Qigao.Re2c.Binary host package from GitHub Packages.
+name: Set up re2c binary using authenticated curl
+description: Restore the latest published Qigao.Re2c.Binary from GitHub Packages NuGet V3 without NuGet, .NET restore or Mono.
 
 inputs:
   token:
-    description: GitHub Packages token. Defaults to the workflow GITHUB_TOKEN.
+    description: GitHub Packages read token; defaults to GITHUB_TOKEN.
     required: false
     default: ""
 
 runs:
   using: composite
   steps:
-    - name: Set up .NET
-      uses: actions/setup-dotnet@v4
+    - uses: actions/setup-python@v5
       with:
-        dotnet-version: "8.0.x"
-
-    - name: Restore re2c binary on Unix
-      if: runner.os != 'Windows'
-      shell: bash
-      env:
-        INPUT_TOKEN: ${{ inputs.token }}
-        GITHUB_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        token="$INPUT_TOKEN"
-        if [ -z "$token" ]; then token="$GITHUB_TOKEN"; fi
-        test -n "$token"
-
-        packages="${RUNNER_TEMP}/qigao-re2c-binary"
-        config="${RUNNER_TEMP}/qigao-re2c.config"
-        project="${RUNNER_TEMP}/qigao-re2c.csproj"
-        assets="${RUNNER_TEMP}/obj/project.assets.json"
-
-        cat > "$config" <<'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <configuration><packageSources><clear /></packageSources></configuration>
-        EOF
-
-        dotnet nuget add source https://nuget.pkg.github.com/qigao/index.json \
-          --name github --username qigao --password "$token" \
-          --store-password-in-clear-text --configfile "$config"
-
-        cat > "$project" <<'EOF'
-        <Project Sdk="Microsoft.NET.Sdk">
-          <PropertyGroup>
-            <TargetFramework>net8.0</TargetFramework>
-            <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
-          </PropertyGroup>
-          <ItemGroup>
-            <PackageReference Include="Qigao.Re2c.Binary" Version="*" />
-          </ItemGroup>
-        </Project>
-        EOF
-
-        dotnet restore "$project" --packages "$packages" --configfile "$config" --no-cache --force-evaluate
-        test -f "$assets"
-
-        re2c_version="$(python3 - "$assets" <<'PY'
-        import json, sys
-        with open(sys.argv[1], encoding="utf-8") as f:
-            libraries = json.load(f)["libraries"]
-        prefix = "qigao.re2c.binary/"
-        for key in libraries:
-            if key.lower().startswith(prefix):
-                print(key.split("/", 1)[1])
-                break
-        else:
-            raise SystemExit("Qigao.Re2c.Binary was not resolved")
-        PY
-        )"
-
-        case "$RUNNER_OS/$RUNNER_ARCH" in
-          Linux/X64) rid=linux-x64 ;;
-          Linux/ARM64) rid=linux-arm64 ;;
-          macOS/X64) rid=macos-x64 ;;
-          macOS/ARM64) rid=macos-arm64 ;;
-          *) echo "unsupported re2c host: $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
-        esac
-
-        root="$packages/qigao.re2c.binary/$re2c_version/tools/$rid"
-        test -f "$root/bin/re2c"
-        test -f "$root/share/re2c/stdlib/unicode_categories.re"
-        test -f "$root/share/re2c/stdlib/unicode_properties.re"
-        chmod +x "$root/bin/re2c"
-        "$root/bin/re2c" --version
-
-        echo "RE2C_ROOT=$root" >> "$GITHUB_ENV"
-        echo "RE2C_PACKAGE_VERSION=$re2c_version" >> "$GITHUB_ENV"
-        echo "$root/bin" >> "$GITHUB_PATH"
-        echo "Restored latest Qigao.Re2c.Binary -> $re2c_version"
-
-    - name: Restore re2c binary on Windows
-      if: runner.os == 'Windows'
+        python-version: "3.12"
+    - name: Restore the published host re2c package via curl only
       shell: pwsh
       env:
-        INPUT_TOKEN: ${{ inputs.token }}
-        GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token }}
       run: |
-        $ErrorActionPreference = "Stop"
-        if ($env:RUNNER_ARCH -ne "X64") { throw "unsupported re2c host: Windows/$env:RUNNER_ARCH" }
-        $token = $env:INPUT_TOKEN
-        if ([string]::IsNullOrWhiteSpace($token)) { $token = $env:GITHUB_TOKEN }
-        if ([string]::IsNullOrWhiteSpace($token)) { throw "GitHub Packages token is unavailable" }
-
-        $packages = Join-Path $env:RUNNER_TEMP "qigao-re2c-binary"
-        $config = Join-Path $env:RUNNER_TEMP "qigao-re2c.config"
-        $project = Join-Path $env:RUNNER_TEMP "qigao-re2c.csproj"
-        $assetsPath = Join-Path $env:RUNNER_TEMP "obj/project.assets.json"
-
-        @'
-        <?xml version="1.0" encoding="utf-8"?>
-        <configuration><packageSources><clear /></packageSources></configuration>
-        '@ | Set-Content -LiteralPath $config -Encoding utf8NoBOM
-
-        dotnet nuget add source https://nuget.pkg.github.com/qigao/index.json --name github --username qigao --password $token --store-password-in-clear-text --configfile $config
-        if ($LASTEXITCODE -ne 0) { throw "failed to configure GitHub Packages source" }
-
-        @'
-        <Project Sdk="Microsoft.NET.Sdk">
-          <PropertyGroup>
-            <TargetFramework>net8.0</TargetFramework>
-            <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
-          </PropertyGroup>
-          <ItemGroup>
-            <PackageReference Include="Qigao.Re2c.Binary" Version="*" />
-          </ItemGroup>
-        </Project>
-        '@ | Set-Content -LiteralPath $project -Encoding utf8NoBOM
-
-        dotnet restore $project --packages $packages --configfile $config --no-cache --force-evaluate
-        if ($LASTEXITCODE -ne 0) { throw "failed to restore Qigao.Re2c.Binary" }
-        if (-not (Test-Path -LiteralPath $assetsPath -PathType Leaf)) { throw "missing $assetsPath" }
-
-        $assets = Get-Content -LiteralPath $assetsPath -Raw | ConvertFrom-Json
-        $re2cVersion = $null
-        foreach ($property in $assets.libraries.PSObject.Properties) {
-          if ($property.Name.StartsWith("Qigao.Re2c.Binary/", [System.StringComparison]::OrdinalIgnoreCase)) {
-            $re2cVersion = $property.Name.Substring("Qigao.Re2c.Binary/".Length)
-            break
-          }
-        }
-        if ([string]::IsNullOrWhiteSpace($re2cVersion)) { throw "Qigao.Re2c.Binary was not resolved" }
-
-        $root = Join-Path $packages "qigao.re2c.binary\$re2cVersion\tools\windows-x64"
-        $exe = Join-Path $root "bin\re2c.exe"
-        $categories = Join-Path $root "share\re2c\stdlib\unicode_categories.re"
-        $properties = Join-Path $root "share\re2c\stdlib\unicode_properties.re"
-        foreach ($file in @($exe, $categories, $properties)) {
-          if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "missing restored re2c file: $file" }
-        }
-
-        & $exe --version
-        if ($LASTEXITCODE -ne 0) { throw "restored re2c executable failed" }
-
-        "RE2C_ROOT=$root" >> $env:GITHUB_ENV
-        "RE2C_PACKAGE_VERSION=$re2cVersion" >> $env:GITHUB_ENV
-        (Join-Path $root "bin") >> $env:GITHUB_PATH
-        Write-Host "Restored latest Qigao.Re2c.Binary -> $re2cVersion"
+        $ErrorActionPreference = 'Stop'
+        $root = (Resolve-Path (Join-Path '${{ github.action_path }}' '../../..')).Path
+        python (Join-Path $root 'scripts/github-packages.py') re2c (Join-Path $env:RUNNER_TEMP 'qigao-re2c-binary')
+        if ($LASTEXITCODE -ne 0) { throw 'Verified curl-only GitHub Packages re2c restore failed' }
