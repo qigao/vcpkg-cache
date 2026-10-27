@@ -5,6 +5,7 @@ on:
       - scripts/github-packages.py
       - scripts/setup-vcpkg-curl-cache.py
       - scripts/restore-manifest-cache.py
+      - scripts/publish-vcpkg-curl-cache.py
       - cache-contracts/optional-feature/**
       - scripts/tests/**
       - .github/actions/setup-vcpkg-curl-cache/**
@@ -29,8 +30,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/github-packages.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py
-          python -m unittest discover -s scripts/tests -p test_curl_cache_policy.py -v
+          python -m py_compile scripts/github-packages.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py
+          python -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
           test "$(grep -Ec 'mono-complete|brew install mono|dotnet restore|vcpkg fetch nuget' .github/actions/setup-vcpkg-curl-cache/action.yml || true)" -eq 0
 
   real-packages:
@@ -56,6 +57,21 @@ jobs:
             "--x-install-root=$RUNNER_TEMP/curl-only-smoke-installed" \
             --only-binarycaching
           test -f "$RUNNER_TEMP/curl-only-smoke-installed/x64-linux/share/simde/vcpkg_abi_info.txt"
+      - name: Roundtrip and independently check NuGet producer against published exact ABI cache
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/qigao-curl-vcpkg-abi/packages.config"
+          test -s "$config"
+          # This is deliberately read-only: existing immutable versions are
+          # byte-checked; any absent version is reported as publish_dry_run.
+          python scripts/publish-vcpkg-curl-cache.py \
+            --packages-config "$config" --cache "$VCPKG_BINARY_CACHE" \
+            | tee "$RUNNER_TEMP/curl-producer-dry-run.log"
+          grep -E 'publish_summary total=[1-9][0-9]*' "$RUNNER_TEMP/curl-producer-dry-run.log"
+          ! grep -Eq '(uploaded=[1-9]|publish_rejected)' "$RUNNER_TEMP/curl-producer-dry-run.log"
 
   optional-feature-abi:
     name: Optional feature explicitly selected over curl-only GitHub Packages
