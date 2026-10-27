@@ -179,6 +179,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # Required reviewers and an environment-scoped secret must be configured
+      # by the repository administrator. Merely naming the Environment can
+      # auto-create an unprotected environment on GitHub.
+      - name: Require separately armed, protected native publish environment
+        shell: bash
+        env:
+          NATIVE_CACHE_PUBLISH_ARM: ${{ secrets.NATIVE_CACHE_PUBLISH_ARM }}
+        run: |
+          set -euo pipefail
+          if [[ "${NATIVE_CACHE_PUBLISH_ARM:-}" != "native-cache-publish-v1" ]]; then
+            echo 'Protected native-cache-publish environment is not explicitly armed' >&2
+            exit 1
+          fi
       - uses: actions/download-artifact@v4
         with:
           name: curl-native-abi-${{ inputs.package_set }}-${{ github.run_id }}
