@@ -9,16 +9,17 @@ from __future__ import annotations
 
 import argparse
 import base64
-import copy
 import hashlib
 import importlib.util
 import os
 from pathlib import Path
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape, quoteattr
 import zipfile
@@ -31,6 +32,9 @@ packages = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(packages)
 ABI_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+-vcpkg([0-9a-f]{64})$")
 IDENTITY = re.compile(r"^[A-Za-z0-9_.+-]+$")
+MAX_SOURCE_ARCHIVE_BYTES = 2_000_000_000
+MAX_NATIVE_UNCOMPRESSED_BYTES = 8_000_000_000
+MAX_MANIFEST_BYTES = 1_048_576
 
 
 def identify_source(archive: Path, package_id: str, version: str) -> str:
@@ -38,8 +42,19 @@ def identify_source(archive: Path, package_id: str, version: str) -> str:
     if not match or not IDENTITY.fullmatch(package_id):
         raise ValueError("publisher requires a canonical vcpkg NuGet ID and 64-hex ABI")
     abi = match[1]
+    if not archive.is_file() or archive.stat().st_size > MAX_SOURCE_ARCHIVE_BYTES:
+        raise ValueError("missing or oversized immutable native cache ZIP")
     with zipfile.ZipFile(archive) as source:
         names = list(packages.archive_members(source))
+        if sum(entry.file_size for entry in names) > MAX_NATIVE_UNCOMPRESSED_BYTES:
+            raise ValueError("native cache exceeds bounded uncompressed size")
+        for required in ("CONTROL", "BUILD_INFO"):
+            try:
+                size = source.getinfo(required).file_size
+            except KeyError as exc:
+                raise ValueError(f"native files cache lacks {required}") from exc
+            if size > MAX_MANIFEST_BYTES:
+                raise ValueError(f"native ABI {required} metadata is oversized")
         if not names or "CONTROL" not in source.namelist() or "BUILD_INFO" not in source.namelist():
             raise ValueError("vcpkg files cache ZIP must include CONTROL and BUILD_INFO")
         control = source.read("CONTROL").decode("utf-8").split("\n\n", 1)[0]
@@ -81,20 +96,31 @@ def entries_digest(archive: Path) -> str:
         for entry in entries:
             if entry.is_dir():
                 continue
-            data = source.read(entry.filename)
             encoded = entry.filename.encode("utf-8")
             digest.update(len(encoded).to_bytes(4, "big"))
             digest.update(encoded)
-            digest.update(len(data).to_bytes(8, "big"))
-            digest.update(data)
+            digest.update(entry.file_size.to_bytes(8, "big"))
+            # Bounded processing even for multi-gigabyte native .a/.lib payloads.
+            with source.open(entry, "r") as member:
+                for chunk in iter(lambda: member.read(1024 * 1024), b""):
+                    digest.update(chunk)
     return digest.hexdigest()
 
 
-def metadata_entry(name: str) -> zipfile.ZipInfo:
+def metadata_entry(name: str, original: zipfile.ZipInfo | None = None) -> zipfile.ZipInfo:
+    """Canonical archive metadata; preserve executable bits, not ZIP timestamps.
+
+    Every rebuild of one native ABI with byte-identical members produces the
+    same .nupkg regardless of source ZIP order, timestamps or extra records.
+    """
     item = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
     item.create_system = 3
-    item.external_attr = 0o100644 << 16
     item.compress_type = zipfile.ZIP_DEFLATED
+    if original is not None and original.is_dir():
+        item.external_attr = (stat.S_IFDIR | 0o755) << 16
+    else:
+        is_executable = original is not None and bool((original.external_attr >> 16) & 0o111)
+        item.external_attr = (stat.S_IFREG | (0o755 if is_executable else 0o644)) << 16
     return item
 
 
@@ -130,14 +156,14 @@ def build_nupkg(binary_zip: Path, package_id: str, version: str, destination: Pa
         if extension and re.fullmatch(r"[a-zA-Z0-9_-]+", extension):
             types.setdefault(extension.lower(), "application/octet-stream")
         else:
-            overrides.add(member.filename)
+            overrides.add("/" + quote(member.filename, safe="/-._~"))
     type_parts = [
         "<Default Extension=" + quoteattr(extension) + " ContentType="
         + quoteattr(mime) + "/>"
         for extension, mime in sorted(types.items())
     ]
     type_parts += [
-        "<Override PartName=" + quoteattr("/" + name)
+        "<Override PartName=" + quoteattr(name)
         + ' ContentType="application/octet-stream"/>'
         for name in sorted(overrides)
     ]
@@ -164,7 +190,15 @@ def build_nupkg(binary_zip: Path, package_id: str, version: str, destination: Pa
         ):
             out.writestr(metadata_entry(name), content.encode("utf-8"))
         for entry in sorted(packages.archive_members(binary), key=lambda e: e.filename):
-            out.writestr(copy.copy(entry), binary.read(entry))
+            canonical = metadata_entry(entry.filename, entry)
+            if entry.is_dir():
+                out.writestr(canonical, b"")
+            else:
+                with binary.open(entry) as original, out.open(canonical, "w") as target:
+                    shutil.copyfileobj(original, target, 1024 * 1024)
+    if destination.stat().st_size > MAX_SOURCE_ARCHIVE_BYTES:
+        destination.unlink(missing_ok=True)
+        raise ValueError("published NuGet archive exceeds GitHub package size bound")
     with zipfile.ZipFile(destination) as candidate:
         packages.package_metadata(candidate, package_id, version)
         list(packages.archive_members(candidate))
@@ -251,6 +285,7 @@ def publish(feed: packages.NugetFeed, package_id: str, version: str,
             return "dry-run"
         # Resolve the NuGet V3 service index; never guess the upload endpoint.
         upload(feed.client, resource(feed), candidate)
+        uploaded_sha = packages.sha256(candidate)
         # GitHub Packages publishing is eventually consistent. Every probe
         # checks the exact requested version and rejects wrong bytes.
         import time
@@ -259,7 +294,9 @@ def publish(feed: packages.NugetFeed, package_id: str, version: str,
                 verified = check_roundtrip(native_zip, existing, package_id, version)
                 if verified != expected:
                     raise ValueError("published GitHub package differs from originating native ABI")
-                print(f"published_verified={package_id}/{version} sha256={expected}", flush=True)
+                if packages.sha256(existing) != uploaded_sha:
+                    raise ValueError("published GitHub NuGet archive SHA256 differs from uploaded bytes")
+                print(f"published_verified={package_id}/{version} nupkg_sha256={uploaded_sha} native_sha256={expected}", flush=True)
                 return "published"
             if attempt != 5:
                 time.sleep(3)
@@ -274,6 +311,11 @@ def main() -> None:
     parser.add_argument("--publish", action="store_true",
                         help="explicitly authorize upload; otherwise verify/dry-run")
     args = parser.parse_args()
+    if args.publish:
+        if (os.environ.get("GITHUB_REPOSITORY") != "qigao/vcpkg-cache"
+                or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+                or os.environ.get("GITHUB_REF") != "refs/heads/master"):
+            raise ValueError("curl-only native publish requires trusted manual master workflow")
     root = ET.parse(args.packages_config).getroot()
     if root.tag != "packages":
         raise ValueError("expected native vcpkg-generated packages.config")

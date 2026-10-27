@@ -1,6 +1,9 @@
 name: Explicit native GitHub Packages cache producer (curl-only)
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/curl-only-vcpkg-producer.yml"
   workflow_dispatch:
     inputs:
       package_set:
@@ -13,10 +16,19 @@ on:
         required: true
         type: boolean
         default: false
+      expected_master_sha:
+        description: Exact 40-hex master commit; wrong HEAD fails closed
+        required: true
+        type: string
+      require_new_upload:
+        description: Qualify a real new NuGet V3 PUT, not just reuse an existing package
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
-  packages: write
+  packages: read
 
 concurrency:
   group: curl-vcpkg-producer-${{ inputs.package_set }}
@@ -24,14 +36,34 @@ concurrency:
 
 jobs:
   native-producer:
-    name: Native Linux x64 ABI, source build and explicit curl-only publish
+    name: Native Linux x64 ABI source build and read-only admission
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master' &&
+      github.repository == 'qigao/vcpkg-cache'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/curl-native-producer/cache
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Require exact approved source checkout
+        shell: bash
+        env:
+          EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
+          test "$GITHUB_REF" = refs/heads/master
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
+          test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
       - name: Prepare native compiler and source build tools
         shell: bash
         run: |
@@ -47,6 +79,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf "$GITHUB_WORKSPACE/build/curl-native-producer"
+          mkdir -p "$VCPKG_BINARY_CACHE"
           python scripts/setup-vcpkg-curl-cache.py "$GITHUB_WORKSPACE"
       - name: Select one explicit vcpkg manifest
         shell: bash
@@ -78,47 +112,152 @@ jobs:
             --triplet=x64-linux --host-triplet=x64-linux
           test "$(find "$VCPKG_BINARY_CACHE" -type f -name '*.zip' | wc -l)" -gt 0
           echo "Local native ABI build completed"
-      - name: Qualify source compiler ABI and construct byte-for-byte NuGet payload
+      - name: Derive exact ABI and check existing remote versions (read only)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          DO_PUBLISH: ${{ inputs.publish }}
         run: |
           set -euo pipefail
           export VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"
-          plan="$RUNNER_TEMP/producer-packages.config"
+          stage="$GITHUB_WORKSPACE/build/curl-native-producer"
+          plan="$stage/packages.config"
+          # Plan admission must use a fresh install root: the source-build
+          # installation above is intentionally populated and can hide ABIs
+          # from a dry-run computed against that same installed state.
+          probe="$RUNNER_TEMP/native-producer-abi-probe"
+          test ! -e "$probe"
           "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$ABI_MANIFEST" \
-            "--x-install-root=$RUNNER_TEMP/native-producer-install" \
+            "--x-install-root=$probe" \
             --triplet=x64-linux --host-triplet=x64-linux \
             --dry-run "--x-write-nuget-packages-config=$plan"
           test -s "$plan"
           test "$VCPKG_BINARY_SOURCES" = "clear;files,$VCPKG_BINARY_CACHE,write"
-          if [[ "$DO_PUBLISH" == "true" ]]; then
-            python scripts/publish-vcpkg-curl-cache.py \
-              --packages-config "$plan" --cache "$VCPKG_BINARY_CACHE" --publish \
-              | tee "$RUNNER_TEMP/curl-publish-proof.txt"
-            grep -E 'publish_summary total=[1-9][0-9]*' "$RUNNER_TEMP/curl-publish-proof.txt"
-          else
-            python scripts/publish-vcpkg-curl-cache.py \
-              --packages-config "$plan" --cache "$VCPKG_BINARY_CACHE" \
-              | tee "$RUNNER_TEMP/curl-publish-proof.txt"
-            ! grep -Eq 'uploaded=[1-9]' "$RUNNER_TEMP/curl-publish-proof.txt"
+          python3 scripts/publish-vcpkg-curl-cache.py \
+            --packages-config "$plan" --cache "$VCPKG_BINARY_CACHE" \
+            | tee "$stage/curl-publish-proof.txt"
+          grep -E 'publish_summary total=[1-9][0-9]*' "$stage/curl-publish-proof.txt"
+          if grep -Eq 'uploaded=[1-9][0-9]*' "$stage/curl-publish-proof.txt"; then
+            echo 'Read-only native ABI producer unexpectedly reported remote upload' >&2
+            exit 1
           fi
-      - name: Publish exact-ID/ABI and source-commit attestation
+          (
+            cd "$stage"
+            find cache -type f -name '*.zip' -print0 \
+              | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum packages.config >> SHA256SUMS
+            test -s SHA256SUMS
+            sha256sum --check --status SHA256SUMS
+          )
+          printf 'source_sha=%s\npackage_set=%s\n' \
+            "$GITHUB_SHA" "${{ inputs.package_set }}" > "$stage/source-proof.txt"
+      - name: Preserve native ABI ZIPs for a separately approved write job
         uses: actions/upload-artifact@v4
         with:
-          name: curl-producer-${{ inputs.package_set }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/curl-publish-proof.txt
+          name: curl-native-abi-${{ inputs.package_set }}-${{ github.run_id }}
+          path: build/curl-native-producer/
           if-no-files-found: error
+          retention-days: 14
+
+  native-publish:
+    name: Protected immutable NuGet V3 curl upload (opt-in only)
+    if: >-
+      inputs.publish == true &&
+      github.repository == 'qigao/vcpkg-cache' &&
+      github.ref == 'refs/heads/master'
+    needs: native-producer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: native-cache-publish
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Required reviewers and an environment-scoped secret must be configured
+      # by the repository administrator. Merely naming the Environment can
+      # auto-create an unprotected environment on GitHub.
+      - name: Require separately armed, protected native publish environment
+        shell: bash
+        env:
+          NATIVE_CACHE_PUBLISH_ARM: ${{ secrets.NATIVE_CACHE_PUBLISH_ARM }}
+        run: |
+          set -euo pipefail
+          if [[ "${NATIVE_CACHE_PUBLISH_ARM:-}" != "native-cache-publish-v1" ]]; then
+            echo 'Protected native-cache-publish environment is not explicitly armed' >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: curl-native-abi-${{ inputs.package_set }}-${{ github.run_id }}
+          path: build/curl-native-producer
+      - name: Validate immutable source and transferred ABI files
+        shell: bash
+        env:
+          EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
+          test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
+          # A master update during approval must not turn an old artifact
+          # into a new immutable cache publication.
+          remote_master="$(git ls-remote --exit-code \
+            https://github.com/qigao/vcpkg-cache.git refs/heads/master | cut -f1)"
+          [[ "$remote_master" =~ ^[0-9a-f]{40}$ ]]
+          test "$remote_master" = "$EXPECTED_MASTER_SHA"
+          test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/master
+          cd build/curl-native-producer
+          grep -Fx "source_sha=$EXPECTED_MASTER_SHA" source-proof.txt
+          grep -Fx 'package_set=${{ inputs.package_set }}' source-proof.txt
+          sha256sum --check --status SHA256SUMS
+          test -s packages.config
+      - name: Upload exact immutable ABI through canonical native curl producer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRE_NEW_UPLOAD: ${{ inputs.require_new_upload }}
+        run: |
+          set -euo pipefail
+          stage="$GITHUB_WORKSPACE/build/curl-native-producer"
+          python3 scripts/publish-vcpkg-curl-cache.py \
+            --packages-config "$stage/packages.config" \
+            --cache "$stage/cache" --publish \
+            | tee "$RUNNER_TEMP/approved-native-publish-proof.txt"
+          grep -E 'publish_summary total=[1-9][0-9]*' \
+            "$RUNNER_TEMP/approved-native-publish-proof.txt"
+          if [[ "$REQUIRE_NEW_UPLOAD" == "true" ]]; then
+            if ! grep -Eq 'uploaded=[1-9][0-9]*' \
+              "$RUNNER_TEMP/approved-native-publish-proof.txt"; then
+              echo 'No real newly published package: existing-only verification cannot qualify curl upload' >&2
+              exit 1
+            fi
+          fi
+      - name: Retain approved exact upload attestation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: curl-native-upload-${{ inputs.package_set }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/approved-native-publish-proof.txt
+          if-no-files-found: warn
           retention-days: 30
 
   read-back:
-    name: Fresh runner: exact binary-only GitHub Packages read-back
+    name: "Fresh runner: exact binary-only GitHub Packages read-back"
     if: ${{ inputs.publish }}
-    needs: native-producer
+    needs: native-publish
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
       - name: Install native compiler tools required for ABI detection
