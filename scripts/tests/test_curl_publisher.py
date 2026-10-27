@@ -83,6 +83,23 @@ class NativeCurlPublisherTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "existing producer"):
                 publisher.pack_archive(cache, NAME, VERSION, target)
 
+    def test_multi_megabyte_native_library_preserves_exact_payload(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"X_VCPKG_NUGET_ID_PREFIX": ""}
+        ):
+            base = Path(tmp)
+            cache = synthetic_files_cache(base)
+            native_zip = cache / ABI[:2] / (ABI + ".zip")
+            payload = bytes(range(256)) * 16384  # 4 MiB, handled in 1 MiB chunks
+            with zipfile.ZipFile(native_zip, "a", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("lib/libsample.a", payload)
+            package = base / "native-library.nupkg"
+            publisher.pack_archive(cache, NAME, VERSION, package)
+            with zipfile.ZipFile(package) as archive:
+                self.assertEqual(archive.getinfo("lib/libsample.a").file_size,
+                                 len(payload))
+                self.assertEqual(archive.read("lib/libsample.a"), payload)
+
     def test_opc_part_types_with_spaces_and_extensionless_paths(self):
         data = publisher.content_types_for_native_members([
             "CONTROL", "BUILD_INFO", "include/native.h",
