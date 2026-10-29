@@ -41,6 +41,11 @@ def check():
                                        "vcpkg_from_sourceforge(", "file(REMOVE",
                                        "file(REMOVE_RECURSE", "FetchContent_Declare(")):
         errors.append("Second network provider or source deletion is prohibited")
+    workflow = (ROOT / ".github/workflows/validate-wtl-overlay.yml").read_text("utf-8")
+    if ("--only-binarycaching" not in workflow or
+            "WTL_COLD_WARM_OK" not in workflow or
+            "wtl10-overlay-warm" not in workflow):
+        errors.append("Cold/warm read-only WTL ABI restore gate is mandatory")
     if "atl" in [d if isinstance(d, str) else d.get("name")
                  for d in manifest.get("dependencies", [])]:
         errors.append("Forbidden Microsoft ATL dependency")
