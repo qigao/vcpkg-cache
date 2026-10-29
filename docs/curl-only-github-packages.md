@@ -25,8 +25,8 @@ identity outputs. The binary source is the local files provider only.
 ## Exact re2c host package identity
 
 `setup-re2c-tools` accepts `version` and `sha256` as a pair. With neither
-input it selects the explicit published `Qigao.Re2c.Binary` 4.6.4 archive,
-SHA-256 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`.
+input it selects the explicit published `Qigao.Re2c.Binary` 4.6.5 archive,
+SHA-256 `dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed`.
 Supplying exactly one input is an error; a different version cannot inherit
 the default digest. Consumers should pin the action's source commit too.
 
@@ -34,8 +34,8 @@ The direct command has no default lock or latest-version path:
 
 ```sh
 python scripts/github-packages.py re2c "$RUNNER_TEMP/qigao-re2c-binary" \
-  --version 4.6.4 \
-  --sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
+  --version 4.6.5 \
+  --sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
 ```
 
 The CLI requires an exact three-component version and 64 hexadecimal digest
@@ -56,11 +56,19 @@ neither the destination nor environment changes. On success the reader
 exports `RE2C_ROOT`, `RE2C_PACKAGE_VERSION`, `RE2C_PACKAGE_SHA256` and its bin
 directory. These re2c checks do not change general vcpkg cache semantics.
 
-The default 4.6.4 package includes Linux x64/ARM64, macOS ARM64 and Windows
-x64. There is no macOS x64 fallback. Its Linux x64 binary requires
-`GLIBCXX_3.4.32`; an exact identity is not an Ubuntu 22.04 compatibility claim.
-The new compatibility package is qualified and published separately before
-any consumer/default lock can advance to its actual version and SHA-256.
+The default advanced only after the 4.6.5 package was published from
+[producer commit 4864033d4e4bc70d182df6a33695582ec6fcc968](https://github.com/qigao/vcpkg-cache/commit/4864033d4e4bc70d182df6a33695582ec6fcc968)
+in [run 40852170873](https://github.com/qigao/vcpkg-cache/actions/runs/40852170873).
+Actual Ubuntu 22.04 and 24.04 verification receipts and the publisher recorded
+the same archive digest above. The actual curl reader job includes Ubuntu
+22.04 as a feed regression, retaining Ubuntu 24.04, macOS 15 and Windows 2025.
+Those reader jobs must still pass against the published package.
+
+The historical 4.6.4 package has SHA-256
+`9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269` and includes
+Linux x64/ARM64, macOS ARM64 and Windows x64. There is no macOS x64 fallback.
+Its Linux x64 binary requires `GLIBCXX_3.4.32` and fails on the affected
+Ubuntu 22.04 host. Its reader regression fixtures remain unchanged.
 
 GitHub Releases are separate from GitHub Packages: native SDK NuGet packages
 are downloaded using their authenticated NuGet V3 metadata and URL; publicly

@@ -225,19 +225,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
+        os: [ubuntu-22.04, ubuntu-24.04, macos-15, windows-2025]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-re2c-tools
-        with:
-          version: "4.6.4"
-          sha256: "9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269"
       - name: Require exact host binary and Unicode data from package
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:RE2C_ROOT -or $env:RE2C_PACKAGE_VERSION -ne '4.6.4' -or
-              $env:RE2C_PACKAGE_SHA256 -ne '9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269') {
+          if (-not $env:RE2C_ROOT -or $env:RE2C_PACKAGE_VERSION -ne '4.6.5' -or
+              $env:RE2C_PACKAGE_SHA256 -ne 'dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed') {
             throw 'Missing or incorrect verified re2c package version/SHA-256'
           }
           $exe = Join-Path $env:RE2C_ROOT ('bin/re2c' + $(if ($IsWindows) { '.exe' } else { '' }))
