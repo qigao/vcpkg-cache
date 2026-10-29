@@ -24,10 +24,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Static single-source and no-Microsoft-ATL policy
         run: python tests/wtl-overlay-policy.py
-      - name: Bootstrap repository-owned vcpkg without Mono
-        uses: ./.github/actions/setup-vcpkg-cache
+      - uses: actions/setup-python@v5
         with:
-          mode: read
+          python-version: "3.12"
+      - name: Bootstrap pinned vcpkg with curl-only files cache (no Mono/NuGet)
+        shell: pwsh
+        run: |
+          python scripts/setup-vcpkg-curl-cache.py .
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned vcpkg bootstrap failed' }
       - name: Install WTL using only this overlay port
         shell: pwsh
         run: |
