@@ -79,6 +79,9 @@ jobs:
           $coldRoot = Join-Path $env:RUNNER_TEMP 'wtl10-overlay-installed'
           $warmRoot = Join-Path $env:RUNNER_TEMP 'wtl10-overlay-warm'
           $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,read"
+          # Force classic mode as in the cold install. Workflow steps start in
+          # the repository root, which has an unrelated generic vcpkg manifest.
+          Set-Location $env:RUNNER_TEMP
           foreach ($triplet in @('x64-windows-static', 'qigao-wtl10-headers')) {
             $args_ = @('install', "wtl:$triplet", '--only-binarycaching',
               "--overlay-ports=$env:VCPKG_OVERLAY_PORTS",
