@@ -98,7 +98,7 @@ if(VCPKG_TARGET_IS_MINGW AND
     endif()
     vcpkg_replace_string("${_libpq_getopt_header}"
         "#include \"pg_getopt.h\""
-        "#include \"pg_getopt.h\"\\n#if defined(__clang__) && defined(__MINGW64__)\\n#include <getopt.h>\\n#endif")
+        "#include \"pg_getopt.h\"\n#if defined(__clang__) && defined(__MINGW64__)\n#include <getopt.h>\n#endif")
 
     # The toolchain's native winpthread already declares pthread_barrier_t
     # and the barrier API in pthread.h. Make the real linker admission
