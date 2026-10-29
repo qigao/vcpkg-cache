@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "qigao/salts-core",
+    "commit": "9b58347acdc293b11607fe45404eae78e4817de6",
+    "manifest_blob": "b76062ac20b6b8d63e8befbe312ba0fd6e761c8c",
+    "registry_blob": "cc062a6834362391158522c2c0c874fe1681eafb",
+    "feature": "cnet"
+  },
+  "cache": {
+    "repository": "qigao/vcpkg-cache",
+    "source_commit": "7bb5b556a001bc82d2922a04a718e986a7f47f54",
+    "contract_version": "8",
+    "revision": "07d8fa1d31497569a71781b6b64fb772c0dba4634cb0d0ecf48024ddd4aa2a56",
+    "vcpkg_scripts": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4",
+    "vcpkg_tool": "2026-07-27-98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8"
+  },
+  "target": {
+    "runner": "windows-2025",
+    "triplet": "x64-windows",
+    "host_triplet": "x64-windows",
+    "vs_version": "18.11.1",
+    "vctools_version": "14.51.36231"
+  },
+  "packages": [
+    {
+      "id": "vcpkg-cmake-config_x64-windows",
+      "version": "2024.5.23-vcpkg0913e290448ef5e50c51f4f14234744a8a83706bd1f1d47e1f1013cbfb41a5ea"
+    },
+    {
+      "id": "vcpkg-cmake_x64-windows",
+      "version": "2024.4.23-vcpkg8e88f256a54c1ea5e402d03cb254f9c34e3bf3a0377ceec5d1f48ab342b32d15"
+    },
+    {
+      "id": "c-ares_x64-windows",
+      "version": "1.34.5-vcpkgb09b56e17535bca0b74dcd14b4111cec402ff2792c30ac777f571c87411274ec"
+    },
+    {
+      "id": "gmssl_x64-windows",
+      "version": "3.2.0-vcpkgf3a6a8b2f5e73b6f264f3af1af568f630ef0ee3300bd3243f6430ef197fe5a24"
+    },
+    {
+      "id": "kcp_x64-windows",
+      "version": "1.7.0-vcpkg553935216e4b342bf4500abb619a90295000bce699817dea9cf976d2ddba60e2"
+    },
+    {
+      "id": "vcpkg-cmake-get-vars_x64-windows",
+      "version": "2025.5.29-vcpkg10f443c75e7f87d69838958eff20ea65cf0c8436679991ba61c564481220e563"
+    },
+    {
+      "id": "vcpkg-tool-meson_x64-windows",
+      "version": "1.9.0-vcpkg7648d58aa7b9c2877236c88f6d6f0e947143e3486eb2b123b850be30dc30a235"
+    },
+    {
+      "id": "pkgconf_x64-windows",
+      "version": "2.5.1-vcpkg10ffd4e7048f434036057d077e2cef31c912beae3c141ee6a997c1f41ea9cdb9"
+    },
+    {
+      "id": "simde_x64-windows",
+      "version": "0.8.2-vcpkg2cf06476977a8a2b2dc0156bfda1ef0eeb0d2d3520418553ecc97a25ec2938e5"
+    }
+  ]
+}
