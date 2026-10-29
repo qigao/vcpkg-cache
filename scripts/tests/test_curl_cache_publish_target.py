@@ -2,6 +2,7 @@
 from pathlib import Path
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -200,6 +201,57 @@ class CoreArm64SourceProofTests(unittest.TestCase):
             with mock.patch.object(proof, "run", side_effect=[identity["commit"], "0" * 64]):
                 with self.assertRaisesRegex(ValueError, "actual infrastructure contract differs"):
                     proof.verify_infrastructure(infrastructure)
+
+    def test_install_child_unsets_system_flag_without_changing_bootstrap(self):
+        observed = self.root / "child-environment.json"
+        child = self.root / "observe.py"
+        child.write_text(
+            "import json, os, pathlib, sys\n"
+            "pathlib.Path(sys.argv[1]).write_text(json.dumps({\n"
+            " 'system_present': 'VCPKG_FORCE_SYSTEM_BINARIES' in os.environ,\n"
+            " 'downloaded': os.environ.get('VCPKG_FORCE_DOWNLOADED_BINARIES'),\n"
+            " 'binary_sources': os.environ.get('VCPKG_BINARY_SOURCES'),\n"
+            " 'arguments': sys.argv[2:]}))\n"
+            "sys.exit(17)\n")
+        environment = dict(os.environ, VCPKG_ROOT=str(self.root),
+                           VCPKG_FORCE_SYSTEM_BINARIES="1", VCPKG_FORCE_DOWNLOADED_BINARIES="1",
+                           VCPKG_BINARY_SOURCES="clear;files,fixture-source-cache,write")
+        original_environment = environment.copy()
+        arguments = ["install", "--dry-run", "--x-install-root=" + str(self.root / "fresh")]
+        real_run = subprocess.run
+
+        def observe_child(command, *, env, check):
+            # Execute a real child to test environment transport and exit status;
+            # this fixture does not claim to compile or compute a native ABI.
+            return real_run([sys.executable, "-B", str(child), str(observed), *command],
+                            env=env, check=check)
+
+        with mock.patch.object(proof.subprocess, "run", side_effect=observe_child):
+            self.assertEqual(proof.run_vcpkg_install(["--", *arguments], environment), 17)
+        result = json.loads(observed.read_text())
+        self.assertFalse(result["system_present"])
+        self.assertEqual(result["downloaded"], "1")
+        self.assertEqual(result["binary_sources"], environment["VCPKG_BINARY_SOURCES"])
+        self.assertEqual(result["arguments"], [str(self.root / "vcpkg"), *arguments])
+        self.assertEqual(environment, original_environment)
+
+    def test_install_adapter_rejects_changed_bootstrap_and_other_commands(self):
+        environment = {"VCPKG_FORCE_SYSTEM_BINARIES": "1", "VCPKG_FORCE_DOWNLOADED_BINARIES": "1"}
+        with mock.patch.object(proof.subprocess, "run") as child:
+            for key in environment:
+                for value in (None, "0", ""):
+                    altered = environment.copy()
+                    if value is None:
+                        del altered[key]
+                    else:
+                        altered[key] = value
+                    with self.subTest(key=key, value=value), self.assertRaisesRegex(
+                            ValueError, "original ARM64 bootstrap environment differs"):
+                        proof.run_vcpkg_install(["install"], altered)
+            for command in ([], ["x-add-version"], ["--publish"]):
+                with self.subTest(command=command), self.assertRaisesRegex(ValueError, "limited to vcpkg install"):
+                    proof.run_vcpkg_install(command, environment)
+            child.assert_not_called()
 
     def test_404_observation_does_not_claim_absent_publication_or_success(self):
         feed = mock.Mock()

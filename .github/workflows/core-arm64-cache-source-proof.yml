@@ -105,17 +105,23 @@ jobs:
           args=(install "--x-manifest-root=$manifest" --triplet=arm64-linux --host-triplet=arm64-linux
                 --x-feature=simd --x-feature=usb --x-feature=playback --x-feature=capture --x-feature=zstd)
           test ! -e "$proof/abi-before"
-          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/abi-before" \
+          python scripts/ci/core-arm64-cache-source-proof.py vcpkg-install -- "${args[@]}" "--x-install-root=$proof/abi-before" \
             --dry-run "--x-write-nuget-packages-config=$proof/before.config" 2>&1 | tee "$proof/plan-before.log"
           python scripts/ci/core-arm64-cache-source-proof.py plan --plan "$proof/before.config"
+          # The first plan acquires CMake. A second empty install root must
+          # retain all original ABIs with that same tool now cached.
+          test ! -e "$proof/abi-cached-tools"
+          python scripts/ci/core-arm64-cache-source-proof.py vcpkg-install -- "${args[@]}" "--x-install-root=$proof/abi-cached-tools" \
+            --dry-run "--x-write-nuget-packages-config=$proof/cached-tools.config" 2>&1 | tee "$proof/plan-cached-tools.log"
+          python scripts/ci/core-arm64-cache-source-proof.py plan --plan "$proof/cached-tools.config"
           python -c 'import os,pathlib; p=pathlib.Path(os.environ["VCPKG_BINARY_CACHE"]); assert not any(p.iterdir()), "source L1 was not empty"'
           test ! -e "$proof/source-install"
-          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/source-install" \
+          python scripts/ci/core-arm64-cache-source-proof.py vcpkg-install -- "${args[@]}" "--x-install-root=$proof/source-install" \
             2>&1 | tee "$proof/source-build.log"
           # A fresh post-build probe cannot omit packages because they were
           # already installed in the real source-build directory.
           test ! -e "$proof/abi-after"
-          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/abi-after" \
+          python scripts/ci/core-arm64-cache-source-proof.py vcpkg-install -- "${args[@]}" "--x-install-root=$proof/abi-after" \
             --dry-run "--x-write-nuget-packages-config=$proof/packages.config" 2>&1 | tee "$proof/plan-after.log"
           python scripts/ci/core-arm64-cache-source-proof.py cache \
             --plan "$proof/packages.config" --cache "$VCPKG_BINARY_CACHE" \
@@ -200,14 +206,18 @@ jobs:
           args=(install "--x-manifest-root=$PWD/cache-contracts/salts-core-arm64" --triplet=arm64-linux --host-triplet=arm64-linux
                 --x-feature=simd --x-feature=usb --x-feature=playback --x-feature=capture --x-feature=zstd)
           test ! -e "$proof/abi-probe"
-          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/abi-probe" \
+          python scripts/ci/core-arm64-cache-source-proof.py vcpkg-install -- "${args[@]}" "--x-install-root=$proof/abi-probe" \
             --dry-run "--x-write-nuget-packages-config=$proof/packages.config" 2>&1 | tee "$proof/plan.log"
           python scripts/ci/core-arm64-cache-source-proof.py plan --plan "$proof/packages.config"
+          test ! -e "$proof/abi-cached-tools"
+          python scripts/ci/core-arm64-cache-source-proof.py vcpkg-install -- "${args[@]}" "--x-install-root=$proof/abi-cached-tools" \
+            --dry-run "--x-write-nuget-packages-config=$proof/cached-tools.config" 2>&1 | tee "$proof/plan-cached-tools.log"
+          python scripts/ci/core-arm64-cache-source-proof.py plan --plan "$proof/cached-tools.config"
           python -c 'import os,pathlib; p=pathlib.Path(os.environ["VCPKG_BINARY_CACHE"]); assert not any(p.iterdir()), "reader L1 was not empty"'
           python _abi_infrastructure/scripts/github-packages.py cache "$proof/packages.config" "$VCPKG_BINARY_CACHE" \
             2>&1 | tee "$proof/exact-restore.log"
           test ! -e "$proof/installed"
-          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/installed" --only-binarycaching \
+          python scripts/ci/core-arm64-cache-source-proof.py vcpkg-install -- "${args[@]}" "--x-install-root=$proof/installed" --only-binarycaching \
             2>&1 | tee "$proof/binary-only-install.log"
           python scripts/ci/core-arm64-cache-source-proof.py cache \
             --plan "$proof/packages.config" --cache "$VCPKG_BINARY_CACHE" \

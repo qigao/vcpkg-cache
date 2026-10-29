@@ -22,6 +22,9 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "cache-contracts/salts-core-arm64"
 LOCK_SHA256 = "aa2bcd509ae4266813b7097048bfa5ef184fbb51c40874314684082b30b38b79"
+TOOL_VERSION_SOURCE = (
+    "https://github.com/microsoft/vcpkg-tool/blob/"
+    "98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8/src/vcpkg/tools.cpp#L1069-L1193")
 SPEC = importlib.util.spec_from_file_location(
     "core_arm64_native_payload", ROOT / "scripts/publish-vcpkg-curl-cache.py")
 assert SPEC and SPEC.loader
@@ -84,6 +87,27 @@ def tree_bytes(root):
             for p in root.rglob("*") if p.is_file()}
 
 
+def effective_vcpkg_environment(environment=None):
+    env = dict(os.environ if environment is None else environment)
+    for key in ("VCPKG_FORCE_SYSTEM_BINARIES", "VCPKG_FORCE_DOWNLOADED_BINARIES"):
+        require(env.get(key) == "1", "original ARM64 bootstrap environment differs: " + key)
+    # The pinned tool reports cached tools as version "0" when this variable
+    # exists, even with FORCE_DOWNLOADED=1. Keep the same downloaded tools but
+    # retain real version detection on every install invocation. Setting "0"
+    # would not work: vcpkg checks variable presence, not its value.
+    del env["VCPKG_FORCE_SYSTEM_BINARIES"]
+    return env
+
+
+def run_vcpkg_install(arguments, environment=None):
+    if arguments[:1] == ["--"]:
+        arguments = arguments[1:]
+    require(arguments[:1] == ["install"], "proof tool execution is limited to vcpkg install")
+    env = effective_vcpkg_environment(environment)
+    return subprocess.run([str(Path(env["VCPKG_ROOT"]) / "vcpkg"), *arguments],
+                          env=env, check=False).returncode
+
+
 def verify_inputs(infrastructure, environment=None):
     lock = load_contract()
     env = os.environ if environment is None else environment
@@ -114,8 +138,16 @@ def verify_inputs(infrastructure, environment=None):
                 "unexpected ABI overlay path: " + variable)
         require(tree_bytes(assets / directory) == tree_bytes(infrastructure / directory),
                 "actual ABI overlay bytes differ: " + directory)
+    effective = effective_vcpkg_environment(env)
     return {"scope": "read-only-source-proof", "product": lock["product"],
-            "infrastructure": identity, "environment": expected,
+            "infrastructure": identity, "bootstrap_environment": expected,
+            "effective_vcpkg_environment": {key: effective[key] for key in expected if key in effective},
+            "tool_environment_correction": {
+                "removed_variable": "VCPKG_FORCE_SYSTEM_BINARIES",
+                "reason": "Preserve real versions of the same downloaded tools on repeated install invocations",
+                "implementation_source": TOOL_VERSION_SOURCE,
+                "observed_failure": "https://github.com/qigao/vcpkg-cache/actions/runs/40852469213/job/123375098434",
+            },
             "cc": run("cc", "--version"), "cxx": run("c++", "--version"),
             "re2c": run(str(Path(env["RE2C_ROOT"]) / "bin/re2c"), "--version")}
 
@@ -247,13 +279,17 @@ def main():
     item.add_argument("--output", type=Path, required=True)
     item = commands.add_parser("plan")
     item.add_argument("--plan", type=Path, required=True)
+    item = commands.add_parser("vcpkg-install")
+    item.add_argument("arguments", nargs=argparse.REMAINDER)
     item = commands.add_parser("cache")
     item.add_argument("--plan", type=Path, required=True)
     item.add_argument("--cache", type=Path, required=True)
     item.add_argument("--output", type=Path, required=True)
     item.add_argument("--compare", type=Path)
     args = parser.parse_args()
-    if args.command == "infrastructure":
+    if args.command == "vcpkg-install":
+        raise SystemExit(run_vcpkg_install(args.arguments))
+    elif args.command == "infrastructure":
         result = verify_infrastructure(args.infrastructure)
     elif args.command == "inputs":
         result = verify_inputs(args.infrastructure)

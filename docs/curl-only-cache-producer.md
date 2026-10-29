@@ -128,6 +128,36 @@ host input is `Qigao.Re2c.Binary/4.6.4`, SHA256
 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`.
 The newer repository's overlays and floating package lookup are not used.
 
+### Stable tool version reporting on repeated installs
+
+[Proof run 40852469213](https://github.com/qigao/vcpkg-cache/actions/runs/40852469213/job/123375098434)
+at `02fbb13eb468404ba28d5f1956b77f83d0f916b1` remains a failed qualification.
+Its first plan matched all 14 original ABIs and all 14 source builds completed,
+but the later invocations recorded `cmake 0` instead of `cmake 4.4.2` in their
+ABI inputs. The retained CMakeCache files show the same downloaded CMake 4.4.2
+executable. The diagnostic artifact SHA256 is
+`1f8b54644c3dbeb4b719dc570774b85e3fb6f21dcee5963bf100f52d5f06d0d9`.
+
+The [pinned vcpkg tool implementation](https://github.com/microsoft/vcpkg-tool/blob/98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8/src/vcpkg/tools.cpp#L1069-L1193)
+disables version detection when `VCPKG_FORCE_SYSTEM_BINARIES` is present.
+With both ARM64 bootstrap flags set, a newly downloaded tool reports its actual
+version, while the same cached tool is subsequently assigned version `0`.
+
+The original bootstrap environment and its checks remain unchanged. Only formal
+`vcpkg install` children use the proof's `vcpkg-install` adapter, which copies that
+environment, removes `VCPKG_FORCE_SYSTEM_BINARIES`, and retains
+`VCPKG_FORCE_DOWNLOADED_BINARIES=1`. Setting the former to `0` would still trigger
+the defect. `inputs.json` records `bootstrap_environment` and
+`effective_vcpkg_environment` separately, with the reason and implementation
+reference. The same fixed downloaded tools, scripts, overlays and original
+14-package ABI lock remain required; no cache metadata is rewritten.
+
+Both jobs run a second dry-run in a new, empty install root after the first plan
+has acquired CMake. That cached-tool plan must again match every original ABI
+before source compilation or binary-only installation can start. A new CI run
+must verify the corrected source ZIPs and strict remote read-back; this correction
+does not make the old run valid or resolve any package's observed HTTP 404.
+
 Two jobs keep source proof and remote availability distinct:
 
 1. `source-proof` first issues authenticated GETs for the four exact targets with
