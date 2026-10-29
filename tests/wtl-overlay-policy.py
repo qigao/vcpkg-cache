@@ -33,7 +33,7 @@ def check():
         errors.append("WTL target-platform contract changed")
     for fragment in (REVISION, SHA512, "vcpkg_download_distfile(",
                      "vcpkg_extract_source_archive(", "Include/", "Samples",
-                     "AppWizard", "MS-PL.txt", "openatl-wtl-source.txt",
+                     "AppWizard", "MS-PL.txt", "openatl-wtl-source.txt", "NO_REMOVE_ONE_LEVEL",
                      *("PATCHES", "atlmisc.h-bug329.patch", "atlribbon.h-wtl66.patch")):
         if fragment not in recipe:
             errors.append("WTL source/installation contract missing: " + fragment)

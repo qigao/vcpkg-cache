@@ -9,6 +9,7 @@ vcpkg_download_distfile(WTL_ARCHIVE
 vcpkg_extract_source_archive(
     SOURCE_PATH
     ARCHIVE "${WTL_ARCHIVE}"
+    NO_REMOVE_ONE_LEVEL
     PATCHES
         appwizard_setup.js-vs2022.patch
         atlmisc.h-bug329.patch

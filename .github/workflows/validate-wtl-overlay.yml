@@ -42,6 +42,16 @@ jobs:
             "--overlay-ports=$env:VCPKG_OVERLAY_PORTS" `
             "--x-install-root=$root"
           if ($LASTEXITCODE -ne 0) { throw 'WTL vcpkg install failed' }
+          $headerArgs = @('install', 'wtl:qigao-wtl10-headers',
+            "--overlay-ports=$env:VCPKG_OVERLAY_PORTS",
+            "--overlay-triplets=$env:VCPKG_OVERLAY_TRIPLETS",
+            "--x-install-root=$root")
+          & "$env:VCPKG_ROOT/vcpkg.exe" @headerArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Header-only cross-triplet WTL install failed' }
+          $headerPrefix = Join-Path $root "qigao-wtl10-headers/include"
+          if (!(Test-Path (Join-Path $headerPrefix "atlapp.h"))) {
+            throw 'Header-only cross-triplet WTL headers missing'
+          }
           $include = Join-Path $root "x64-windows-static/include"
           $share = Join-Path $root "x64-windows-static/share/wtl"
           foreach ($name in @('atlapp.h','atlframe.h','atlctrls.h','atldlgs.h','atlmisc.h','atlribbon.h')) {
