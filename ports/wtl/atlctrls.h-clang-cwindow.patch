@@ -1,0 +1,52 @@
+--- a/Include/atlctrls.h
++++ b/Include/atlctrls.h
+@@ -188,13 +188,24 @@
+ // Constructors
+ 	CButtonT(HWND hWnd = NULL) : TBase(hWnd)
+ 	{ }
+ 
+ 	CButtonT< TBase >& operator =(HWND hWnd)
+ 	{
+ 		this->m_hWnd = hWnd;
+ 		return *this;
+ 	}
++
++#if defined(__MINGW32__)
++	CButtonT(const ATL::CWindow& window) : TBase(window.m_hWnd)
++	{ }
++
++	CButtonT< TBase >& operator =(const ATL::CWindow& window)
++	{
++		this->m_hWnd = window.m_hWnd;
++		return *this;
++	}
++#endif
+ 
+ 	HWND Create(HWND hWndParent, ATL::_U_RECT rect = NULL, LPCTSTR szWindowName = NULL,
+ 			DWORD dwStyle = 0, DWORD dwExStyle = 0,
+ 			ATL::_U_MENUorID MenuOrID = 0U, LPVOID lpCreateParam = NULL)
+@@ -1095,13 +1106,24 @@
+ // Constructors
+ 	CEditT(HWND hWnd = NULL) : TBase(hWnd)
+ 	{ }
+ 
+ 	CEditT< TBase >& operator =(HWND hWnd)
+ 	{
+ 		this->m_hWnd = hWnd;
+ 		return *this;
+ 	}
++
++#if defined(__MINGW32__)
++	CEditT(const ATL::CWindow& window) : TBase(window.m_hWnd)
++	{ }
++
++	CEditT< TBase >& operator =(const ATL::CWindow& window)
++	{
++		this->m_hWnd = window.m_hWnd;
++		return *this;
++	}
++#endif
+ 
+ 	HWND Create(HWND hWndParent, ATL::_U_RECT rect = NULL, LPCTSTR szWindowName = NULL,
+ 			DWORD dwStyle = 0, DWORD dwExStyle = 0,
+ 			ATL::_U_MENUorID MenuOrID = 0U, LPVOID lpCreateParam = NULL)

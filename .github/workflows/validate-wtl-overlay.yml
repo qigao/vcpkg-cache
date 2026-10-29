@@ -67,6 +67,13 @@ jobs:
               $ribbon.Contains('this->UIRemoveElement<')) {
             throw 'Unpatched dependent-template syntax remains in pinned WTL'
           }
+          $controls = Get-Content (Join-Path $include 'atlctrls.h') -Raw
+          foreach ($name in @('CButtonT','CEditT')) {
+            if (!$controls.Contains("$name(const ATL::CWindow& window)") -or
+                !$controls.Contains("$name< TBase >& operator =(const ATL::CWindow& window)")) {
+              throw "WTL Clang original control HWND borrow ctor/assignment missing: $name"
+            }
+          }
           $ctrlw = Get-Content (Join-Path $include 'atlctrlw.h') -Raw
           if ($ctrlw.Split('szString[T::_nMaxMenuItemTextLength]').Length -ne 4 -or
               $ctrlw.Contains('szString[pT->_nMaxMenuItemTextLength]')) {

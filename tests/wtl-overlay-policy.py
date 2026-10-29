@@ -19,6 +19,7 @@ def check():
     for name in ("vcpkg.json", "portfile.cmake", "atlmisc.h-bug329.patch",
                  "atlribbon.h-wtl66.patch", "atlribbon.h-clang-std.patch",
                  "atlctrlw.h-clang-bounds.patch", "atlctrlx.h-clang-bounds.patch",
+                 "atlctrls.h-clang-cwindow.patch",
                  "appwizard_setup.js-vs2022.patch"):
         if not (PORT / name).is_file():
             errors.append("missing port input: " + name)
@@ -39,7 +40,8 @@ def check():
                      *("PATCHES", "atlmisc.h-bug329.patch", "atlribbon.h-wtl66.patch",
                         "atlribbon.h-clang-std.patch",
                         "atlctrlw.h-clang-bounds.patch",
-                        "atlctrlx.h-clang-bounds.patch")):
+                        "atlctrlx.h-clang-bounds.patch",
+                        "atlctrls.h-clang-cwindow.patch")):
         if fragment not in recipe:
             errors.append("WTL source/installation contract missing: " + fragment)
     # Clang standard parsing correction: four dependent-template calls,
@@ -66,6 +68,13 @@ def check():
         if (source.count(old) != expected or source.count(new) != expected or
                 source.count("\n-") != expected or source.count("\n+") != expected + 1):
             errors.append("WTL Clang constant-bound correction changed: " + filename)
+    borrow_patch = (PORT / "atlctrls.h-clang-cwindow.patch").read_text("utf-8")
+    for name in ("CButtonT", "CEditT"):
+        if (f"{name}(const ATL::CWindow& window)" not in borrow_patch or
+                f"{name}< TBase >& operator =(const ATL::CWindow& window)" not in borrow_patch):
+            errors.append("WTL explicit window borrow constructor/assignment missing for " + name)
+    if borrow_patch.count("#if defined(__MINGW32__)") != 2:
+        errors.append("WTL Clang borrow patch must not affect MSVC/public legacy API")
     if any(token in recipe for token in ("downloads.sourceforge.net",
                                        "vcpkg_from_sourceforge(", "file(REMOVE",
                                        "file(REMOVE_RECURSE", "FetchContent_Declare(")):
