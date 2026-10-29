@@ -64,7 +64,7 @@ def check():
     ):
         source = (PORT / filename).read_text("utf-8")
         if (source.count(old) != expected or source.count(new) != expected or
-                source.count("\n-") != expected or source.count("\n+") != expected + 2):
+                source.count("\n-") != expected or source.count("\n+") != expected + 1):
             errors.append("WTL Clang constant-bound correction changed: " + filename)
     if any(token in recipe for token in ("downloads.sourceforge.net",
                                        "vcpkg_from_sourceforge(", "file(REMOVE",
