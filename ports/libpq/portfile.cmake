@@ -67,6 +67,25 @@ endif()
 vcpkg_cmake_get_vars(cmake_vars_file)
 include("${cmake_vars_file}")
 
+# Clang's __builtin_setjmp/longjmp require a pointer buffer (void **),
+# but PostgreSQL 16.9's MinGW fallback defines sigjmp_buf as
+# intptr_t[5]. GCC accepts the original, while llvm-mingw Clang 23
+# rejects it as incompatible pointer types. A pointer[5] has the same
+# size/alignment as intptr_t[5] on the selected Win64 ABI, preserving
+# the five-slot builtin storage and paired longjmp behavior.
+if(VCPKG_TARGET_IS_MINGW AND
+   VCPKG_DETECTED_CMAKE_C_COMPILER MATCHES "clang(\\.exe)?$")
+    set(_libpq_jump_header "${SOURCE_PATH}/src/include/c.h")
+    file(READ "${_libpq_jump_header}" _libpq_jump_source)
+    string(FIND "${_libpq_jump_source}" "typedef intptr_t sigjmp_buf[5];" _libpq_jump_pos)
+    if(_libpq_jump_pos EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL MinGW sigjmp_buf declaration changed")
+    endif()
+    vcpkg_replace_string("${_libpq_jump_header}"
+        "typedef intptr_t sigjmp_buf[5];"
+        "typedef void *sigjmp_buf[5];")
+endif()
+
 set(required_programs BISON FLEX)
 if(VCPKG_DETECTED_MSVC OR NOT VCPKG_HOST_IS_WINDOWS)
     list(APPEND required_programs PERL)
