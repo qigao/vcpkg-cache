@@ -120,14 +120,23 @@ else()
     if(VCPKG_DETECTED_CMAKE_OSX_SYSROOT)
         list(APPEND BUILD_OPTS "PG_SYSROOT=${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}")
     endif()
+    # The fixed 2023c MSYS2 tzcode archive no longer exists on any
+    # published mirror. It is a *host-side* timezone-tool dependency for
+    # PostgreSQL's optional client tools, not the libpq C client library.
+    # Keep it when those tools are selected; never request a missing
+    # archive for the ordinary libpq-only / no-ssl Studio build.
+    vcpkg_list(SET _libpq_tool_tzcode)
+    if(HAS_TOOLS)
+        vcpkg_list(APPEND _libpq_tool_tzcode DIRECT_PACKAGES
+            "https://mirror.msys2.org/msys/x86_64/tzcode-2023c-1-x86_64.pkg.tar.zst"
+            7550b843964744607f736a7138f10c6cd92489406a1b84ac71d9a9d8aa16bc69048aa1b24e1f49291b010347047008194c334ca9c632e17fa8245e85549e3c7a)
+    endif()
     vcpkg_configure_make(
         SOURCE_PATH "${SOURCE_PATH}"
         COPY_SOURCE
         AUTOCONFIG
         ADDITIONAL_MSYS_PACKAGES autoconf-archive
-            DIRECT_PACKAGES
-                "https://mirror.msys2.org/msys/x86_64/tzcode-2023c-1-x86_64.pkg.tar.zst"
-                7550b843964744607f736a7138f10c6cd92489406a1b84ac71d9a9d8aa16bc69048aa1b24e1f49291b010347047008194c334ca9c632e17fa8245e85549e3c7a
+            ${_libpq_tool_tzcode}
         OPTIONS
             ${BUILD_OPTS}
         OPTIONS_DEBUG
