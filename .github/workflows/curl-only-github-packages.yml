@@ -229,14 +229,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-re2c-tools
+        with:
+          version: "4.6.4"
+          sha256: "9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269"
       - name: Require exact host binary and Unicode data from package
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:RE2C_ROOT -or -not $env:RE2C_PACKAGE_VERSION) { throw 'Missing verified re2c package identity' }
+          if (-not $env:RE2C_ROOT -or $env:RE2C_PACKAGE_VERSION -ne '4.6.4' -or
+              $env:RE2C_PACKAGE_SHA256 -ne '9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269') {
+            throw 'Missing or incorrect verified re2c package version/SHA-256'
+          }
           $exe = Join-Path $env:RE2C_ROOT ('bin/re2c' + $(if ($IsWindows) { '.exe' } else { '' }))
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Missing package-owned re2c binary' }
-          foreach ($member in @('share/re2c/stdlib/unicode_categories.re','share/re2c/stdlib/unicode_properties.re')) {
+          foreach ($member in @('share/re2c/stdlib/syntax/c','share/re2c/stdlib/unicode_categories.re','share/re2c/stdlib/unicode_properties.re')) {
             if (-not (Test-Path -LiteralPath (Join-Path $env:RE2C_ROOT $member))) { throw "Missing standard Unicode data: $member" }
           }
           & $exe --version

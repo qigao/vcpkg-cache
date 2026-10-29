@@ -4,13 +4,11 @@ on:
   pull_request:
     paths:
       - "packaging/re2c/**"
-      - ".github/actions/setup-re2c-tools/**"
       - ".github/workflows/re2c-tools-package.yml"
   push:
     branches: [master]
     paths:
       - "packaging/re2c/**"
-      - ".github/actions/setup-re2c-tools/**"
       - ".github/workflows/re2c-tools-package.yml"
   workflow_dispatch:
 
@@ -18,21 +16,28 @@ permissions:
   contents: read
 
 env:
-  RE2C_UPSTREAM_TAG: "4.6"
-  RE2C_PACKAGE_VERSION: "4.6.4"
+  # Upstream re2c 4.6. Never let a moved tag silently change a host package.
+  RE2C_UPSTREAM_COMMIT: "e485c5d572ab8a9f895b2a3c98e5239bf59254c8"
+  RE2C_PACKAGE_VERSION: "4.6.5"
 
 jobs:
   linux:
-    name: Linux x64
-    runs-on: ubuntu-latest
+    name: Linux x64 (Ubuntu 22.04 / GCC 11 floor)
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch re2c 4.6
-        run: git clone --depth 1 --branch "$RE2C_UPSTREAM_TAG" https://github.com/skvadrik/re2c.git upstream/re2c
+      - name: Fetch exact re2c 4.6 source
+        uses: actions/checkout@v4
+        with:
+          repository: skvadrik/re2c
+          ref: ${{ env.RE2C_UPSTREAM_COMMIT }}
+          path: upstream/re2c
+          persist-credentials: false
       - name: Configure
         run: >-
           cmake -S upstream/re2c -B build/re2c -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=/usr/bin/gcc-11 -DCMAKE_CXX_COMPILER=/usr/bin/g++-11
           -DRE2C_BUILD_RE2D=OFF -DRE2C_BUILD_RE2GO=OFF -DRE2C_BUILD_RE2HS=OFF
           -DRE2C_BUILD_RE2JAVA=OFF -DRE2C_BUILD_RE2JS=OFF -DRE2C_BUILD_RE2OCAML=OFF
           -DRE2C_BUILD_RE2PY=OFF -DRE2C_BUILD_RE2RUST=OFF -DRE2C_BUILD_RE2SWIFT=OFF
@@ -46,7 +51,7 @@ jobs:
           cp -a upstream/re2c/include/. stage/package-tools/linux-x64/share/re2c/stdlib/
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-binary-linux-x64
+          name: re2c-binary-host-linux-x64
           path: stage/package-tools
           if-no-files-found: error
 
@@ -55,8 +60,13 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch re2c 4.6
-        run: git clone --depth 1 --branch "$RE2C_UPSTREAM_TAG" https://github.com/skvadrik/re2c.git upstream/re2c
+      - name: Fetch exact re2c 4.6 source
+        uses: actions/checkout@v4
+        with:
+          repository: skvadrik/re2c
+          ref: ${{ env.RE2C_UPSTREAM_COMMIT }}
+          path: upstream/re2c
+          persist-credentials: false
       - name: Configure
         run: >-
           cmake -S upstream/re2c -B build/re2c -G Ninja
@@ -77,7 +87,7 @@ jobs:
           cp -a upstream/re2c/include/. stage/package-tools/linux-arm64/share/re2c/stdlib/
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-binary-linux-arm64
+          name: re2c-binary-host-linux-arm64
           path: stage/package-tools
           if-no-files-found: error
 
@@ -86,8 +96,13 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch re2c 4.6
-        run: git clone --depth 1 --branch "$RE2C_UPSTREAM_TAG" https://github.com/skvadrik/re2c.git upstream/re2c
+      - name: Fetch exact re2c 4.6 source
+        uses: actions/checkout@v4
+        with:
+          repository: skvadrik/re2c
+          ref: ${{ env.RE2C_UPSTREAM_COMMIT }}
+          path: upstream/re2c
+          persist-credentials: false
       - name: Configure
         run: >-
           cmake -S upstream/re2c -B build/re2c -G Ninja
@@ -112,7 +127,7 @@ jobs:
           cp -a upstream/re2c/include/. "stage/package-tools/$rid/share/re2c/stdlib/"
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-binary-macos
+          name: re2c-binary-host-macos
           path: stage/package-tools
           if-no-files-found: error
 
@@ -121,9 +136,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch re2c 4.6
-        shell: pwsh
-        run: git clone --depth 1 --branch $env:RE2C_UPSTREAM_TAG https://github.com/skvadrik/re2c.git upstream/re2c
+      - name: Fetch exact re2c 4.6 source
+        uses: actions/checkout@v4
+        with:
+          repository: skvadrik/re2c
+          ref: ${{ env.RE2C_UPSTREAM_COMMIT }}
+          path: upstream/re2c
+          persist-credentials: false
       - name: Configure
         shell: pwsh
         run: |
@@ -143,7 +162,7 @@ jobs:
           Copy-Item ".\upstream\re2c\include\*" ".\stage\package-tools\windows-x64\share\re2c\stdlib" -Recurse
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-binary-windows-x64
+          name: re2c-binary-host-windows-x64
           path: stage/package-tools
           if-no-files-found: error
 
@@ -151,27 +170,27 @@ jobs:
     name: Pack NuGet
     needs: [linux, linux-arm64, macos, windows]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: re2c-binary-*
+          pattern: re2c-binary-host-*
           path: package/tools
           merge-multiple: true
       - name: Verify payload
         shell: bash
         run: |
           set -euo pipefail
-          test -f package/tools/linux-x64/bin/re2c
-          test -f package/tools/linux-arm64/bin/re2c
-          test -f package/tools/windows-x64/bin/re2c.exe
-          test -f package/tools/linux-x64/share/re2c/stdlib/unicode_categories.re
-          test -f package/tools/linux-arm64/share/re2c/stdlib/unicode_categories.re
-          test -f package/tools/linux-x64/share/re2c/stdlib/unicode_properties.re
-          test -f package/tools/windows-x64/share/re2c/stdlib/unicode_categories.re
+          for rid in linux-x64 linux-arm64 macos-arm64 windows-x64; do
+            exe=re2c
+            if [ "$rid" = windows-x64 ]; then exe=re2c.exe; fi
+            test -f "package/tools/$rid/bin/$exe"
+            for data in unicode_categories.re unicode_properties.re syntax/c; do
+              test -f "package/tools/$rid/share/re2c/stdlib/$data"
+            done
+          done
+      - name: Test package ABI and layout guards
+        run: python3 -B -m unittest discover -s packaging/re2c -p 'test_*.py' -v
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -185,32 +204,80 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          nupkg="dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg"
-          unzip -Z1 "$nupkg" | sort | tee "$RUNNER_TEMP/re2c-nupkg.txt"
-          grep -Fx "tools/linux-x64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"
-          grep -Fx "tools/linux-arm64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"
-          grep -Fx "tools/windows-x64/bin/re2c.exe" "$RUNNER_TEMP/re2c-nupkg.txt"
-          grep -Fx "tools/linux-x64/share/re2c/stdlib/unicode_categories.re" "$RUNNER_TEMP/re2c-nupkg.txt"
-          grep -Fx "tools/linux-x64/share/re2c/stdlib/syntax/c" "$RUNNER_TEMP/re2c-nupkg.txt"
-          grep -Fx "tools/linux-arm64/share/re2c/stdlib/unicode_categories.re" "$RUNNER_TEMP/re2c-nupkg.txt"
-          grep -Fx "tools/linux-arm64/share/re2c/stdlib/syntax/c" "$RUNNER_TEMP/re2c-nupkg.txt"
-          if grep -Fxq "tools/macos-arm64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"; then
-            grep -Fx "tools/macos-arm64/share/re2c/stdlib/syntax/c" "$RUNNER_TEMP/re2c-nupkg.txt"
-          else
-            grep -Fx "tools/macos-x64/bin/re2c" "$RUNNER_TEMP/re2c-nupkg.txt"
-            grep -Fx "tools/macos-x64/share/re2c/stdlib/syntax/c" "$RUNNER_TEMP/re2c-nupkg.txt"
-          fi
+          PYTHONPATH=packaging/re2c python3 -B - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+          from verify_linux_package import package_layout
+          package = Path('dist') / f"Qigao.Re2c.Binary.{os.environ['RE2C_PACKAGE_VERSION']}.nupkg"
+          with ZipFile(package) as archive:
+              print('host_rids=' + ','.join(package_layout(archive)))
+          PY
+          sha256sum "dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg" | tee dist/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: re2c-binary-nuget
-          path: dist/*.nupkg
+          path: |
+            dist/*.nupkg
+            dist/SHA256SUMS
           if-no-files-found: error
+
+  linux-compatibility:
+    name: Packed Linux x64 / ${{ matrix.os }}
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: re2c-binary-nuget
+          path: dist
+      - name: Execute the packed host tool and generated Unicode C11 lexer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum --check dist/SHA256SUMS
+          python3 -B packaging/re2c/verify_linux_package.py \
+            --package "dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg" \
+            --version "$RE2C_PACKAGE_VERSION" \
+            --expected-host "${{ matrix.os }}" \
+            --work "$RUNNER_TEMP/re2c-package-compatibility" \
+            --report "evidence/${{ matrix.os }}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: re2c-linux-x64-compatibility-${{ matrix.os }}
+          path: evidence/*.json
+          if-no-files-found: error
+
+  publish:
+    name: Publish verified NuGet
+    needs: [pack, linux-compatibility]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: re2c-binary-nuget
+          path: dist
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
       - name: Publish to GitHub Packages
-        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Publish the exact package tested by both hosts, with no rebuild and
+          # no success-on-duplicate path for an older package with other bytes.
+          sha256sum --check dist/SHA256SUMS
           dotnet nuget add source --username qigao --password "$GITHUB_TOKEN" --store-password-in-clear-text --name github https://nuget.pkg.github.com/qigao/index.json
-          dotnet nuget push "dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github --skip-duplicate
+          dotnet nuget push "dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg" --api-key "$GITHUB_TOKEN" --source github
