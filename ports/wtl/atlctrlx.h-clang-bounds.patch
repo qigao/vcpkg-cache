@@ -1,0 +1,11 @@
+--- a/Include/atlctrlx.h
++++ b/Include/atlctrlx.h
+@@ -3048,7 +3048,7 @@
+ 		LVCompareParam* pParam = NULL;
+ 		ATLTRY(pParam = new LVCompareParam[nCount]);
+ 		PFNLVCOMPARE pFunc = NULL;
+-		TCHAR pszTemp[pT->m_cchCmpTextMax] = {};
++		TCHAR pszTemp[T::m_cchCmpTextMax] = {};
+ 		bool bStrValue = false;
+ 
+ 		switch(wType)

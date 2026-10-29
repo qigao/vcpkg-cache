@@ -67,6 +67,16 @@ jobs:
               $ribbon.Contains('this->UIRemoveElement<')) {
             throw 'Unpatched dependent-template syntax remains in pinned WTL'
           }
+          $ctrlw = Get-Content (Join-Path $include 'atlctrlw.h') -Raw
+          if ($ctrlw.Split('szString[T::_nMaxMenuItemTextLength]').Length -ne 4 -or
+              $ctrlw.Contains('szString[pT->_nMaxMenuItemTextLength]')) {
+            throw 'WTL Clang constexpr command-bar input capacities were not patched'
+          }
+          $ctrlx = Get-Content (Join-Path $include 'atlctrlx.h') -Raw
+          if (!$ctrlx.Contains('pszTemp[T::m_cchCmpTextMax]') -or
+              $ctrlx.Contains('pszTemp[pT->m_cchCmpTextMax]')) {
+            throw 'WTL Clang constexpr list-sort input capacity was not patched'
+          }
           foreach($symbol in @('class CServerAppModule','class CPrintDialogEx','class CRegProperty')) {
             # Preserve source by verifying original WTL full public API in
             # the installed headers, never by pruning problematic classes.

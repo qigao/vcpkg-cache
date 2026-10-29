@@ -18,6 +18,7 @@ def check():
     errors = []
     for name in ("vcpkg.json", "portfile.cmake", "atlmisc.h-bug329.patch",
                  "atlribbon.h-wtl66.patch", "atlribbon.h-clang-std.patch",
+                 "atlctrlw.h-clang-bounds.patch", "atlctrlx.h-clang-bounds.patch",
                  "appwizard_setup.js-vs2022.patch"):
         if not (PORT / name).is_file():
             errors.append("missing port input: " + name)
@@ -36,7 +37,9 @@ def check():
                      "vcpkg_extract_source_archive(", "Include/", "Samples",
                      "AppWizard", "MS-PL.txt", "openatl-wtl-source.txt", "NO_REMOVE_ONE_LEVEL",
                      *("PATCHES", "atlmisc.h-bug329.patch", "atlribbon.h-wtl66.patch",
-                        "atlribbon.h-clang-std.patch")):
+                        "atlribbon.h-clang-std.patch",
+                        "atlctrlw.h-clang-bounds.patch",
+                        "atlctrlx.h-clang-bounds.patch")):
         if fragment not in recipe:
             errors.append("WTL source/installation contract missing: " + fragment)
     # Clang standard parsing correction: four dependent-template calls,
@@ -51,6 +54,18 @@ def check():
         errors.append("WTL Clang corrections must preserve original APIs and const DECIMAL")
     if any(token in clang_patch for token in ("class CServerAppModule", "CRegProperty", "CPrintDialogEx")):
         errors.append("WTL Clang patch must not modify public COM/registry APIs")
+    for filename, expected, old, new in (
+        ("atlctrlw.h-clang-bounds.patch", 3,
+         "szString[pT->_nMaxMenuItemTextLength]",
+         "szString[T::_nMaxMenuItemTextLength]"),
+        ("atlctrlx.h-clang-bounds.patch", 1,
+         "pszTemp[pT->m_cchCmpTextMax]",
+         "pszTemp[T::m_cchCmpTextMax]"),
+    ):
+        source = (PORT / filename).read_text("utf-8")
+        if (source.count("-") < expected or source.count("+"+new) != expected or
+                source.count("-"+old) != expected):
+            errors.append("WTL Clang constant-bound correction changed: " + filename)
     if any(token in recipe for token in ("downloads.sourceforge.net",
                                        "vcpkg_from_sourceforge(", "file(REMOVE",
                                        "file(REMOVE_RECURSE", "FetchContent_Declare(")):

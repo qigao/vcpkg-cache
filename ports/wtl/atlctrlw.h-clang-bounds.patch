@@ -1,0 +1,29 @@
+--- a/Include/atlctrlw.h
++++ b/Include/atlctrlw.h
+@@ -509,7 +509,7 @@
+ 
+ 			T* pT = static_cast<T*>(this);
+ 			(void)pT;   // avoid level 4 warning
+-			TCHAR szString[pT->_nMaxMenuItemTextLength] = {};
++			TCHAR szString[T::_nMaxMenuItemTextLength] = {};
+ 			for(int i = 0; i < nItems; i++)
+ 			{
+ 				CMenuItemInfo mii;
+@@ -1271,7 +1271,7 @@
+ 
+ 			T* pT = static_cast<T*>(this);
+ 			(void)pT;   // avoid level 4 warning
+-			TCHAR szString[pT->_nMaxMenuItemTextLength] = {};
++			TCHAR szString[T::_nMaxMenuItemTextLength] = {};
+ 			BOOL bRet = FALSE;
+ 			for(int i = 0; i < menuPopup.GetMenuItemCount(); i++)
+ 			{
+@@ -1446,7 +1446,7 @@
+ 			int nCount = ::GetMenuItemCount(menu);
+ 			int nRetCode = MNC_EXECUTE;
+ 			BOOL bRet = FALSE;
+-			TCHAR szString[pT->_nMaxMenuItemTextLength] = {};
++			TCHAR szString[T::_nMaxMenuItemTextLength] = {};
+ 			WORD wMnem = 0;
+ 			bool bFound = false;
+ 			for(int i = 0; i < nCount; i++)

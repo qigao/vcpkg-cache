@@ -15,6 +15,8 @@ vcpkg_extract_source_archive(
         atlmisc.h-bug329.patch
         atlribbon.h-wtl66.patch
         atlribbon.h-clang-std.patch
+        atlctrlw.h-clang-bounds.patch
+        atlctrlx.h-clang-bounds.patch
 )
 if(NOT EXISTS "${SOURCE_PATH}/Include/atlapp.h" OR
    NOT EXISTS "${SOURCE_PATH}/Samples/GuidGen/GuidGen.cpp" OR
