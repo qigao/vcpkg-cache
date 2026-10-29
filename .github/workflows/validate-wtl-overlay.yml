@@ -1,0 +1,68 @@
+name: WTL 10 source-only overlay qualification
+
+on:
+  pull_request:
+    paths:
+      - "ports/wtl/**"
+      - "tests/wtl-overlay-policy.py"
+      - ".github/workflows/validate-wtl-overlay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: wtl-overlay-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinned-header-port:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static single-source and no-Microsoft-ATL policy
+        run: python tests/wtl-overlay-policy.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bootstrap pinned vcpkg with curl-only files cache (no Mono/NuGet)
+        shell: pwsh
+        run: |
+          python scripts/setup-vcpkg-curl-cache.py .
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned vcpkg bootstrap failed' }
+      - name: Install WTL using only this overlay port
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP "wtl10-overlay-installed"
+          Set-Location $env:RUNNER_TEMP
+          & "$env:VCPKG_ROOT/vcpkg.exe" install wtl:x64-windows-static `
+            "--overlay-ports=$env:VCPKG_OVERLAY_PORTS" `
+            "--x-install-root=$root"
+          if ($LASTEXITCODE -ne 0) { throw 'WTL vcpkg install failed' }
+          $headerArgs = @('install', 'wtl:qigao-wtl10-headers',
+            "--overlay-ports=$env:VCPKG_OVERLAY_PORTS",
+            "--overlay-triplets=$env:VCPKG_OVERLAY_TRIPLETS",
+            "--x-install-root=$root")
+          & "$env:VCPKG_ROOT/vcpkg.exe" @headerArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Header-only cross-triplet WTL install failed' }
+          $headerPrefix = Join-Path $root "qigao-wtl10-headers/include"
+          if (!(Test-Path (Join-Path $headerPrefix "atlapp.h"))) {
+            throw 'Header-only cross-triplet WTL headers missing'
+          }
+          $include = Join-Path $root "x64-windows-static/include"
+          $share = Join-Path $root "x64-windows-static/share/wtl"
+          foreach ($name in @('atlapp.h','atlframe.h','atlctrls.h','atldlgs.h','atlmisc.h','atlribbon.h')) {
+            if (!(Test-Path (Join-Path $include $name))) { throw "missing WTL header: $name" }
+          }
+          foreach ($name in @('copyright','openatl-wtl-source.txt',
+                             'Samples/GuidGen/GuidGen.cpp',
+                             'Samples/WTLExplorer/WTLExplorer.cpp',
+                             'AppWizard/Setup.js')) {
+            if (!(Test-Path (Join-Path $share $name))) { throw "missing source: $name" }
+          }
+          $provenance = Get-Content (Join-Path $share 'openatl-wtl-source.txt') -Raw
+          if (!$provenance.Contains('sha512=086a6cf6a49a4318a8c519136ba6019ded7aa7f2c1d85f78c30b21183654537b3428a400a64fcdacba3a7a10a9ef05137b6f2119f59594da300d55f9ebfb1309')) { throw 'WTL provenance mismatch' }
+          if (!$provenance.Contains('provider=vcpkg-cache/ports/wtl')) { throw 'WTL source provider mismatch' }

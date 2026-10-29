@@ -1,0 +1,10 @@
+{
+  "name": "wtl",
+  "version": "10.0.10320",
+  "port-version": 6,
+  "description": "Windows Template Library 10; header-only WTL for OpenATL source-tree consumers",
+  "homepage": "https://sourceforge.net/projects/wtl/",
+  "license": "MS-PL",
+  "supports": "windows & !xbox",
+  "dependencies": []
+}

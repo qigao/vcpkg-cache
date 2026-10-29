@@ -45,6 +45,7 @@ Bootstrap or identity failures stop setup before dependency restoration.
 - `libpq`
 - `zstd`
 - `wabt`
+- [`wtl`](ports/wtl/vcpkg.json) — full upstream WTL 10.0.10320 headers/Samples/AppWizard, immutable GitHub release SHA512; no dependency on Microsoft's `atl` vcpkg detection port. Applications link their own `OpenATL::ATL` source-tree target. This header-only port does **not** install an OpenATL SDK.
 - [`tre`](ports/tre/README.md) (static regex and approximate matching)
 - `mir-jit` (static MIR core/generator; Linux, macOS, Android and Windows x64)
 
