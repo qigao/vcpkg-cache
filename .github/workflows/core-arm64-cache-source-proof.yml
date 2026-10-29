@@ -1,0 +1,226 @@
+name: Core ARM64 exact cache source proof (NO PUBLISH)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/core-arm64-cache-source-proof.yml"
+      - "scripts/ci/core-arm64-cache-source-proof.py"
+      - "cache-contracts/salts-core-arm64/**"
+      - "scripts/tests/test_curl_cache_publish_target.py"
+      - "scripts/tests/test_curl_cache_producer_workflow.py"
+  workflow_dispatch:
+    inputs:
+      expected_source_sha:
+        description: Exact 40-hex infrastructure workflow commit to qualify; no upload is available
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: core-arm64-source-proof-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: core.autocrlf
+  GIT_CONFIG_VALUE_0: 'false'
+  PROOF_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  source-proof:
+    if: github.repository == 'qigao/vcpkg-cache'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require the exact proof checkout and offline negative tests
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROOF_SOURCE_SHA"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            test "$REQUESTED_SHA" = "$PROOF_SOURCE_SHA"
+          fi
+          python -m unittest discover -s scripts/tests -p test_curl_cache_publish_target.py -v
+          python -m unittest discover -s scripts/tests -p test_curl_cache_producer_workflow.py -v
+      - name: Observe the four exact packages using this upstream read token
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A 404 is recorded as absent-or-inaccessible. This observation lets
+          # source diagnosis continue; the independent final read-back is strict.
+          python scripts/ci/core-arm64-cache-source-proof.py probe \
+            --output "$RUNNER_TEMP/core-arm64-proof/initial-availability"
+      - name: Prepare the original Core SDK system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libpipewire-0.3-dev libx11-dev libxext-dev
+      - name: Restore the exact historical ARM64 host re2c package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/github-packages.py re2c "$RUNNER_TEMP/core-arm64-re2c" \
+            --version 4.6.4 \
+            --sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
+      - name: Isolate the exact Core consumer ABI infrastructure
+        uses: actions/checkout@v4
+        with:
+          repository: qigao/vcpkg-cache
+          ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54
+          path: _abi_infrastructure
+          persist-credentials: false
+      - name: Bootstrap the fixed ABI tool without restoring native packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ci/core-arm64-cache-source-proof.py infrastructure --infrastructure "$PWD/_abi_infrastructure"
+          export VCPKG_BINARY_CACHE="$RUNNER_TEMP/core-arm64-proof/source-cache"
+          test ! -e "$VCPKG_BINARY_CACHE"
+          python _abi_infrastructure/scripts/setup-vcpkg-curl-cache.py "$PWD/_abi_infrastructure"
+      - name: Verify actual tools and preserve their identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ci/core-arm64-cache-source-proof.py inputs \
+            --infrastructure "$PWD/_abi_infrastructure" \
+            --output "$RUNNER_TEMP/core-arm64-proof/inputs.json"
+      - name: Require the observed ABI graph and build every dependency from source
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/core-arm64-proof"
+          manifest="$PWD/cache-contracts/salts-core-arm64"
+          export VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"
+          args=(install "--x-manifest-root=$manifest" --triplet=arm64-linux --host-triplet=arm64-linux
+                --x-feature=simd --x-feature=usb --x-feature=playback --x-feature=capture --x-feature=zstd)
+          test ! -e "$proof/abi-before"
+          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/abi-before" \
+            --dry-run "--x-write-nuget-packages-config=$proof/before.config" 2>&1 | tee "$proof/plan-before.log"
+          python scripts/ci/core-arm64-cache-source-proof.py plan --plan "$proof/before.config"
+          python -c 'import os,pathlib; p=pathlib.Path(os.environ["VCPKG_BINARY_CACHE"]); assert not any(p.iterdir()), "source L1 was not empty"'
+          test ! -e "$proof/source-install"
+          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/source-install" \
+            2>&1 | tee "$proof/source-build.log"
+          # A fresh post-build probe cannot omit packages because they were
+          # already installed in the real source-build directory.
+          test ! -e "$proof/abi-after"
+          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/abi-after" \
+            --dry-run "--x-write-nuget-packages-config=$proof/packages.config" 2>&1 | tee "$proof/plan-after.log"
+          python scripts/ci/core-arm64-cache-source-proof.py cache \
+            --plan "$proof/packages.config" --cache "$VCPKG_BINARY_CACHE" \
+            --output "$proof/source-cache-receipt.json"
+      - name: Retain same-run metadata for the independent reader
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-arm64-source-contract-${{ github.run_id }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/core-arm64-proof/source-cache-receipt.json
+            ${{ runner.temp }}/core-arm64-proof/packages.config
+            ${{ runner.temp }}/core-arm64-proof/inputs.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain diagnostics even when ABI or source compilation fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-arm64-source-diagnostics-${{ github.run_id }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/core-arm64-proof/initial-availability/**
+            ${{ runner.temp }}/core-arm64-proof/*.json
+            ${{ runner.temp }}/core-arm64-proof/*.config
+            ${{ runner.temp }}/core-arm64-proof/*.log
+            ${{ runner.temp }}/core-arm64-proof/source-cache/**
+            ${{ runner.temp }}/qigao-vcpkg-04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4/buildtrees/**/*.log
+            ${{ runner.temp }}/qigao-vcpkg-04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4/buildtrees/**/vcpkg_abi_info.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  fresh-read-back:
+    name: Fresh upstream-token exact binary-only read-back (NO PUBLISH)
+    needs: source-proof
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Prepare the original Core SDK system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libpipewire-0.3-dev libx11-dev libxext-dev
+      - name: Restore the same exact ARM64 host re2c package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/github-packages.py re2c "$RUNNER_TEMP/core-arm64-re2c" \
+            --version 4.6.4 \
+            --sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/vcpkg-cache
+          ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54
+          path: _abi_infrastructure
+          persist-credentials: false
+      - name: Bootstrap into a fresh reader cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROOF_SOURCE_SHA"
+          python scripts/ci/core-arm64-cache-source-proof.py infrastructure --infrastructure "$PWD/_abi_infrastructure"
+          export VCPKG_BINARY_CACHE="$RUNNER_TEMP/core-arm64-readback/cache"
+          test ! -e "$VCPKG_BINARY_CACHE"
+          python _abi_infrastructure/scripts/setup-vcpkg-curl-cache.py "$PWD/_abi_infrastructure"
+      - name: Download source metadata only, never the source cache
+        uses: actions/download-artifact@v4
+        with:
+          name: core-arm64-source-contract-${{ github.run_id }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/core-arm64-source-contract
+      - name: Recompute the graph, require exact curl restore and binary-only install
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/core-arm64-readback"
+          python scripts/ci/core-arm64-cache-source-proof.py inputs \
+            --infrastructure "$PWD/_abi_infrastructure" --output "$proof/inputs.json"
+          export VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,read"
+          args=(install "--x-manifest-root=$PWD/cache-contracts/salts-core-arm64" --triplet=arm64-linux --host-triplet=arm64-linux
+                --x-feature=simd --x-feature=usb --x-feature=playback --x-feature=capture --x-feature=zstd)
+          test ! -e "$proof/abi-probe"
+          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/abi-probe" \
+            --dry-run "--x-write-nuget-packages-config=$proof/packages.config" 2>&1 | tee "$proof/plan.log"
+          python scripts/ci/core-arm64-cache-source-proof.py plan --plan "$proof/packages.config"
+          python -c 'import os,pathlib; p=pathlib.Path(os.environ["VCPKG_BINARY_CACHE"]); assert not any(p.iterdir()), "reader L1 was not empty"'
+          python _abi_infrastructure/scripts/github-packages.py cache "$proof/packages.config" "$VCPKG_BINARY_CACHE" \
+            2>&1 | tee "$proof/exact-restore.log"
+          test ! -e "$proof/installed"
+          "$VCPKG_ROOT/vcpkg" "${args[@]}" "--x-install-root=$proof/installed" --only-binarycaching \
+            2>&1 | tee "$proof/binary-only-install.log"
+          python scripts/ci/core-arm64-cache-source-proof.py cache \
+            --plan "$proof/packages.config" --cache "$VCPKG_BINARY_CACHE" \
+            --compare "$RUNNER_TEMP/core-arm64-source-contract/source-cache-receipt.json" \
+            --output "$proof/readback-cache-receipt.json"
+      - name: Retain strict read-back result and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-arm64-readback-${{ github.run_id }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/core-arm64-readback/*.json
+            ${{ runner.temp }}/core-arm64-readback/*.config
+            ${{ runner.temp }}/core-arm64-readback/*.log
+          if-no-files-found: warn
+          retention-days: 14

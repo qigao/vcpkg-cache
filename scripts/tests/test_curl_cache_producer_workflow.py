@@ -79,5 +79,55 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
                 self.assertNotIn(forbidden, self.source)
 
 
+class CoreArm64ReadOnlyWorkflowPolicy(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        path = WORKFLOW.with_name("core-arm64-cache-source-proof.yml")
+        cls.source = path.read_text(encoding="utf-8")
+        cls.producer, cls.reader = cls.source.split("\n  fresh-read-back:", 1)
+
+    def test_proof_cannot_extend_the_privileged_publisher(self):
+        self.assertIn("permissions:\n  contents: read\n  packages: read", self.source)
+        for forbidden in ("packages: write", "--publish", "native-cache-publish",
+                          "continue-on-error", "setup-vcpkg-cache", "nuget push"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.source)
+        self.assertIn("inputs.expected_source_sha", self.producer)
+        self.assertIn('test "$REQUESTED_SHA" = "$PROOF_SOURCE_SHA"', self.producer)
+
+    def test_independent_reader_never_downloads_source_cache(self):
+        self.assertIn("needs: source-proof", self.reader)
+        self.assertIn("runs-on: ubuntu-24.04-arm", self.reader)
+        self.assertIn("--only-binarycaching", self.reader)
+        self.assertIn('VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,read"', self.reader)
+        self.assertIn("core-arm64-source-contract-", self.reader)
+        self.assertNotIn("core-arm64-source-diagnostics-", self.reader)
+        self.assertIn("github-packages.py cache", self.reader)
+        self.assertIn("--compare", self.reader)
+        self.assertIn('"--x-install-root=$proof/abi-probe"', self.reader)
+
+    def test_native_source_graph_uses_fresh_roots_and_consumer_infrastructure(self):
+        self.assertIn('VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"', self.producer)
+        for root in ("source-install", "abi-before", "abi-after"):
+            with self.subTest(root=root):
+                self.assertIn(f'test ! -e "$proof/{root}"', self.producer)
+                self.assertIn(f'"--x-install-root=$proof/{root}"', self.producer)
+        for section in (self.producer, self.reader):
+            self.assertIn("ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54", section)
+            self.assertIn("--version 4.6.4", section)
+            self.assertIn("--sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269", section)
+            self.assertIn("--triplet=arm64-linux --host-triplet=arm64-linux", section)
+            for feature in ("simd", "usb", "playback", "capture", "zstd"):
+                self.assertIn("--x-feature=" + feature, section)
+
+    def test_re2c_repair_alone_does_not_trigger_intentional_cache_readback(self):
+        filters = self.source.split("  pull_request:\n", 1)[1].split("  workflow_dispatch:", 1)[0]
+        for unrelated in ("scripts/github-packages.py", "re2c-tools-package", "ports/**", "scripts/**"):
+            with self.subTest(path=unrelated):
+                self.assertNotIn(unrelated, filters)
+        self.assertIn("scripts/ci/core-arm64-cache-source-proof.py", filters)
+        self.assertIn("cache-contracts/salts-core-arm64/**", filters)
+
+
 if __name__ == "__main__":
     unittest.main()
