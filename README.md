@@ -133,8 +133,8 @@ Product-specific dependency closures and binary-cache producers belong in the pr
 The curl reader's default published package lock is:
 
 ```text
-version: 4.6.4
-sha256: 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
+version: 4.6.5
+sha256: dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
 ```
 
 Consumers restore it with:
@@ -142,8 +142,8 @@ Consumers restore it with:
 ```yaml
 - uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@PINNED_COMMIT
   with:
-    version: "4.6.4"
-    sha256: "9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269"
+    version: "4.6.5"
+    sha256: "dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed"
 ```
 
 Omitting both inputs selects the same explicit published lock. Overrides must
@@ -155,18 +155,27 @@ Unicode data before extracting or executing payloads. Only a successful
 `--version` run publishes `RE2C_ROOT`, `RE2C_PACKAGE_VERSION`,
 `RE2C_PACKAGE_SHA256` and the binary search path. Use a fresh destination.
 
-The published 4.6.4 package contains Linux x64/ARM64, macOS ARM64 and Windows
-x64 payloads; it contains no macOS x64 payload. The existing 4.6.4 Linux x64
-binary requires `GLIBCXX_3.4.32`, so pinning its identity does not make it
-compatible with Ubuntu 22.04. A rebuilt package must be separately qualified
-and published before its real version and digest replace this lock.
+The 4.6.5 archive was published from
+[producer commit 4864033d4e4bc70d182df6a33695582ec6fcc968](https://github.com/qigao/vcpkg-cache/commit/4864033d4e4bc70d182df6a33695582ec6fcc968)
+in [run 40852170873](https://github.com/qigao/vcpkg-cache/actions/runs/40852170873).
+Its actual Ubuntu 22.04 and 24.04 verification receipts and the successful
+publisher agree on the digest above. The curl reader matrix now also includes
+Ubuntu 22.04, alongside Ubuntu 24.04, macOS 15 and Windows 2025, to check the
+published feed package on the previously failing host.
+
+For historical comparison, the 4.6.4 package
+(`9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`)
+contains Linux x64/ARM64, macOS ARM64 and Windows x64 payloads, with no macOS
+x64 payload. Its Linux x64 binary requires `GLIBCXX_3.4.32` and cannot run on
+the affected Ubuntu 22.04 host. The 4.6.4 reader regression fixtures remain
+unchanged; historical identity and current package qualification are distinct.
 
 The direct CLI requires both arguments, with no implicit version selection:
 
 ```sh
 python scripts/github-packages.py re2c "$RUNNER_TEMP/qigao-re2c-binary" \
-  --version 4.6.4 \
-  --sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
+  --version 4.6.5 \
+  --sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
 ```
 
 ## Workflows
