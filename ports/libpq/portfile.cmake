@@ -44,6 +44,26 @@ else()
     set(HAS_TOOLS FALSE)
 endif()
 
+# PostgreSQL's configure.ac demands a runnable host zic when
+# "cross_compiling=yes". The pinned libpq-only Makefile builds only
+# src/{include,common,port,interfaces/libpq,ecpg} and pg_config;
+# it does not build/install src/timezone or any timezone database.
+# Keep the mandatory zic check for the full client-tools profile.
+# Never inject a dummy zic or a fabricated --with-system-tzdata path.
+if(NOT HAS_TOOLS)
+    set(_libpq_configure_ac "${SOURCE_PATH}/configure.ac")
+    file(READ "${_libpq_configure_ac}" _libpq_configure_text)
+    set(_libpq_zic_anchor
+        "if test x\"$cross_compiling\" = x\"yes\" && test -z \"$with_system_tzdata\"; then")
+    string(FIND "${_libpq_configure_text}" "${_libpq_zic_anchor}" _libpq_zic_position)
+    if(_libpq_zic_position EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL 16.9 zic configure anchor changed")
+    endif()
+    vcpkg_replace_string("${_libpq_configure_ac}"
+        "${_libpq_zic_anchor}"
+        "if test x\"$cross_compiling\" = x\"yes\" && test -z \"$with_system_tzdata\" && test x\"$LIBPQ_ENABLE_TOOLS\" = x\"yes\"; then")
+endif()
+
 vcpkg_cmake_get_vars(cmake_vars_file)
 include("${cmake_vars_file}")
 
