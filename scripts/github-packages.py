@@ -8,7 +8,7 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import shutil
 import stat
@@ -314,28 +314,124 @@ def restore_cache(feed, config, cache):
     return restored, misses
 
 
-def restore_re2c(feed, destination):
-    version = feed.latest_stable("Qigao.Re2c.Binary")
-    destination = Path(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    nupkg = destination / "re2c.nupkg"
-    feed.package("Qigao.Re2c.Binary", version, nupkg)
-    extract_package(nupkg, destination / "package")
-    hosts = {("Linux", "X64"): "linux-x64", ("Linux", "ARM64"): "linux-arm64",
-             ("macOS", "X64"): "macos-x64", ("macOS", "ARM64"): "macos-arm64",
-             ("Windows", "X64"): "windows-x64"}
-    rid = hosts[(os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"])]
+RE2C_HOSTS = {
+    ("Linux", "X64"): "linux-x64", ("Linux", "ARM64"): "linux-arm64",
+    ("macOS", "X64"): "macos-x64", ("macOS", "ARM64"): "macos-arm64",
+    ("Windows", "X64"): "windows-x64",
+}
+
+
+def exact_re2c_version(value):
+    if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", value):
+        raise ValueError("re2c requires an exact three-component package version")
+    return value
+
+
+def exact_re2c_sha256(value):
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        raise ValueError("re2c requires the exact package SHA-256 (64 hexadecimal digits)")
+    return value.lower()
+
+
+def re2c_package_members(archive, version, rid):
+    """Preflight the entire package before creating or executing any payload."""
+    members = list(archive_members(archive))
+    files = {}
+    for entry in members:
+        name = entry.filename.rstrip("/")
+        parts = name.split("/")
+        mode = stat.S_IFMT(entry.external_attr >> 16)
+        if (entry.orig_filename != entry.filename or
+                any(any(ord(c) < 32 or c in '<>"|?*' for c in part) or part.endswith((".", " ")) or
+                    PureWindowsPath(part).is_reserved() for part in parts) or
+                mode not in (0, stat.S_IFREG, stat.S_IFDIR) or
+                mode == stat.S_IFDIR and not entry.is_dir() or
+                mode == stat.S_IFREG and entry.is_dir()):
+            raise ValueError(f"unsafe re2c package member: {entry.filename}")
+        if not entry.is_dir():
+            files[name] = entry
+    file_names = {name.casefold() for name in files}
+    for entry in members:
+        if any(str(parent).casefold() in file_names
+               for parent in PurePosixPath(entry.filename.rstrip("/")).parents):
+            raise ValueError(f"file used as re2c package directory: {entry.filename}")
+
+    specs = [name for name in files if "/" not in name and name.lower().endswith(".nuspec")]
+    if len(specs) != 1:
+        raise ValueError("re2c package must contain one regular root nuspec")
+    root = ET.fromstring(archive.read(specs[0]))
+    metadata = [e for e in root if e.tag.rsplit("}", 1)[-1] == "metadata"]
+    if root.tag.rsplit("}", 1)[-1] != "package" or len(metadata) != 1:
+        raise ValueError("ambiguous re2c NuGet metadata")
+    for key, expected in (("id", "Qigao.Re2c.Binary"), ("version", version)):
+        values = [e for e in metadata[0] if e.tag.rsplit("}", 1)[-1] == key]
+        if (len(values) != 1 or len(values[0]) or
+                (values[0].text or "").lower() != expected.lower()):
+            raise ValueError(f"re2c NuGet identity mismatch: expected {key}={expected}")
+
+    payload_rids = {PurePosixPath(name).parts[1] for name in files
+                    if name.startswith("tools/") and len(PurePosixPath(name).parts) > 2}
+    if not payload_rids <= set(RE2C_HOSTS.values()):
+        raise ValueError("re2c package contains an unrecognized host payload")
+    # Validate all included host payloads, and require the selected host. A
+    # missing RID must not select another architecture or a system executable.
+    for host in payload_rids | {rid}:
+        binary = "re2c.exe" if host == "windows-x64" else "re2c"
+        for suffix in (f"bin/{binary}", "share/re2c/stdlib/syntax/c",
+                       "share/re2c/stdlib/unicode_categories.re",
+                       "share/re2c/stdlib/unicode_properties.re"):
+            required = f"tools/{host}/{suffix}"
+            if required not in files or files[required].file_size == 0:
+                raise ValueError(f"missing re2c package file: {required}")
+    return members
+
+
+def restore_re2c(feed, destination, version, expected_sha256):
+    version = exact_re2c_version(version)
+    expected_sha256 = exact_re2c_sha256(expected_sha256)
+    host = (os.environ.get("RUNNER_OS"), os.environ.get("RUNNER_ARCH"))
+    if host not in RE2C_HOSTS:
+        raise ValueError(f"unsupported re2c runner host: {host}")
+    rid = RE2C_HOSTS[host]
+    destination = Path(destination).absolute()
+    if any(c in destination.as_posix() for c in "\r\n"):
+        raise ValueError("invalid re2c destination for environment export")
+    if destination.exists() or destination.is_symlink():
+        raise ValueError("re2c destination must not already exist")
+    environment = os.environ["GITHUB_ENV"]
+    search_path = os.environ["GITHUB_PATH"]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="verified-re2c-", dir=destination.parent) as temporary:
+        stage = Path(temporary)
+        nupkg = stage / "re2c.nupkg"
+        identity = "qigao.re2c.binary"
+        # Download the exact identity without consulting any version list. The
+        # digest is checked BEFORE parsing metadata or extracting ZIP members.
+        url = f"{feed.base}/{identity}/{version}/{identity}.{version}.nupkg"
+        feed.client.download(url, nupkg, "application/octet-stream")
+        if sha256(nupkg) != expected_sha256:
+            raise ValueError("re2c package SHA-256 mismatch")
+        with zipfile.ZipFile(nupkg) as archive:
+            members = re2c_package_members(archive, version, rid)
+            for entry in members:
+                archive.extract(entry, stage / "package")
+                mode = entry.external_attr >> 16
+                if mode and not entry.is_dir():
+                    (stage / "package" / entry.filename).chmod(mode & 0o777)
+        staged_root = stage / "package" / "tools" / rid
+        exe = staged_root / "bin" / ("re2c.exe" if rid == "windows-x64" else "re2c")
+        exe.chmod(exe.stat().st_mode | 0o111)
+        subprocess.run([str(exe), "--version"], check=True)
+        # No destination publication or environment change on verification or
+        # execution failure; stale files cannot satisfy required payload checks.
+        stage.rename(destination)
     root = destination / "package" / "tools" / rid
-    exe = root / "bin" / ("re2c.exe" if os.name == "nt" else "re2c")
-    for required in (exe, root / "share/re2c/stdlib/unicode_categories.re", root / "share/re2c/stdlib/unicode_properties.re"):
-        if not required.is_file():
-            raise ValueError(f"missing re2c package file: {required}")
-    exe.chmod(exe.stat().st_mode | 0o111)
-    subprocess.run([str(exe), "--version"], check=True)
-    with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
-        output.write(f"RE2C_ROOT={root.as_posix()}\nRE2C_PACKAGE_VERSION={version}\n")
-    with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as output:
+    with open(environment, "a", encoding="utf-8") as output:
+        output.write(f"RE2C_ROOT={root.as_posix()}\nRE2C_PACKAGE_VERSION={version}\n"
+                     f"RE2C_PACKAGE_SHA256={expected_sha256}\n")
+    with open(search_path, "a", encoding="utf-8") as output:
         output.write(f"{(root / 'bin').as_posix()}\n")
+    print(f"package=Qigao.Re2c.Binary version={version} sha256={expected_sha256}", flush=True)
 
 
 def restore_windows_powershell(client, destination):
@@ -389,6 +485,8 @@ def main():
     extract.add_argument("destination")
     re2c = commands.add_parser("re2c")
     re2c.add_argument("destination")
+    re2c.add_argument("--version", required=True, type=exact_re2c_version)
+    re2c.add_argument("--sha256", required=True, type=exact_re2c_sha256)
     powershell = commands.add_parser("windows-powershell")
     powershell.add_argument("destination")
     args = parser.parse_args()
@@ -414,7 +512,7 @@ def main():
         Path(args.version_file).write_text(version + "\n", encoding="utf-8")
         print(f"latest_stable={args.package_id}/{version}", flush=True)
     elif args.command == "re2c":
-        restore_re2c(NugetFeed(client), args.destination)
+        restore_re2c(NugetFeed(client), args.destination, args.version, args.sha256)
     else:
         restore_windows_powershell(client, args.destination)
 

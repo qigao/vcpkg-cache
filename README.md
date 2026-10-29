@@ -130,16 +130,43 @@ Product-specific dependency closures and binary-cache producers belong in the pr
 
 `Qigao.Re2c.Binary` is a host binary/tool package, not a product SDK and not a vcpkg library port.
 
-Current package version:
+The curl reader's default published package lock is:
 
 ```text
-4.6.3
+version: 4.6.4
+sha256: 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
 ```
 
 Consumers restore it with:
 
 ```yaml
-- uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@master
+- uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@PINNED_COMMIT
+  with:
+    version: "4.6.4"
+    sha256: "9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269"
+```
+
+Omitting both inputs selects the same explicit published lock. Overrides must
+supply both `version` and `sha256`; a single override fails before download.
+The reader does not select the latest version, accept a version wildcard, or
+fall back after a failed restore. It verifies the whole nupkg digest, unique
+package identity, safe member paths, native binary and nonempty C syntax /
+Unicode data before extracting or executing payloads. Only a successful
+`--version` run publishes `RE2C_ROOT`, `RE2C_PACKAGE_VERSION`,
+`RE2C_PACKAGE_SHA256` and the binary search path. Use a fresh destination.
+
+The published 4.6.4 package contains Linux x64/ARM64, macOS ARM64 and Windows
+x64 payloads; it contains no macOS x64 payload. The existing 4.6.4 Linux x64
+binary requires `GLIBCXX_3.4.32`, so pinning its identity does not make it
+compatible with Ubuntu 22.04. A rebuilt package must be separately qualified
+and published before its real version and digest replace this lock.
+
+The direct CLI requires both arguments, with no implicit version selection:
+
+```sh
+python scripts/github-packages.py re2c "$RUNNER_TEMP/qigao-re2c-binary" \
+  --version 4.6.4 \
+  --sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
 ```
 
 ## Workflows

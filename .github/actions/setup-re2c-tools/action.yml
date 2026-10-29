@@ -1,9 +1,17 @@
 name: Set up re2c binary using authenticated curl
-description: Restore the latest published Qigao.Re2c.Binary from GitHub Packages NuGet V3 without NuGet, .NET restore or Mono.
+description: Restore an exact version and SHA-256 locked Qigao.Re2c.Binary without NuGet, .NET restore or Mono.
 
 inputs:
   token:
     description: GitHub Packages read token; defaults to GITHUB_TOKEN.
+    required: false
+    default: ""
+  version:
+    description: Exact package version override; sha256 must also be supplied. Both empty selects the documented published lock.
+    required: false
+    default: ""
+  sha256:
+    description: SHA-256 of the exact nupkg; version must also be supplied.
     required: false
     default: ""
 
@@ -13,12 +21,28 @@ runs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Restore the published host re2c package via curl only
+    - name: Verify and restore the exact published host re2c package
       shell: pwsh
       env:
         GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token }}
+        RE2C_REQUESTED_VERSION: ${{ inputs.version }}
+        RE2C_REQUESTED_SHA256: ${{ inputs.sha256 }}
+        RE2C_DEFAULT_PACKAGE_VERSION: "4.6.4"
+        RE2C_DEFAULT_PACKAGE_SHA256: "9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269"
       run: |
         $ErrorActionPreference = 'Stop'
+        $version = $env:RE2C_REQUESTED_VERSION
+        $digest = $env:RE2C_REQUESTED_SHA256
+        $hasVersion = -not [string]::IsNullOrEmpty($version)
+        $hasDigest = -not [string]::IsNullOrEmpty($digest)
+        if ($hasVersion -ne $hasDigest) {
+          throw 're2c version and sha256 overrides must be supplied together'
+        }
+        if (-not $hasVersion) {
+          $version = $env:RE2C_DEFAULT_PACKAGE_VERSION
+          $digest = $env:RE2C_DEFAULT_PACKAGE_SHA256
+        }
         $root = (Resolve-Path (Join-Path '${{ github.action_path }}' '../../..')).Path
-        python (Join-Path $root 'scripts/github-packages.py') re2c (Join-Path $env:RUNNER_TEMP 'qigao-re2c-binary')
+        python (Join-Path $root 'scripts/github-packages.py') re2c `
+          (Join-Path $env:RUNNER_TEMP 'qigao-re2c-binary') --version $version --sha256 $digest
         if ($LASTEXITCODE -ne 0) { throw 'Verified curl-only GitHub Packages re2c restore failed' }
