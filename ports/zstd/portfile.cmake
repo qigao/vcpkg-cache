@@ -14,12 +14,17 @@ vcpkg_from_github(
 # Guard ONLY those probes; retain all original C checks and build sources.
 set(_zstd_flags "${SOURCE_PATH}/build/cmake/CMakeModules/AddZstdCompilationFlags.cmake")
 file(READ "${_zstd_flags}" _zstd_flags_text)
-string(FIND "${_zstd_flags_text}" "if (_CXX)" _zstd_cxx_probe)
+# Exact upstream anchor at 5c7b7bad... is
+# "if (_CXX AND CMAKE_CXX_COMPILER)", which is insufficient: vcpkg
+# defines CMAKE_CXX_COMPILER via a chainload toolchain even in C-only
+# projects. Only CMAKE_CXX_COMPILER_LOADED proves enable_language(CXX).
+set(_zstd_cxx_anchor "if (_CXX AND CMAKE_CXX_COMPILER)")
+string(FIND "${_zstd_flags_text}" "${_zstd_cxx_anchor}" _zstd_cxx_probe)
 if(_zstd_cxx_probe EQUAL -1)
     message(FATAL_ERROR "Pinned zstd flag probe contract changed")
 endif()
 vcpkg_replace_string("${_zstd_flags}"
-    "if (_CXX)"
+    "${_zstd_cxx_anchor}"
     "if (_CXX AND CMAKE_CXX_COMPILER_LOADED)")
 
 vcpkg_cmake_configure(
