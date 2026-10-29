@@ -1,0 +1,40 @@
+--- a/Include/atlribbon.h
++++ b/Include/atlribbon.h
+@@ -144,19 +144,19 @@
+ // Element
+ 	bool UIAddRibbonElement(UINT nID)
+ 	{
+-		return this->UIAddElement<UPDUI_RIBBON>(nID);
++		return this->template UIAddElement<UPDUI_RIBBON>(nID);
+ 	}
+ 
+ 	bool UIRemoveRibbonElement(UINT nID)
+ 	{
+-		return this->UIRemoveElement<UPDUI_RIBBON>(nID);
++		return this->template UIRemoveElement<UPDUI_RIBBON>(nID);
+ 	}
+ 
+ 	bool UIPersistElement(UINT nID, bool bPersist = true)
+ 	{
+ 		return bPersist ?
+-			this->UIAddElement<UPDUI_PERSIST>(nID) :
++			this->template UIAddElement<UPDUI_PERSIST>(nID) :
+-			this->UIRemoveElement<UPDUI_PERSIST>(nID);
++			this->template UIRemoveElement<UPDUI_PERSIST>(nID);
+ 	}
+ 
+ // methods for Ribbon elements
+@@ -2091,10 +2091,12 @@
+ 
+ 	static HRESULT InitVal(LONG& val, const DECIMAL* pDecimal)
+ 	{
+-		return ::VarI4FromDec(pDecimal, &val);
++		DECIMAL copy = {};
++		if(pDecimal != NULL) copy = *pDecimal;
++		return ::VarI4FromDec(pDecimal != NULL ? &copy : NULL, &val);
+ 	}
+ 
+ 	static HRESULT InitVal(DOUBLE& val, const DECIMAL* pDecimal)
+ 	{
+ 		return ::VarR8FromDec(pDecimal, &val);
+ 	}

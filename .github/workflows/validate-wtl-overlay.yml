@@ -57,6 +57,41 @@ jobs:
           foreach ($name in @('atlapp.h','atlframe.h','atlctrls.h','atldlgs.h','atlmisc.h','atlribbon.h')) {
             if (!(Test-Path (Join-Path $include $name))) { throw "missing WTL header: $name" }
           }
+          $ribbon = Get-Content (Join-Path $include 'atlribbon.h') -Raw
+          if ($ribbon.Split('this->template UIAddElement<').Length -ne 3 -or
+              $ribbon.Split('this->template UIRemoveElement<').Length -ne 3 -or
+              !$ribbon.Contains('VarI4FromDec(pDecimal != NULL ? &copy : NULL, &val)')) {
+            throw 'Original WTL Clang-compatible dependent template/const DECIMAL patch missing'
+          }
+          if ($ribbon.Contains('this->UIAddElement<') -or
+              $ribbon.Contains('this->UIRemoveElement<')) {
+            throw 'Unpatched dependent-template syntax remains in pinned WTL'
+          }
+          $controls = Get-Content (Join-Path $include 'atlctrls.h') -Raw
+          foreach ($name in @('CButtonT','CEditT')) {
+            if (!$controls.Contains("$name(const ATL::CWindow& window)") -or
+                !$controls.Contains("$name< TBase >& operator =(const ATL::CWindow& window)")) {
+              throw "WTL Clang original control HWND borrow ctor/assignment missing: $name"
+            }
+          }
+          $ctrlw = Get-Content (Join-Path $include 'atlctrlw.h') -Raw
+          if ($ctrlw.Split('szString[T::_nMaxMenuItemTextLength]').Length -ne 4 -or
+              $ctrlw.Contains('szString[pT->_nMaxMenuItemTextLength]')) {
+            throw 'WTL Clang constexpr command-bar input capacities were not patched'
+          }
+          $ctrlx = Get-Content (Join-Path $include 'atlctrlx.h') -Raw
+          if (!$ctrlx.Contains('pszTemp[T::m_cchCmpTextMax]') -or
+              $ctrlx.Contains('pszTemp[pT->m_cchCmpTextMax]')) {
+            throw 'WTL Clang constexpr list-sort input capacity was not patched'
+          }
+          foreach($symbol in @('class CServerAppModule','class CPrintDialogEx','class CRegProperty')) {
+            # Preserve source by verifying original WTL full public API in
+            # the installed headers, never by pruning problematic classes.
+            $file = if($symbol -like '*CServer*'){'atlapp.h'} elseif($symbol -like '*Print*'){'atldlgs.h'} else{'atlmisc.h'}
+            if(!(Select-String -Path (Join-Path $include $file) -SimpleMatch -Pattern $symbol -Quiet)) {
+              throw "WTL public API missing: $symbol"
+            }
+          }
           foreach ($name in @('copyright','openatl-wtl-source.txt',
                              'Samples/GuidGen/GuidGen.cpp',
                              'Samples/WTLExplorer/WTLExplorer.cpp',
@@ -109,4 +144,4 @@ jobs:
               }
             }
           }
-          "WTL_COLD_WARM_OK version=10.0.10320#6 triplets=2 source_sha512=$expectedSha512 binarycache=read-only microsoft-atl=absent" >> $env:GITHUB_STEP_SUMMARY
+          "WTL_COLD_WARM_OK version=10.0.10320#7 triplets=2 source_sha512=$expectedSha512 binarycache=read-only microsoft-atl=absent" >> $env:GITHUB_STEP_SUMMARY
