@@ -8,6 +8,20 @@ vcpkg_from_github(
     HEAD_REF dev
 )
 
+# The pinned zstd CMake build is C-only when programs/tests are disabled.
+# MinGW still triggers its optional C++ warning-flag probes. CMake >=4.4
+# correctly rejects CHECK_CXX_COMPILER_FLAG before CXX is enabled.
+# Guard ONLY those probes; retain all original C checks and build sources.
+set(_zstd_flags "${SOURCE_PATH}/build/cmake/CMakeModules/AddZstdCompilationFlags.cmake")
+file(READ "${_zstd_flags}" _zstd_flags_text)
+string(FIND "${_zstd_flags_text}" "if (_CXX)" _zstd_cxx_probe)
+if(_zstd_cxx_probe EQUAL -1)
+    message(FATAL_ERROR "Pinned zstd flag probe contract changed")
+endif()
+vcpkg_replace_string("${_zstd_flags}"
+    "if (_CXX)"
+    "if (_CXX AND CMAKE_CXX_COMPILER_LOADED)")
+
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}/build/cmake"
     OPTIONS
