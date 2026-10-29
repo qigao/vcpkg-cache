@@ -84,6 +84,27 @@ if(VCPKG_TARGET_IS_MINGW AND
     vcpkg_replace_string("${_libpq_jump_header}"
         "typedef intptr_t sigjmp_buf[5];"
         "typedef void *sigjmp_buf[5];")
+
+    # PostgreSQL 16.9 forces its own getopt_long() semantics on Windows.
+    # Clang/llvm-mingw exposes struct option from the native getopt.h,
+    # while the pinned generated pg_config.h may report HAVE_STRUCT_OPTION
+    # without making the definition visible to getopt_long.c. Keep the
+    # original PostgreSQL parser and include the actual type definition.
+    set(_libpq_getopt_header "${SOURCE_PATH}/src/include/getopt_long.h")
+    file(READ "${_libpq_getopt_header}" _libpq_getopt_text)
+    string(FIND "${_libpq_getopt_text}" "#include \"pg_getopt.h\"" _libpq_getopt_pos)
+    if(_libpq_getopt_pos EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL getopt_long include anchor changed")
+    endif()
+    vcpkg_replace_string("${_libpq_getopt_header}"
+        "#include \"pg_getopt.h\""
+        "#include \"pg_getopt.h\"\\n#if defined(__clang__) && defined(__MINGW64__)\\n#include <getopt.h>\\n#endif")
+
+    # The toolchain's native winpthread already declares pthread_barrier_t
+    # and the barrier API in pthread.h. Make the real linker admission
+    # resolve -lwinpthread before PostgreSQL decides whether to compile
+    # its conflicting fallback implementation. No hardcoded ac_cv=pass.
+    set(ENV{LIBS} "$ENV{LIBS} -lwinpthread")
 endif()
 
 set(required_programs BISON FLEX)
