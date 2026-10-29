@@ -17,7 +17,8 @@ REVISION = "065ef5597383c1231bd4892cf8e94331b29bdb97"
 def check():
     errors = []
     for name in ("vcpkg.json", "portfile.cmake", "atlmisc.h-bug329.patch",
-                 "atlribbon.h-wtl66.patch", "appwizard_setup.js-vs2022.patch"):
+                 "atlribbon.h-wtl66.patch", "atlribbon.h-clang-std.patch",
+                 "appwizard_setup.js-vs2022.patch"):
         if not (PORT / name).is_file():
             errors.append("missing port input: " + name)
     if errors:
@@ -25,7 +26,7 @@ def check():
     manifest = json.loads((PORT / "vcpkg.json").read_text("utf-8"))
     recipe = (PORT / "portfile.cmake").read_text("utf-8")
     if (manifest.get("name"), manifest.get("version"),
-            manifest.get("port-version")) != ("wtl", "10.0.10320", 6):
+            manifest.get("port-version")) != ("wtl", "10.0.10320", 7):
         errors.append("WTL version identity changed")
     if manifest.get("dependencies") != []:
         errors.append("WTL must not install Microsoft ATL or a second ATL provider")
@@ -34,9 +35,22 @@ def check():
     for fragment in (REVISION, SHA512, "vcpkg_download_distfile(",
                      "vcpkg_extract_source_archive(", "Include/", "Samples",
                      "AppWizard", "MS-PL.txt", "openatl-wtl-source.txt", "NO_REMOVE_ONE_LEVEL",
-                     *("PATCHES", "atlmisc.h-bug329.patch", "atlribbon.h-wtl66.patch")):
+                     *("PATCHES", "atlmisc.h-bug329.patch", "atlribbon.h-wtl66.patch",
+                        "atlribbon.h-clang-std.patch")):
         if fragment not in recipe:
             errors.append("WTL source/installation contract missing: " + fragment)
+    # Clang standard parsing correction: four dependent-template calls,
+    # plus a const-safe local DECIMAL copy. Never delete WTL public APIs.
+    clang_patch = (PORT / "atlribbon.h-clang-std.patch").read_text("utf-8")
+    if (clang_patch.count("-		return this->UI") != 2 or
+            clang_patch.count("-			this->UI") != 2 or
+            clang_patch.count("+		return this->template UI") != 2 or
+            clang_patch.count("+			this->template UI") != 2 or
+            "DECIMAL copy = {};" not in clang_patch or
+            "VarI4FromDec(pDecimal != NULL ? &copy : NULL" not in clang_patch):
+        errors.append("WTL Clang corrections must preserve original APIs and const DECIMAL")
+    if any(token in clang_patch for token in ("class CServerAppModule", "CRegProperty", "CPrintDialogEx")):
+        errors.append("WTL Clang patch must not modify public COM/registry APIs")
     if any(token in recipe for token in ("downloads.sourceforge.net",
                                        "vcpkg_from_sourceforge(", "file(REMOVE",
                                        "file(REMOVE_RECURSE", "FetchContent_Declare(")):
@@ -59,4 +73,4 @@ if __name__ == "__main__":
             print("WTL_OVERLAY_FAIL " + problem, file=sys.stderr)
         raise SystemExit(1)
     print("WTL_OVERLAY_OK source=GitHub@pinned-hash "
-          "wtl=10.0.10320#6 microsoft-atl=absent full-sources=installed")
+          "wtl=10.0.10320#7 microsoft-atl=absent full-sources=installed")

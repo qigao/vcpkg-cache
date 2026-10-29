@@ -14,6 +14,7 @@ vcpkg_extract_source_archive(
         appwizard_setup.js-vs2022.patch
         atlmisc.h-bug329.patch
         atlribbon.h-wtl66.patch
+        atlribbon.h-clang-std.patch
 )
 if(NOT EXISTS "${SOURCE_PATH}/Include/atlapp.h" OR
    NOT EXISTS "${SOURCE_PATH}/Samples/GuidGen/GuidGen.cpp" OR
@@ -30,5 +31,5 @@ file(INSTALL "${SOURCE_PATH}/MS-PL.txt"
 # Source provenance is independently enforced by OpenATL's configure gate.
 # The consumer is never allowed to substitute a second WTL tree.
 file(WRITE "${CURRENT_PACKAGES_DIR}/share/${PORT}/openatl-wtl-source.txt"
-     "wtl=10.0.10320#6\nsha512=086a6cf6a49a4318a8c519136ba6019ded7aa7f2c1d85f78c30b21183654537b3428a400a64fcdacba3a7a10a9ef05137b6f2119f59594da300d55f9ebfb1309\nprovider=vcpkg-cache/ports/wtl\n"
+     "wtl=10.0.10320#7\nsha512=086a6cf6a49a4318a8c519136ba6019ded7aa7f2c1d85f78c30b21183654537b3428a400a64fcdacba3a7a10a9ef05137b6f2119f59594da300d55f9ebfb1309\nprovider=vcpkg-cache/ports/wtl\n"
 )
