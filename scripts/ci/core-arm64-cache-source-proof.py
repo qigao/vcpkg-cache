@@ -56,7 +56,7 @@ def lock_sha256(directory=CONTRACT):
 def load_contract(directory=CONTRACT):
     raw = lock_bytes(directory)
     blob = hashlib.sha1(
-        b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw
+        b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
     ).hexdigest()
     require(blob == LOCK_GIT_BLOB,
             "Core ARM64 source lock differs from the reviewed exact inputs")
