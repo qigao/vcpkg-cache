@@ -6,6 +6,8 @@ import copy
 import importlib.util
 import json
 import pathlib
+import struct
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -46,6 +48,20 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             "  ret i32 %x\n}\n"))
         with self.assertRaisesRegex(proof.GateError, "eliminated or renamed"):
             proof.function_body("declare i32 @obf_probe(i32)\n")
+
+    def test_llvm_release_verifier_checks_elf_and_macho_machines(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "native"
+            path.write_bytes(bytes.fromhex("7f454c46") + bytes((2, 1)) +
+                             bytes(12) + struct.pack("<H", 183) + bytes(44))
+            self.assertEqual(proof.binary_machine(path), ("ELF", 183))
+            path.write_bytes(bytes.fromhex("cffaedfe") +
+                             struct.pack("<I", 0x0100000c) + bytes(56))
+            self.assertEqual(proof.binary_machine(path),
+                             ("Mach-O", 0x0100000c))
+            path.write_bytes(bytes(64))
+            with self.assertRaisesRegex(proof.GateError, "not an expected"):
+                proof.binary_machine(path)
 
     def test_llvm_release_seed_policy(self):
         self.assertIsNotNone(proof.SEED.fullmatch(
