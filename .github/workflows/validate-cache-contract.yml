@@ -435,7 +435,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: qigao/vcpkg-cache
-          ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54
+          ref: 1d8efe881a7ddb65f2ecc512530ef15a9814b034
           path: _saltscore_abi
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -505,7 +505,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: qigao/vcpkg-cache
-          ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54
+          ref: 1d8efe881a7ddb65f2ecc512530ef15a9814b034
           path: _saltscore_abi
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -570,7 +570,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: qigao/vcpkg-cache
-          ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54
+          ref: 1d8efe881a7ddb65f2ecc512530ef15a9814b034
           path: _saltscore_abi
           persist-credentials: false
       - uses: actions/setup-python@v5
