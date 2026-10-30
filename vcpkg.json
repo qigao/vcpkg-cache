@@ -29,6 +29,7 @@
     "xxhash",
     "cxxopts",
     "stb",
+    "tre",
     {
       "name": "sqlite3",
       "features": [
