@@ -170,6 +170,24 @@ def verify(args: argparse.Namespace) -> dict:
     changed_body = function_body(protected_ir.read_text(encoding="utf-8"))
     require(normal_body != changed_body,
             "obfuscator DLL loaded but protected function IR did not change")
+    # Upstream registers named passes through an environment list. A typo or
+    # skipped pass can be silently ignored. Prove every required named pass
+    # changes a protected function by itself, not just the combined pipeline.
+    pass_digests = {}
+    for pass_name in pipeline["LLVM_OBF_SCALAROPTIMIZERLATE_PASSES"].split(","):
+        pass_name = pass_name.strip()
+        require(pass_name in ("flattening", "substitution", "bogus",
+                              "split-basic-blocks"),
+                "Release pipeline contains an unreviewed/unknown function pass")
+        standalone_env = env.copy()
+        standalone_env["LLVM_OBF_SCALAROPTIMIZERLATE_PASSES"] = pass_name
+        pass_ir = args.output / ("pass-" + pass_name + ".ll")
+        run(basic + load + ["-S", "-emit-llvm", "-o", str(pass_ir)],
+            cwd=args.output, env=standalone_env)
+        body = function_body(pass_ir.read_text(encoding="utf-8"))
+        require(body != normal_body,
+                f"required pass {pass_name} did not transform function IR")
+        pass_digests[pass_name] = hashlib.sha256(body.encode()).hexdigest()
     obj = args.output / "protected-ir.obj"
     run([str(args.compiler), "-O2", "-x", "ir", "-c",
          str(protected_ir), "-o", str(obj)], cwd=args.output, env=env)
@@ -206,7 +224,8 @@ def verify(args: argparse.Namespace) -> dict:
              if a["host"] == args.host), None),
         "obfuscator_source_commit": source["source_commit"],
         "host_plugin_sha256": pin["sha256"], "host_plugin_name": pin["name"],
-        "pass_pipeline": pipeline, "seed": args.seed,
+        "pass_pipeline": pipeline, "verified_named_passes": pass_digests,
+        "seed": args.seed,
         "source_sha256": sha(src),
         "baseline_ir_function_sha256": hashlib.sha256(normal_body.encode()).hexdigest(),
         "protected_ir_function_sha256": hashlib.sha256(changed_body.encode()).hexdigest(),
