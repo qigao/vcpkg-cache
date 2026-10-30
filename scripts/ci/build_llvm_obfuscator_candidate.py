@@ -121,8 +121,9 @@ def build(args: argparse.Namespace) -> dict:
     require(cmake_dir.is_absolute() and clean_within(cmake_dir, root) and
             (cmake_dir / "LLVMConfig.cmake").is_file(),
             "LLVM CMake development config is not part of pinned LLVM root")
-    require(shutil.which("cmake") and shutil.which("ninja") and shutil.which("git"),
-            "real source build requires CMake, Ninja and Git")
+    require(shutil.which("cmake") and shutil.which("ninja") and
+            shutil.which("git") and shutil.which("ccache"),
+            "real source build requires CMake, Ninja, Git and ccache")
     args.output.mkdir(parents=True)
     tree = args.output / "obfuscator-llvm-src"
     builddir = args.output / "build"
@@ -142,7 +143,8 @@ def build(args: argparse.Namespace) -> dict:
              "-DLLVM_DIR=" + str(cmake_dir),
              "-DCMAKE_C_COMPILER=" + str(clang),
              "-DCMAKE_CXX_COMPILER=" + str(clangxx),
-             "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_DUMMY=OFF"],
+             "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_DUMMY=OFF",
+             "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"],
             args.output, build_env)
     command(["cmake", "--build", str(builddir), "--target", "LLVMObfuscator",
              "--parallel", "2"], args.output, build_env, timeout=2400)
@@ -172,6 +174,9 @@ def build(args: argparse.Namespace) -> dict:
         "compiler_sha256": checksum(clang),
         "clangxx_sha256": checksum(clangxx),
         "llvm_config_sha256": checksum(config),
+        "cmake_version": command(["cmake", "--version"], root, build_env).splitlines()[0],
+        "ninja_version": command(["ninja", "--version"], root, build_env),
+        "ccache_version": command(["ccache", "--version"], root, build_env).splitlines()[0],
     }
     receipt = artifactdir / "candidate.json"
     receipt.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n",
