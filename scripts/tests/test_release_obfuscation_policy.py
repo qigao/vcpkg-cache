@@ -72,9 +72,74 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
                 self.data(), "Release", "llvm-mingw", "linux-arm64", "windows-arm64")
 
     def test_native_llvm_release_without_evidence_fails_closed(self):
-        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
+        with self.assertRaisesRegex(module.PolicyError, "compiler distribution not SHA256-pinned"):
             module.select_profile(
                 self.data(), "Release", "llvm-native", "linux-x64", "linux-x64")
+
+    def test_all_native_llvm_platforms_are_selected_and_fail_closed(self):
+        for platform in ("linux-x64", "linux-arm64", "macos-x64", "macos-arm64"):
+            for mode in ("Release", "MinSizeRel", "RelWithDebInfo"):
+                with self.subTest(platform=platform, mode=mode):
+                    with self.assertRaisesRegex(
+                            module.PolicyError, "compiler distribution not SHA256-pinned"):
+                        module.select_profile(
+                            self.data(), mode, "llvm-native", platform, platform)
+
+    def test_gcc_is_never_native_release_backend(self):
+        for platform in ("linux-x64", "linux-arm64", "macos-x64", "macos-arm64"):
+            with self.subTest(platform=platform):
+                with self.assertRaisesRegex(
+                        module.PolicyError, "requires llvm-native"):
+                    module.select_profile(
+                        self.data(), "Release", "gcc", platform, platform)
+
+    def test_appleclang_cannot_generate_mac_release(self):
+        for platform in ("macos-x64", "macos-arm64"):
+            with self.subTest(platform=platform):
+                with self.assertRaisesRegex(
+                        module.PolicyError, "requires llvm-native"):
+                    module.select_profile(
+                        self.data(), "Release", "appleclang", platform, platform)
+
+    def test_gcc_and_appleclang_can_still_run_diagnostic_tests(self):
+        for backend in ("gcc", "appleclang"):
+            self.assertIsNone(module.select_profile(
+                self.data(), "Debug", backend, "linux-arm64", "linux-arm64"))
+
+    def test_native_llvm_archive_without_digest_is_rejected(self):
+        data = self.data()
+        data["sources"]["llvm-native"]["distribution"] = "pinned"
+        data["sources"]["llvm-native"]["source_commit"] = "a" * 40
+        data["sources"]["llvm-native"]["assets"] = [{
+            "host": "linux-x64", "name": "llvm-23.1.4.tar.xz",
+            "sha256": "fake",
+        }]
+        with self.assertRaisesRegex(module.PolicyError, "archive needs pinned"):
+            module.validate_contract(data)
+
+    def test_native_llvm_plugin_must_match_the_host_os(self):
+        data = self.data()
+        data["sources"]["obfuscator-llvm"]["host_plugin_assets"] = [{
+            "host": "linux-arm64", "name": "LLVMObfuscator.dll",
+            "sha256": "a"*64, "llvm_version": "23.1.4",
+            "source_commit": data["sources"]["obfuscator-llvm"]["source_commit"],
+        }]
+        with self.assertRaisesRegex(module.PolicyError, "plugin needs locked"):
+            module.validate_contract(data)
+
+    def test_pinned_native_llvm_still_requires_matching_plugin(self):
+        data = self.data()
+        data["sources"]["llvm-native"]["distribution"] = "pinned"
+        data["sources"]["llvm-native"]["source_commit"] = "b"*40
+        data["sources"]["llvm-native"]["assets"] = [{
+            "host": "linux-x64", "name": "llvm-23.1.4.tar.xz",
+            "sha256": "c"*64,
+        }]
+        module.validate_contract(data)
+        with self.assertRaisesRegex(
+                module.PolicyError, "plugin host artifact not SHA256-pinned"):
+            module.select_profile(data, "Release", "llvm-native",
+                                  "linux-x64", "linux-x64")
 
     def test_tinycc_arm64_release_is_explicitly_denied(self):
         with self.assertRaisesRegex(module.PolicyError, "only claims Windows x86/x64"):
