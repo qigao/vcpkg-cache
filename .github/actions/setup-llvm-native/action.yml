@@ -120,7 +120,14 @@ runs:
         if ($LASTEXITCODE -ne 0) { throw 'LLVM native obfuscation IR or native runtime gate RED' }
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'verified=true'
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "compile-flag=-fpass-plugin=$env:PLUGIN"
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "receipt=$out/obfuscation-preflight.json"
-        # Required environment for subsequent protected product compile steps.
-        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution"
+        $receiptPath = Join-Path $out 'obfuscation-preflight.json'
+        $proof = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+        if ($proof.release_qualified -ne $false -or $proof.target_native_execution -ne $true -or
+            $proof.native_parity_result -eq $null -or $proof.native_parity_result -eq '') {
+          throw 'Release preflight cannot skip real native Linux/macOS execution'
+        }
+        $passes = $proof.pass_pipeline.LLVM_OBF_SCALAROPTIMIZERLATE_PASSES
+        if (-not $passes) { throw 'Immutable LLVM pass set was not verified' }
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "receipt=$receiptPath"
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=$passes"
         Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SEED=$env:SEED"
