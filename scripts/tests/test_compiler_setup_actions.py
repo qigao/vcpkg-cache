@@ -164,7 +164,7 @@ class CompilerActionTests(unittest.TestCase):
 
     def test_native_machine_audit_is_strict(self):
         payloads = (
-            (b"\\x7fELF" + bytes((2, 1)) + bytes(12) +
+            (b"\x7fELF" + bytes((2, 1)) + bytes(12) +
              struct.pack("<H", 183) + bytes(44), ("ELF", 183)),
             (bytes.fromhex("cffaedfe") + struct.pack("<I", 0x0100000c) +
              bytes(56), ("Mach-O", 0x0100000c)),
