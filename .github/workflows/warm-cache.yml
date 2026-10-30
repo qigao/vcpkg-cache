@@ -160,7 +160,10 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl"
+              "gmssl",
+              "libjpeg-turbo",
+              "libyuv",
+              "libusb"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -240,7 +243,10 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl"
+              "gmssl",
+              "libjpeg-turbo",
+              "libyuv",
+              "libusb"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -312,6 +318,26 @@ jobs:
           $ErrorActionPreference = "Stop"
           & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET --host-triplet $env:VCPKG_WARM_TRIPLET
           if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
+      - name: Warm Core Capture media dependencies / v145
+        if: matrix.triplet == 'qigao-x64-windows-v145'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "saltscore-media-v145"
+          $installRoot = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-install"
+          if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Recurse -Force }
+          if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          $baseline = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "vcpkg.json") -Raw | ConvertFrom-Json)."builtin-baseline"
+          @{
+            name = "saltscore-media-v145"
+            "version-string" = "1"
+            dependencies = @("libjpeg-turbo", "libyuv")
+            "builtin-baseline" = $baseline
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET"
+          if ($LASTEXITCODE -ne 0) { throw "Core v145 media cache warm failed" }
+
       - name: Warm unversioned Windows MIR JIT cache
         shell: pwsh
         run: |
@@ -372,6 +398,36 @@ jobs:
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
             throw "generic Windows restore did not use NuGet"
           }
+      - name: Verify Core Capture media cache-only restore / v145
+        if: matrix.triplet == 'qigao-x64-windows-v145'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-contract"
+          $installRoot = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-contract-install"
+          $log = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-contract.log"
+          if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Recurse -Force }
+          if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
+          if (Test-Path -LiteralPath $env:VCPKG_BINARY_CACHE) { Remove-Item -LiteralPath $env:VCPKG_BINARY_CACHE -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_BINARY_CACHE | Out-Null
+          $baseline = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "vcpkg.json") -Raw | ConvertFrom-Json)."builtin-baseline"
+          @{
+            name = "saltscore-media-v145-contract"
+            "version-string" = "1"
+            dependencies = @("libjpeg-turbo", "libyuv")
+            "builtin-baseline" = $baseline
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET" --only-binarycaching 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "Core v145 media cache-only restore failed" }
+          $text = Get-Content -LiteralPath $log -Raw
+          if ($text -match "(?m)^Building (libjpeg-turbo|libyuv):") {
+            throw "Core v145 media source build detected"
+          }
+          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
+            throw "Core v145 media restore did not use NuGet"
+          }
+
       - name: Verify unversioned Windows MIR JIT cache-only restore
         shell: pwsh
         run: |
@@ -430,8 +486,6 @@ jobs:
         include:
           - {name: device arm64, triplet: arm64-ios}
           - {name: simulator arm64, triplet: arm64-ios-simulator}
-    env:
-      X_VCPKG_NUGET_ID_PREFIX: vcpkg-cache
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
@@ -458,17 +512,11 @@ jobs:
             "dependencies": [
               {"name":"pkgconf","host":true},
               "simde",
-              "zstd",
-              "aklomp-base64",
               "c-ares",
-              "libuv",
               "kcp",
-              "gmssl",
               "miniaudio",
-              "libyuv",
-              "llhttp",
-              "tree-sitter",
-              "tree-sitter-c"
+              "libusb",
+              "zstd"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -483,7 +531,8 @@ jobs:
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$IOS_SDK_MANIFEST" \
             --x-install-root="$install_root" \
-            --triplet "${{ matrix.triplet }}"
+            --triplet "${{ matrix.triplet }}" \
+            --host-triplet arm64-osx
 
   ios-sdk-deps-cache-contract:
     name: iOS SDK deps clean L2 / ${{ matrix.name }}
@@ -495,8 +544,6 @@ jobs:
         include:
           - {name: device arm64, triplet: arm64-ios}
           - {name: simulator arm64, triplet: arm64-ios-simulator}
-    env:
-      X_VCPKG_NUGET_ID_PREFIX: vcpkg-cache
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
@@ -531,17 +578,11 @@ jobs:
             "dependencies": [
               {"name":"pkgconf","host":true},
               "simde",
-              "zstd",
-              "aklomp-base64",
               "c-ares",
-              "libuv",
               "kcp",
-              "gmssl",
               "miniaudio",
-              "libyuv",
-              "llhttp",
-              "tree-sitter",
-              "tree-sitter-c"
+              "libusb",
+              "zstd"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -560,6 +601,7 @@ jobs:
             --x-manifest-root="$IOS_SDK_MANIFEST" \
             --x-install-root="$install_root" \
             --triplet "${{ matrix.triplet }}" \
+            --host-triplet arm64-osx \
             --only-binarycaching 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
           set -e
