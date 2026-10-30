@@ -188,6 +188,10 @@ jobs:
           set -euo pipefail
           install_root="$RUNNER_TEMP/linux-arm64-sdk-deps-install"
           rm -rf "$install_root"
+          # Keep the tool choice used by the exact Core ABI proof. Having both
+          # FORCE_SYSTEM and FORCE_DOWNLOADED set made vcpkg record a cached
+          # CMake version as 0 on a subsequent invocation, changing package ABI.
+          unset VCPKG_FORCE_SYSTEM_BINARIES
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
             --x-install-root="$install_root" \
@@ -273,6 +277,7 @@ jobs:
           log="$RUNNER_TEMP/linux-arm64-sdk-deps.log"
           rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
           mkdir -p "$VCPKG_BINARY_CACHE"
+          unset VCPKG_FORCE_SYSTEM_BINARIES
           set +e
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
