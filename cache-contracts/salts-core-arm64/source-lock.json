@@ -11,7 +11,7 @@
   },
   "infrastructure": {
     "repository": "qigao/vcpkg-cache",
-    "commit": "7bb5b556a001bc82d2922a04a718e986a7f47f54",
+    "commit": "1d8efe881a7ddb65f2ecc512530ef15a9814b034",
     "contract_version": "8",
     "contract_revision": "07d8fa1d31497569a71781b6b64fb772c0dba4634cb0d0ecf48024ddd4aa2a56",
     "scripts_revision": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4",
@@ -28,8 +28,8 @@
   ],
   "re2c": {
     "package": "Qigao.Re2c.Binary",
-    "version": "4.6.4",
-    "sha256": "9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269"
+    "version": "4.6.5",
+    "sha256": "dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed"
   },
   "observed_runner": {
     "label": "ubuntu-24.04-arm",
@@ -61,5 +61,5 @@
     "https://github.com/qigao/salts-core/actions/runs/40843699028/job/123345971309",
     "https://github.com/qigao/salts-core/actions/runs/40843698858/job/123346007577"
   ],
-  "qualification": "Source proof and read-only upstream-token availability only; no publication authorization or salts-core migration acceptance."
+  "qualification": "Source proof of the Core v8 contract with the ARM64 bootstrap-environment maintenance commit; read-only upstream-token availability only; no publication authorization or salts-core migration acceptance."
 }
