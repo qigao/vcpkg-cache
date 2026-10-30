@@ -33,9 +33,10 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
         self.assertIsNone(module.select_profile(
             self.data(), "Debug", "", "", ""))
 
-    def test_relwithdebinfo_is_not_a_release_protection_claim(self):
-        self.assertIsNone(module.select_profile(
-            self.data(), "RelWithDebInfo", "", "", ""))
+    def test_relwithdebinfo_is_a_protected_release_variant(self):
+        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
+            module.select_profile(
+                self.data(), "RelWithDebInfo", "llvm-mingw", "windows-x64", "windows-x64")
 
     def test_tinycc_release_without_evidence_fails_closed(self):
         with self.assertRaisesRegex(module.PolicyError, "not qualified"):
@@ -94,7 +95,7 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
     def test_unqualified_cannot_be_marked_qualified_without_proof(self):
         data = self.data()
         data["profiles"][0]["qualification"] = "qualified"
-        with self.assertRaisesRegex(module.PolicyError, "missing release evidence"):
+        with self.assertRaisesRegex(module.PolicyError, "cannot admit Release"):
             module.validate_contract(data)
 
     def test_tinycc_arm64_cannot_be_added_as_profile(self):

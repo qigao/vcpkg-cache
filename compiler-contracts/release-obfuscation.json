@@ -5,11 +5,11 @@
   "scope": "first-party-native-release-targets",
   "release_configs": [
     "Release",
-    "MinSizeRel"
+    "MinSizeRel",
+    "RelWithDebInfo"
   ],
   "baseline_configs": [
-    "Debug",
-    "RelWithDebInfo"
+    "Debug"
   ],
   "on_unqualified_release": "fail",
   "on_unsupported_target": "fail",

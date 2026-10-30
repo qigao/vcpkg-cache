@@ -42,6 +42,12 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/validate_release_obfuscation.py --build-type Debug
           if python3 scripts/ci/validate_release_obfuscation.py \
+              --build-type RelWithDebInfo --compiler llvm-mingw \
+              --host linux-x64 --target windows-arm64; then
+            echo 'unqualified RelWithDebInfo must be denied' >&2
+            exit 1
+          fi
+          if python3 scripts/ci/validate_release_obfuscation.py \
               --build-type Release --compiler tinycc-builder \
               --host windows-x64 --target windows-x64; then
             echo 'unqualified TinyCC Release must be denied' >&2

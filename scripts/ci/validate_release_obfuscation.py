@@ -62,14 +62,17 @@ def asset_for_host(source: dict[str, Any], host: str) -> dict[str, Any] | None:
 
 def validate_contract(data: dict[str, Any]) -> None:
     require(data.get("schema_version") == 1, "unexpected compiler contract version")
+    require(data.get("state") == "design-candidate-not-release-qualified",
+            "production release catalog admission is not implemented")
     require(data.get("scope") == "first-party-native-release-targets",
             "compiler contract must not rewrite third-party dependencies")
     require(data.get("on_unqualified_release") == "fail", "release fallback is forbidden")
     require(data.get("on_unsupported_target") == "fail", "target fallback is forbidden")
     release = data.get("release_configs")
     baseline = data.get("baseline_configs")
-    require(release == ["Release", "MinSizeRel"], "Release/MinSizeRel must stay protected")
-    require(baseline == ["Debug", "RelWithDebInfo"], "Debug/RelWithDebInfo must stay baseline")
+    require(release == ["Release", "MinSizeRel", "RelWithDebInfo"],
+            "Release/MinSizeRel/RelWithDebInfo must stay protected")
+    require(baseline == ["Debug"], "only Debug is an unprotected baseline")
     sources = data.get("sources")
     require(isinstance(sources, dict), "missing immutable source locks")
 
@@ -161,8 +164,8 @@ def validate_contract(data: dict[str, Any]) -> None:
         if compiler != "llvm-native":
             require(asset_for_host(sources[compiler], host) is not None,
                     f"{ident}: compiler archive not pinned for host {host}")
-        require(qualification in ("pending", "qualified"),
-                f"{ident}: qualification must be explicit")
+        require(qualification == "pending",
+                f"{ident}: draft policy cannot admit Release until real native proof verifier exists")
         require(isinstance(evidence, list), f"{ident}: evidence must be an array")
         if qualification == "qualified":
             require(compiler != "llvm-native" or
