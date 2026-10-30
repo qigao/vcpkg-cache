@@ -121,3 +121,6 @@ runs:
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'verified=true'
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "compile-flag=-fpass-plugin=$env:PLUGIN"
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "receipt=$out/obfuscation-preflight.json"
+        # Required environment for subsequent protected product compile steps.
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution"
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SEED=$env:SEED"
