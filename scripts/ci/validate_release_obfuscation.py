@@ -86,6 +86,25 @@ def validate_contract(data: dict[str, Any]) -> None:
             windows.get("third_party_vcpkg") == "baseline-not-automatically-obfuscated",
             "Windows protected Release must select pinned LLVM-MinGW/UCRT; "
             "MSVC remains Debug-only, plugin and native gate must fail closed")
+    native = data.get("native_protected_release", {})
+    require(isinstance(native, dict) and
+            native.get("compiler") == "llvm-native" and
+            native.get("obfuscator") == "obfuscator-llvm" and
+            native.get("targets") ==
+            ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"] and
+            native.get("llvm_version") == "23.1.4" and
+            native.get("gcc_release") == "forbidden" and
+            native.get("gcc_tests") == "allowed" and
+            native.get("appleclang_release") == "forbidden" and
+            native.get("msvc_release") == "forbidden" and
+            native.get("native_target_execution") == "required" and
+            native.get("absent_plugin") == "fail" and
+            native.get("unpinned_compiler") == "fail" and
+            native.get("third_party_vcpkg") == "baseline-not-automatically-obfuscated",
+            "Linux/macOS protected Release requires pinned LLVM/Clang + "
+            "obfuscator-llvm; GCC/AppleClang are for testing only")
+    require(set(native["targets"]).isdisjoint(windows["targets"]),
+            "native and Windows Release selectors must be disjoint")
     sources = data.get("sources")
     require(isinstance(sources, dict), "missing immutable source locks")
 
@@ -104,6 +123,29 @@ def validate_contract(data: dict[str, Any]) -> None:
             "llvm-mingw UCRT ABI must not alias MSVC or MSVCRT")
     require(sources["llvm-mingw"].get("llvm_version") == "23.1.4",
             "LLVM release compiler version changed; review plugin ABI")
+    native_source = sources["llvm-native"]
+    require(native_source.get("repository") == "llvm/llvm-project" and
+            native_source.get("source_tag") == "llvmorg-23.1.4" and
+            native_source.get("llvm_version") ==
+            sources["llvm-mingw"].get("llvm_version"),
+            "native Release LLVM source tag must match immutable plugin LLVM ABI")
+    require(native_source.get("distribution") in ("not-yet-pinned", "pinned") and
+            isinstance(native_source.get("assets"), list),
+            "native LLVM distribution must declare explicit host archive locks")
+    if native_source.get("distribution") == "pinned":
+        require(bool(COMMIT.fullmatch(str(native_source.get("source_commit", "")))),
+                "pinned native LLVM needs exact upstream source commit")
+        require(bool(native_source["assets"]), "pinned LLVM distribution has no host assets")
+    native_seen = set()
+    for asset in native_source["assets"]:
+        require(isinstance(asset, dict) and
+                asset.get("host") in native["targets"] and
+                asset["host"] not in native_seen and
+                isinstance(asset.get("name"), str) and
+                asset["name"].endswith((".tar.xz", ".tar.gz", ".zip")) and
+                bool(SHA256.fullmatch(str(asset.get("sha256", "")))),
+                "native LLVM archive needs pinned per-host SHA256 and filename")
+        native_seen.add(asset["host"])
     require(sources["obfuscator-llvm"].get("llvm_candidate_major") == 23,
             "obfuscator plugin ABI must be explicitly revisited for new LLVM major")
     require(sources["obfuscator-llvm"].get("load_flag") == "-fpass-plugin",
@@ -124,6 +166,9 @@ def validate_contract(data: dict[str, Any]) -> None:
                 plugin["name"].endswith((".dll", ".so", ".dylib")) and
                 bool(SHA256.fullmatch(str(plugin.get("sha256", "")))) and
                 plugin.get("llvm_version") == sources["llvm-mingw"]["llvm_version"] and
+                plugin["name"].endswith(".dll" if plugin["host"].startswith("windows-")
+                                        else ".dylib" if plugin["host"].startswith("macos-")
+                                        else ".so") and
                 bool(COMMIT.fullmatch(str(plugin.get("source_commit", "")))) and
                 plugin["source_commit"] == sources["obfuscator-llvm"]["source_commit"],
                 "LLVM-MinGW plugin needs locked host binary SHA256, source commit "
@@ -251,6 +296,10 @@ def select_profile(data: dict[str, Any], build_type: str, compiler: str,
         require(compiler == "llvm-mingw",
                 "protected Windows x64/ARM64 Release requires llvm-mingw; "
                 "MSVC/TinyCC/LLVM substitution is forbidden")
+    if target in data["native_protected_release"]["targets"]:
+        require(compiler == "llvm-native",
+                "protected Linux/macOS x64/ARM64 Release requires llvm-native; "
+                "GCC/AppleClang/MSVC/TinyCC substitution is forbidden")
     require(compiler in BACKENDS, f"Release requires an admitted compiler, got {compiler}")
     matches = [
         p for p in data["profiles"]
@@ -259,10 +308,15 @@ def select_profile(data: dict[str, Any], build_type: str, compiler: str,
     require(len(matches) == 1,
             f"no unique Release profile for {compiler} {host} -> {target}")
     profile = matches[0]
-    if compiler == "llvm-mingw":
+    if compiler == "llvm-native":
+        source = data["sources"]["llvm-native"]
+        locked_compiler_hosts = {x["host"] for x in source["assets"]}
+        require(source["distribution"] == "pinned" and host in locked_compiler_hosts,
+                f"LLVM native Release denied: compiler distribution not SHA256-pinned for {host}")
+    if compiler in ("llvm-mingw", "llvm-native"):
         locked_hosts = {x["host"] for x in data["sources"]["obfuscator-llvm"]["host_plugin_assets"]}
         require(host in locked_hosts,
-                f"LLVM-MinGW Release denied: plugin host artifact not SHA256-pinned for {host}")
+                f"LLVM Release denied: plugin host artifact not SHA256-pinned for {host}")
     require(profile["qualification"] == "qualified",
             f"Release profile {profile['id']} is not qualified; unprotected fallback prohibited")
     return profile
