@@ -46,7 +46,7 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
     def test_llvm_mingw_release_without_evidence_fails_closed(self):
         with self.assertRaisesRegex(module.PolicyError, "not qualified"):
             module.select_profile(
-                self.data(), "Release", "llvm-mingw", "linux-x64", "windows-arm64")
+                self.data(), "Release", "llvm-mingw", "linux-arm64", "windows-arm64")
 
     def test_native_llvm_release_without_evidence_fails_closed(self):
         with self.assertRaisesRegex(module.PolicyError, "not qualified"):
