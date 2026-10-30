@@ -69,6 +69,35 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             with self.assertRaisesRegex(proof.GateError, "not an expected"):
                 proof.binary_machine(path)
 
+    def test_llvm_plugin_is_a_real_host_shared_library(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            lib = pathlib.Path(temporary) / "LLVMObfuscator"
+            elf = bytearray(64)
+            elf[:4] = bytes.fromhex("7f454c46")
+            elf[4] = 2
+            elf[5] = 1
+            struct.pack_into("<H", elf, 16, 3)  # ET_DYN
+            struct.pack_into("<H", elf, 18, 183)  # Linux AArch64
+            lib.write_bytes(elf)
+            proof.check_host_plugin_image(lib, "linux-arm64")
+            with self.assertRaisesRegex(proof.GateError, "host plugin machine"):
+                proof.check_host_plugin_image(lib, "linux-x64")
+            struct.pack_into("<H", elf, 16, 2)  # ET_EXEC
+            lib.write_bytes(elf)
+            with self.assertRaisesRegex(proof.GateError, "ET_DYN"):
+                proof.check_host_plugin_image(lib, "linux-arm64")
+
+            macho = bytearray(64)
+            macho[:4] = bytes.fromhex("cffaedfe")
+            struct.pack_into("<I", macho, 4, 0x0100000c)
+            struct.pack_into("<I", macho, 12, 6)  # MH_DYLIB
+            lib.write_bytes(macho)
+            proof.check_host_plugin_image(lib, "macos-arm64")
+            struct.pack_into("<I", macho, 12, 2)  # MH_EXECUTE
+            lib.write_bytes(macho)
+            with self.assertRaisesRegex(proof.GateError, "MH_DYLIB"):
+                proof.check_host_plugin_image(lib, "macos-arm64")
+
     def test_source_plugin_builder_has_exact_scope_and_no_release_fallback(self):
         with tempfile.TemporaryDirectory() as scratch:
             candidate = argparse.Namespace(
