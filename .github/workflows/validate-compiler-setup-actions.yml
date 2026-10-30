@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/actions/setup-llvm-mingw/**'
+      - '.github/actions/setup-llvm-native/**'
       - '.github/actions/setup-tinycc-builder/**'
       - '.github/workflows/validate-compiler-setup-actions.yml'
       - 'compiler-contracts/release-obfuscation.json'
@@ -15,6 +16,7 @@ on:
     branches: [master]
     paths:
       - '.github/actions/setup-llvm-mingw/**'
+      - '.github/actions/setup-llvm-native/**'
       - '.github/actions/setup-tinycc-builder/**'
       - '.github/workflows/validate-compiler-setup-actions.yml'
       - 'compiler-contracts/release-obfuscation.json'
