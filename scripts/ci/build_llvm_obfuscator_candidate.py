@@ -139,13 +139,18 @@ def build(args: argparse.Namespace) -> dict:
                             args.output, build_env)
     require(actual_commit == source["source_commit"],
             "upstream obfuscator source checkout SHA drifted")
-    command(["cmake", "-S", str(tree), "-B", str(builddir), "-G", "Ninja",
-             "-DLLVM_DIR=" + str(cmake_dir),
-             "-DCMAKE_C_COMPILER=" + str(clang),
-             "-DCMAKE_CXX_COMPILER=" + str(clangxx),
-             "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_DUMMY=OFF",
-             "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"],
-            args.output, build_env)
+    cmake_args = ["cmake", "-S", str(tree), "-B", str(builddir), "-G", "Ninja",
+                  "-DLLVM_DIR=" + str(cmake_dir),
+                  "-DCMAKE_C_COMPILER=" + str(clang),
+                  "-DCMAKE_CXX_COMPILER=" + str(clangxx),
+                  "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_DUMMY=OFF",
+                  "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
+    if args.host.startswith("macos-"):
+        sdk = build_env.get("SDKROOT", "")
+        require(bool(sdk) and Path(sdk).is_absolute() and Path(sdk).is_dir(),
+                "real macOS LLVM plugin requires SDKROOT from xcrun")
+        cmake_args.append("-DCMAKE_OSX_SYSROOT=" + str(Path(sdk).resolve()))
+    command(cmake_args, args.output, build_env)
     command(["cmake", "--build", str(builddir), "--target", "LLVMObfuscator",
              "--parallel", "2"], args.output, build_env, timeout=2400)
     ext = HOST_EXTENSION[args.host.split("-")[0]]

@@ -273,6 +273,15 @@ def compiler_paths(root: Path, compiler: str, target: str, host: str) -> dict[st
     return paths
 
 
+def native_macos_sdk(host: str) -> Path | None:
+    if not host.startswith("macos-"):
+        return None
+    sdk = os.environ.get("SDKROOT", "")
+    ensure(bool(sdk) and Path(sdk).is_absolute() and Path(sdk).is_dir(),
+           "macOS upstream LLVM requires explicit SDKROOT from xcrun")
+    return Path(sdk).resolve()
+
+
 def generated_cmake(root: Path, compiler: str, target: str,
                     paths: dict[str, str], host: str) -> Path:
     cmake = root / "qigao-toolchain.cmake"
@@ -287,6 +296,9 @@ def generated_cmake(root: Path, compiler: str, target: str,
         f"set(CMAKE_SYSTEM_NAME {system})",
         f"set(CMAKE_SYSTEM_PROCESSOR {architecture})",
     ]
+    if compiler == "llvm-native" and host.startswith("macos-"):
+        sdk = native_macos_sdk(host)
+        lines.append(f'set(CMAKE_OSX_SYSROOT "{sdk.as_posix()}")')
     for cmake_var, key in (
         ("CMAKE_C_COMPILER", "cc"), ("CMAKE_CXX_COMPILER", "cxx"),
         ("CMAKE_AR", "ar"), ("CMAKE_RANLIB", "ranlib"), ("CMAKE_RC_COMPILER", "rc")
@@ -321,7 +333,11 @@ def smoke_compiler(root: Path, compiler: str, target: str, host: str,
         src = scratch / "smoke.c"
         exe = scratch / ("smoke" if compiler == "llvm-native" else "smoke.exe")
         src.write_text("int main(void) { return 0; }\n", encoding="ascii")
-        run([compiler_bin, str(src), "-o", str(exe)], cwd=scratch)
+        invocation = [compiler_bin]
+        if compiler == "llvm-native" and host.startswith("macos-"):
+            invocation.extend(["-isysroot", str(native_macos_sdk(host))])
+        invocation.extend([str(src), "-o", str(exe)])
+        run(invocation, cwd=scratch)
         if compiler == "llvm-native":
             ensure(native_machine(exe) == NATIVE_MACHINES[host],
                    f"wrong native ELF/Mach-O machine for {host}")
@@ -373,6 +389,8 @@ def install(args: argparse.Namespace) -> dict[str, str]:
                native.get("source_commit") and
                any(item["host"] == host for item in native["assets"]),
                "native LLVM distribution not SHA256-pinned for this host")
+        if host.startswith("macos-"):
+            native_macos_sdk(host)  # fail before downloading multi-GB LLVM
     if args.compiler == "tinycc-builder":
         ensure(host == "windows-x64", "TinyCC-builder currently supports Windows x64 host only")
         ensure(args.target in ("x86", "x64", "arm64"), "unsupported TinyCC target")

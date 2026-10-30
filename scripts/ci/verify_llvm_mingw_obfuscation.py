@@ -275,6 +275,11 @@ def verify(args: argparse.Namespace) -> dict:
     src.write_text(PROBE, encoding="utf-8")
     basic = [str(args.compiler), "-std=c11", "-O2", "-fno-lto",
              "-Werror", str(src)]
+    if args.target.startswith("macos-"):
+        sdk = env.get("SDKROOT", "")
+        require(bool(sdk) and Path(sdk).is_absolute() and Path(sdk).is_dir(),
+                "real upstream LLVM macOS preflight requires xcrun SDKROOT")
+        basic[1:1] = ["-isysroot", str(Path(sdk).resolve())]
     load = [f"-fpass-plugin={args.plugin}"]
     baseline_ir = args.output / "baseline.ll"
     protected_ir = args.output / "protected.ll"

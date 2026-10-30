@@ -138,6 +138,25 @@ class CompilerActionTests(unittest.TestCase):
         self.assertNotIn(".qigao-compiler-", cmake)
         self.assertEqual(result["smoke"], "mocked-cross")
 
+    def test_upstream_llvm_macos_requires_real_explicit_sdkroot(self):
+        sdk = self.temp / "MacOSX.sdk"
+        sdk.mkdir()
+        with mock.patch.dict(module.os.environ, {"SDKROOT": ""}):
+            with self.assertRaisesRegex(module.AdmissionError, "SDKROOT from xcrun"):
+                module.native_macos_sdk("macos-arm64")
+        with mock.patch.dict(module.os.environ, {"SDKROOT": str(sdk)}):
+            self.assertEqual(module.native_macos_sdk("macos-arm64"), sdk)
+            root = self.temp / "macos-llvm"
+            root.mkdir()
+            clang = root / "clang"
+            clang.write_bytes(b"test pinned compiler file")
+            cmake = module.generated_cmake(
+                root, "llvm-native", "arm64", {"cc": str(clang)}, "macos-arm64")
+            output = cmake.read_text(encoding="utf-8")
+            self.assertIn("set(CMAKE_SYSTEM_NAME Darwin)", output)
+            self.assertIn(f'set(CMAKE_OSX_SYSROOT "{sdk}")', output)
+        self.assertIsNone(module.native_macos_sdk("linux-arm64"))
+
     def test_native_llvm_unpinned_distribution_fails_before_network(self):
         self.contract["sources"]["llvm-native"]["distribution"] = "not-yet-pinned"
         self.contract["sources"]["llvm-native"]["source_commit"] = None

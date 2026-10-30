@@ -74,6 +74,18 @@ runs:
         $arch = @{X64='x64';ARM64='arm64'}[$env:HOST_ARCH]
         if (-not $osName -or -not $arch -or $arch -ne $env:TARGET) { throw 'Native Release LLVM target must match Linux/macOS runner CPU' }
         $hostId = "$osName-$arch"
+        if ($osName -eq 'macos') {
+          # xcrun locates SDK data only; compilation remains on pinned LLVM.
+          $sdk = (& xcrun --sdk macosx --show-sdk-path | Select-Object -First 1)
+          if ($LASTEXITCODE -ne 0 -or -not $sdk -or
+              -not [IO.Path]::IsPathFullyQualified($sdk) -or
+              -not (Test-Path -LiteralPath $sdk -PathType Container)) {
+            throw 'Pinned LLVM macOS requires an explicit genuine Xcode SDK sysroot'
+          }
+          $env:SDKROOT = $sdk
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "SDKROOT=$sdk"
+          Write-Host "LLVM_NATIVE_MACOS_SDK_PASS: $sdk"
+        }
         $lock = Get-Content -LiteralPath $sourceLock -Raw | ConvertFrom-Json
         $source = $lock.sources.'llvm-native'
         $archives = @($source.assets | Where-Object { $_.host -eq $hostId })
