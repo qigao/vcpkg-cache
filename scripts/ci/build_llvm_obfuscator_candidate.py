@@ -45,9 +45,13 @@ def command(argv: list[str], cwd: Path, env: dict[str, str],
     result = subprocess.run(argv, cwd=cwd, env=env, text=True,
                             errors="replace", capture_output=True,
                             timeout=timeout)
+    # CMake emits many actual configure errors on STDOUT (even with
+    # stderr empty); preserve both streams so CI reveals the first real RED.
     require(result.returncode == 0,
             "source-build action failed: " + Path(argv[0]).name +
-            " (" + str(result.returncode) + ")\n" + result.stderr[-3000:])
+            " (" + str(result.returncode) + ")\n"
+            + "STDOUT:\n" + result.stdout[-8000:]
+            + "\nSTDERR:\n" + result.stderr[-8000:])
     return result.stdout.strip()
 
 
