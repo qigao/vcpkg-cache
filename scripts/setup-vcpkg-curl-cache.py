@@ -146,21 +146,26 @@ def main() -> int:
     if partial_filter.returncode == 0 and partial_filter.stdout.strip():
         raise ValueError("canonical vcpkg checkout must not use a partial-clone filter")
 
+    bootstrap_environment = dict(os.environ)
+    arm64_linux = (os.environ.get("RUNNER_OS") == "Linux"
+                   and os.environ.get("RUNNER_ARCH") == "ARM64")
     if os.name == "nt":
         bootstrap = ["cmd", "/c", str(root / "bootstrap-vcpkg.bat"), "-disableMetrics"]
     else:
-        if os.environ.get("RUNNER_OS") == "Linux" and os.environ.get("RUNNER_ARCH") == "ARM64":
-            # Preserve the shared cache producer's ARM64 tool-selection contract.
-            # The binary cache itself is files-only, so enabling downloaded host
-            # tools cannot reintroduce NuGet/Mono as a package transport.
-            os.environ["VCPKG_FORCE_SYSTEM_BINARIES"] = "1"
-            os.environ["VCPKG_FORCE_DOWNLOADED_BINARIES"] = "1"
-            append_env({
-                "VCPKG_FORCE_SYSTEM_BINARIES": "1",
-                "VCPKG_FORCE_DOWNLOADED_BINARIES": "1",
-            })
+        if arm64_linux:
+            # The bootstrap script requires this architecture admission switch,
+            # but vcpkg's tool-version detector treats mere presence of
+            # VCPKG_FORCE_SYSTEM_BINARIES as "use version 0" for already cached
+            # downloaded tools. Keep it bootstrap-local so repeated manifest
+            # plans retain the same CMake/tool identities and package ABIs.
+            bootstrap_environment["VCPKG_FORCE_SYSTEM_BINARIES"] = "1"
+            bootstrap_environment["VCPKG_FORCE_DOWNLOADED_BINARIES"] = "1"
         bootstrap = ["sh", str(root / "bootstrap-vcpkg.sh"), "-disableMetrics"]
-    subprocess.run(bootstrap, cwd=root, check=True)
+    subprocess.run(bootstrap, cwd=root, env=bootstrap_environment, check=True)
+    if arm64_linux:
+        os.environ.pop("VCPKG_FORCE_SYSTEM_BINARIES", None)
+        os.environ["VCPKG_FORCE_DOWNLOADED_BINARIES"] = "1"
+        append_env({"VCPKG_FORCE_DOWNLOADED_BINARIES": "1"})
 
     exe = root / ("vcpkg.exe" if os.name == "nt" else "vcpkg")
     version = run(str(exe), "version").splitlines()[0]
