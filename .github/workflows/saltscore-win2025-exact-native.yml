@@ -1,0 +1,244 @@
+name: Manual SaltsCore Windows2025 exact native ABI producer
+on:
+  workflow_dispatch:
+    inputs:
+      expected_master_sha:
+        description: Immutable reviewed master SHA
+        required: true
+        type: string
+      publish:
+        description: Explicit protected NuGet V3 PUT
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: saltscore-exact-windows-abi-producer
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: github.ref == 'refs/heads/master' && github.repository == 'qigao/vcpkg-cache'
+    runs-on: windows-2025
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/salts-core
+          ref: 9b58347acdc293b11607fe45404eae78e4817de6
+          path: downstream/salts-core
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+        with:
+          arch: x64
+      - name: Verify exact source compiler and tests
+        shell: pwsh
+        env:
+          EXPECTED_MASTER: ${{ inputs.expected_master_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:EXPECTED_MASTER -cnotmatch '^[0-9a-f]{40}$' -or
+              $env:EXPECTED_MASTER -cne $env:GITHUB_SHA -or
+              $env:EXPECTED_MASTER -cne (git rev-parse HEAD).Trim() -or
+              $env:GITHUB_REPOSITORY -ne 'qigao/vcpkg-cache' -or
+              $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or
+              $env:GITHUB_REF -ne 'refs/heads/master' -or
+              $env:VCToolsVersion -ne '14.51.36231' -or
+              $env:VSCMD_VER -ne '18.11.1') { throw 'source/compiler drift' }
+          python -m unittest discover -s scripts/tests -p test_saltscore_win2025_abi.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'negative ABI tests failed' }
+      - name: Bootstrap canonical vcpkg scripts without Mono NuGet or remote binary cache
+        shell: pwsh
+        run: |
+          python scripts/setup-vcpkg-curl-cache.py "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { throw 'canonical bootstrap failed' }
+      - name: Enforce exact vcpkg contract and empty write-only cache
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $f = Get-Content cache-contracts/saltscore-win2025/expected-abi.json -Raw | ConvertFrom-Json
+          if ($env:VCPKG_CACHE_REVISION -ne $f.cache.revision -or
+              $env:VCPKG_SCRIPTS_REVISION -ne $f.cache.vcpkg_scripts -or
+              $env:VCPKG_TOOL_REVISION -ne $f.cache.vcpkg_tool -or
+              $env:VCPKG_CACHE_CONTRACT_VERSION -ne $f.cache.contract_version) {
+            throw 'canonical tool/port contract changed'
+          }
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'build/saltscore-win2025'
+          if (Test-Path $stage) { throw 'stage not empty' }
+          $cache = Join-Path $stage 'cache'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "SALTSCORE_ABI_STAGE=$stage" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VCPKG_BINARY_CACHE=$cache" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VCPKG_BINARY_SOURCES=clear;files,$($cache.Replace('\','/')),write" |
+            Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Require the exact original nine package/ABI IDs before compilation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:GITHUB_WORKSPACE 'downstream/salts-core'
+          $plan = Join-Path $env:SALTSCORE_ABI_STAGE 'packages.config'
+          $vcpkg = Join-Path $env:VCPKG_ROOT 'vcpkg.exe'
+          $args = @('install',"--x-manifest-root=$manifest",
+                    "--x-install-root=$env:RUNNER_TEMP/saltscore-preflight",
+                    '--triplet=x64-windows','--host-triplet=x64-windows',
+                    '--x-feature=cnet','--dry-run',
+                    "--x-write-nuget-packages-config=$plan")
+          & $vcpkg @args
+          if ($LASTEXITCODE -ne 0) { throw 'ABI planning failed' }
+          python scripts/ci/verify-saltscore-win2025-abi.py --plan $plan --source $manifest
+          if ($LASTEXITCODE -ne 0) { throw 'wrong native package identity' }
+      - name: Build exact native sources into write-only local cache
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:VCPKG_BINARY_SOURCES.EndsWith(',write')) {
+            throw 'producer cannot read cached binaries'
+          }
+          $manifest = Join-Path $env:GITHUB_WORKSPACE 'downstream/salts-core'
+          $vcpkg = Join-Path $env:VCPKG_ROOT 'vcpkg.exe'
+          $args = @('install',"--x-manifest-root=$manifest",
+                    "--x-install-root=$env:RUNNER_TEMP/saltscore-source-install",
+                    '--triplet=x64-windows','--host-triplet=x64-windows',
+                    '--x-feature=cnet')
+          & $vcpkg @args
+          if ($LASTEXITCODE -ne 0) { throw 'exact native source build failed' }
+          python scripts/ci/verify-saltscore-win2025-abi.py --attest $env:SALTSCORE_ABI_STAGE --cache-master $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'nine ZIPs not certified' }
+      - name: Dry run canonical remote publisher without write
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = $env:SALTSCORE_ABI_STAGE
+          python scripts/publish-vcpkg-curl-cache.py --packages-config "$stage/packages.config" --cache "$stage/cache" |
+            Tee-Object -FilePath "$stage/dryrun-proof.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'ABI publisher dry-run failed' }
+          if (Select-String "$stage/dryrun-proof.txt" -Pattern 'uploaded=[1-9]') {
+            throw 'write from read-only source builder'
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saltscore-win2025-exact-native
+          path: build/saltscore-win2025/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: inputs.publish == true && github.ref == 'refs/heads/master'
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-cache-publish
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require protected environment secret and unchanged exact master
+        shell: bash
+        env:
+          ARM: ${{ secrets.NATIVE_CACHE_PUBLISH_ARM }}
+          EXPECTED_MASTER: ${{ inputs.expected_master_sha }}
+        run: |
+          set -euo pipefail
+          test "$ARM" = native-cache-publish-v1
+          [[ "$EXPECTED_MASTER" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$EXPECTED_MASTER"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MASTER"
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
+          test "$GITHUB_REF" = refs/heads/master
+          remote="$(git ls-remote --exit-code https://github.com/qigao/vcpkg-cache.git refs/heads/master | cut -f1)"
+          test "$remote" = "$EXPECTED_MASTER"
+      - uses: actions/download-artifact@v4
+        with:
+          name: saltscore-win2025-exact-native
+          path: build/saltscore-win2025
+      - name: Verify SHA256 of every native archive after approval
+        shell: bash
+        env:
+          EXPECTED_MASTER: ${{ inputs.expected_master_sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify-saltscore-win2025-abi.py \
+            --verify build/saltscore-win2025 --cache-master "$EXPECTED_MASTER"
+      - name: Publish only the nine original ABIs with canonical curl native publisher
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/publish-vcpkg-curl-cache.py \
+            --packages-config build/saltscore-win2025/packages.config \
+            --cache build/saltscore-win2025/cache --publish \
+            | tee "$RUNNER_TEMP/publish-proof.txt"
+          grep -E 'publish_summary total=9 ' "$RUNNER_TEMP/publish-proof.txt"
+          grep -Eq 'uploaded=[1-9][0-9]*' "$RUNNER_TEMP/publish-proof.txt"
+
+  readback:
+    if: inputs.publish == true
+    needs: publish
+    runs-on: windows-2025
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/salts-core
+          ref: 9b58347acdc293b11607fe45404eae78e4817de6
+          path: downstream/salts-core
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+        with:
+          arch: x64
+      - name: Verify MSVC and empty read-only L1
+        shell: pwsh
+        run: |
+          if ($env:VCToolsVersion -ne '14.51.36231' -or
+              $env:VSCMD_VER -ne '18.11.1' -or
+              (Test-Path build/vcpkg-binary-cache)) { throw 'stale binary read-back environment' }
+      - uses: ./.github/actions/setup-vcpkg-curl-cache
+        with:
+          mode: read
+          triplet: x64-windows
+          host-triplet: x64-windows
+          manifest-root: downstream/salts-core
+          features: cnet
+      - name: Require binary-only install with real native GmSSL and SIMDe headers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:GITHUB_WORKSPACE 'downstream/salts-core'
+          $prefix = Join-Path $env:RUNNER_TEMP 'saltscore-binary-only'
+          $vcpkg = Join-Path $env:VCPKG_ROOT 'vcpkg.exe'
+          $args = @('install',"--x-manifest-root=$manifest",
+                    "--x-install-root=$prefix",
+                    '--triplet=x64-windows','--host-triplet=x64-windows',
+                    '--x-feature=cnet','--only-binarycaching')
+          & $vcpkg @args
+          if ($LASTEXITCODE -ne 0) { throw 'binary-only cache contract failed' }
+          if (-not (Test-Path "$prefix/x64-windows/include/gmssl/tls.h") -or
+              -not (Test-Path "$prefix/x64-windows/include/simde/x86/sse2.h")) {
+            throw 'native cached GmSSL/SIMDe payload absent'
+          }
