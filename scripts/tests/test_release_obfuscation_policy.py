@@ -142,8 +142,8 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             module.select_profile(
                 self.data(), "Release", "tinycc-builder", "windows-x64", "windows-x64")
 
-    def test_llvm_mingw_release_without_evidence_fails_closed(self):
-        with self.assertRaisesRegex(module.PolicyError, "plugin host artifact not SHA256-pinned"):
+    def test_llvm_mingw_release_with_host_candidate_remains_unqualified(self):
+        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
             module.select_profile(
                 self.data(), "Release", "llvm-mingw", "linux-arm64", "windows-arm64")
 
@@ -158,7 +158,7 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
                 with self.subTest(platform=platform, mode=mode):
                     block = ("compiler distribution not SHA256-pinned"
                              if platform == "macos-x64"
-                             else "not qualified" if platform == "linux-x64"
+                             else "not qualified" if platform.startswith("linux-")
                              else "plugin host artifact not SHA256-pinned")
                     with self.assertRaisesRegex(module.PolicyError, block):
                         module.select_profile(
