@@ -129,6 +129,19 @@
           "compiler_sha256": "c336d48383874cffaab0dc4c5c359456d871f21380b746520dde5c7f4c125a67",
           "candidate_run": "https://github.com/qigao/vcpkg-cache/actions/runs/41090219912",
           "candidate_artifact_id": 12993687562
+        },
+        {
+          "host": "linux-arm64",
+          "name": "libLLVMObfuscator.so",
+          "sha256": "0866756e4f08058c1d407feff59ac55172aea357f7348c7bacda6dee34a8334b",
+          "llvm_version": "23.1.4",
+          "source_commit": "ad26aa21b90cc5c5118d32114b674d1455f54168",
+          "qualification": "source-built-candidate-only",
+          "release_qualified": false,
+          "compiler_archive_sha256": "9b27cf263d711aa6ebfd4045ab241d947bd09b3cd19ffa5728f48a80c9eb3a91",
+          "compiler_sha256": "c11d7b08bb42599a97e76a20ab358b21925691c298524044cc07ba7e3280ac30",
+          "candidate_run": "https://github.com/qigao/vcpkg-cache/actions/runs/41092005007",
+          "candidate_artifact_id": 12994358091
         }
       ],
       "host_plugin_status": "linux-x64-source-built-candidate-pinned;other-hosts-pending"
