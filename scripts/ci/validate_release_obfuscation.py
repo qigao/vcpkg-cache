@@ -73,6 +73,19 @@ def validate_contract(data: dict[str, Any]) -> None:
     require(release == ["Release", "MinSizeRel", "RelWithDebInfo"],
             "Release/MinSizeRel/RelWithDebInfo must stay protected")
     require(baseline == ["Debug"], "only Debug is an unprotected baseline")
+    windows = data.get("windows_protected_release", {})
+    require(isinstance(windows, dict) and
+            windows.get("compiler") == "llvm-mingw" and
+            windows.get("obfuscator") == "obfuscator-llvm" and
+            windows.get("crt") == "ucrt" and
+            windows.get("targets") == ["windows-x64", "windows-arm64"] and
+            windows.get("msvc_release") == "forbidden" and
+            windows.get("msvc_debug") == "allowed" and
+            windows.get("native_target_execution") == "required" and
+            windows.get("absent_plugin") == "fail" and
+            windows.get("third_party_vcpkg") == "baseline-not-automatically-obfuscated",
+            "Windows protected Release must select pinned LLVM-MinGW/UCRT; "
+            "MSVC remains Debug-only, plugin and native gate must fail closed")
     sources = data.get("sources")
     require(isinstance(sources, dict), "missing immutable source locks")
 
@@ -99,6 +112,23 @@ def validate_contract(data: dict[str, Any]) -> None:
     require(isinstance(pipeline, dict) and
             bool(pipeline.get("LLVM_OBF_SCALAROPTIMIZERLATE_PASSES")),
             "LLVM obfuscator requires a nonempty, recorded real pass pipeline")
+    host_assets = sources["obfuscator-llvm"].get("host_plugin_assets")
+    require(isinstance(host_assets, list),
+            "obfuscator-llvm host plugin assets must be an explicit lock array")
+    host_seen = set()
+    for plugin in host_assets:
+        require(isinstance(plugin, dict) and
+                plugin.get("host") in HOSTS and
+                plugin["host"] not in host_seen and
+                isinstance(plugin.get("name"), str) and
+                plugin["name"].endswith((".dll", ".so", ".dylib")) and
+                bool(SHA256.fullmatch(str(plugin.get("sha256", "")))) and
+                plugin.get("llvm_version") == sources["llvm-mingw"]["llvm_version"] and
+                bool(COMMIT.fullmatch(str(plugin.get("source_commit", "")))) and
+                plugin["source_commit"] == sources["obfuscator-llvm"]["source_commit"],
+                "LLVM-MinGW plugin needs locked host binary SHA256, source commit "
+                "and the exact compiler LLVM version")
+        host_seen.add(plugin["host"])
     require(bool(SHA256.fullmatch(str(sources["obfus-h"].get("sha256", "")))),
             "obfus.h exact header SHA256 is mandatory for compiler Actions")
     require(sources["obfus-h"].get("supported_targets") ==
@@ -209,6 +239,10 @@ def select_profile(data: dict[str, Any], build_type: str, compiler: str,
     require(build_type in allowed, f"unknown build configuration {build_type}")
     if build_type in data["baseline_configs"]:
         return None
+    if target in data["windows_protected_release"]["targets"]:
+        require(compiler == "llvm-mingw",
+                "protected Windows x64/ARM64 Release requires llvm-mingw; "
+                "MSVC/TinyCC/LLVM substitution is forbidden")
     require(compiler in BACKENDS, f"Release requires an admitted compiler, got {compiler}")
     require(host in HOSTS and target in TARGETS,
             f"unrecognized Release host/target {host} -> {target}")
@@ -225,6 +259,10 @@ def select_profile(data: dict[str, Any], build_type: str, compiler: str,
     require(len(matches) == 1,
             f"no unique Release profile for {compiler} {host} -> {target}")
     profile = matches[0]
+    if compiler == "llvm-mingw":
+        locked_hosts = {x["host"] for x in data["sources"]["obfuscator-llvm"]["host_plugin_assets"]}
+        require(host in locked_hosts,
+                f"LLVM-MinGW Release denied: plugin host artifact not SHA256-pinned for {host}")
     require(profile["qualification"] == "qualified",
             f"Release profile {profile['id']} is not qualified; unprotected fallback prohibited")
     return profile
