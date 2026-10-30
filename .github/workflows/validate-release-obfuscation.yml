@@ -7,6 +7,7 @@ on:
       - 'docs/release-obfuscation-toolchains.md'
       - 'scripts/ci/validate_release_obfuscation.py'
       - 'scripts/ci/verify_llvm_mingw_obfuscation.py'
+      - '.github/actions/setup-llvm-native/**'
       - 'scripts/tests/test_release_obfuscation_policy.py'
       - '.github/workflows/validate-release-obfuscation.yml'
   push:
@@ -15,6 +16,7 @@ on:
       - 'compiler-contracts/release-obfuscation.json'
       - 'scripts/ci/validate_release_obfuscation.py'
       - 'scripts/ci/verify_llvm_mingw_obfuscation.py'
+      - '.github/actions/setup-llvm-native/**'
       - 'scripts/tests/test_release_obfuscation_policy.py'
       - '.github/workflows/validate-release-obfuscation.yml'
   workflow_dispatch:
@@ -71,5 +73,27 @@ jobs:
               --build-type Release --compiler msvc \
               --host windows-x64 --target windows-x64; then
             echo 'MSVC protected Windows Release must be denied' >&2
+            exit 1
+          fi
+          # GCC and AppleClang may run Debug/sanitizer/differential tests,
+          # but cannot produce a protected native Release on either CPU.
+          for target in linux-x64 linux-arm64 macos-x64 macos-arm64; do
+            if python3 scripts/ci/validate_release_obfuscation.py \
+                --build-type Release --compiler gcc \
+                --host "$target" --target "$target"; then
+              echo "GCC native Release must be denied: $target" >&2
+              exit 1
+            fi
+            if python3 scripts/ci/validate_release_obfuscation.py \
+                --build-type Release --compiler llvm-native \
+                --host "$target" --target "$target"; then
+              echo "Unpinned LLVM native Release must be denied: $target" >&2
+              exit 1
+            fi
+          done
+          if python3 scripts/ci/validate_release_obfuscation.py \
+              --build-type RelWithDebInfo --compiler appleclang \
+              --host macos-arm64 --target macos-arm64; then
+            echo 'Unverified AppleClang protected Release must be denied' >&2
             exit 1
           fi
