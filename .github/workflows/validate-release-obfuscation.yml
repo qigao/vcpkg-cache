@@ -1,0 +1,61 @@
+name: Validate Release obfuscation profile contract
+
+on:
+  pull_request:
+    paths:
+      - 'compiler-contracts/release-obfuscation.json'
+      - 'docs/release-obfuscation-toolchains.md'
+      - 'scripts/ci/validate_release_obfuscation.py'
+      - 'scripts/tests/test_release_obfuscation_policy.py'
+      - '.github/workflows/validate-release-obfuscation.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'compiler-contracts/release-obfuscation.json'
+      - 'scripts/ci/validate_release_obfuscation.py'
+      - 'scripts/tests/test_release_obfuscation_policy.py'
+      - '.github/workflows/validate-release-obfuscation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-obfuscation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fail-closed-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check immutable compiler and obfuscator profiles
+        run: |
+          python3 scripts/ci/validate_release_obfuscation.py --validate-only
+          python3 -m unittest discover -s scripts/tests -p 'test_release_obfuscation_policy.py' -v
+      - name: Prove unqualified Release fails instead of disabling obfuscation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/validate_release_obfuscation.py --build-type Debug
+          if python3 scripts/ci/validate_release_obfuscation.py \
+              --build-type Release --compiler tinycc-builder \
+              --host windows-x64 --target windows-x64; then
+            echo 'unqualified TinyCC Release must be denied' >&2
+            exit 1
+          fi
+          if python3 scripts/ci/validate_release_obfuscation.py \
+              --build-type Release --compiler llvm-mingw \
+              --host linux-x64 --target windows-arm64; then
+            echo 'unqualified LLVM-MinGW Release must be denied' >&2
+            exit 1
+          fi
+          if python3 scripts/ci/validate_release_obfuscation.py \
+              --build-type Release --compiler tinycc-builder \
+              --host windows-x64 --target windows-arm64; then
+            echo 'unsupported TinyCC ARM64 Release must be denied' >&2
+            exit 1
+          fi
