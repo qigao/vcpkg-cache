@@ -212,7 +212,49 @@ jobs:
           test "$(uname -m)" = "aarch64"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config autoconf automake libtool
+            ninja-build pkg-config nasm libudev-dev autoconf automake libtool
+
+      - name: Restore exact Core re2c host tool
+        uses: ./.github/actions/setup-re2c-tools
+
+      - name: Prove exact SaltsCore arm64-linux cache identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/saltscore-arm64-cache-plan"
+          plan="$RUNNER_TEMP/saltscore-arm64-cache-plan.config"
+          install_root="$RUNNER_TEMP/saltscore-arm64-cache-plan-install"
+          rm -rf "$manifest" "$plan" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "saltscore-arm64-cache-plan",
+            "version-string": "1",
+            "dependencies": ["libjpeg-turbo", "libyuv", "libusb"],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          unset VCPKG_FORCE_SYSTEM_BINARIES
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-linux --host-triplet arm64-linux \
+            --dry-run "--x-write-nuget-packages-config=$plan"
+          python3 - "$plan" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          got = {n.attrib["id"]: n.attrib["version"] for n in ET.parse(sys.argv[1]).getroot()}
+          expected = {
+              "libjpeg-turbo_arm64-linux": "3.1.1-vcpkg4d13507903a7488cb020d623f871df3ff5569e23a98d7dc251f067cb60dfd752",
+              "libyuv_arm64-linux": "1896.0.0-vcpkg2d1856d8df71a1c2c3e0dc0c65b6d9c8b968a612fb26ffd5d44997619877e8d1",
+              "vcpkg-make_arm64-linux": "2025.8.21-vcpkg00446bd41ad1c66da629caa7c978da1cc6ca1595df64e30a41de7c1c82d5e94d",
+              "libusb_arm64-linux": "1.0.29-vcpkgfe6cb21725b78bcea20d2d063dca598bf161b19df1bde97efc27415d352ea07d",
+          }
+          wrong = {k: (v, got.get(k)) for k, v in expected.items() if got.get(k) != v}
+          if wrong:
+              raise SystemExit(f"SaltsCore arm64 ABI plan differs: {wrong}")
+          print("Exact SaltsCore arm64 cache ABI plan verified")
+          PY
 
       - name: Qualify focused arm64-linux SDK dependency closure
         shell: bash
@@ -298,6 +340,60 @@ jobs:
           test -d "$expected_root/ports"
           test -d "$expected_root/triplets"
           test -f "$expected_root/cmake/QigaoVcpkgToolchain.cmake"
+
+
+      - name: Prepare exact Core iOS ABI host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          brew install ninja nasm autoconf automake autoconf-archive libtool
+
+      - name: Restore exact Core re2c host tool
+        uses: ./.github/actions/setup-re2c-tools
+
+      - name: Prove exact SaltsCore arm64-ios cache identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/saltscore-ios-cache-plan"
+          plan="$RUNNER_TEMP/saltscore-ios-cache-plan.config"
+          install_root="$RUNNER_TEMP/saltscore-ios-cache-plan-install"
+          rm -rf "$manifest" "$plan" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "saltscore-ios-cache-plan",
+            "version-string": "1",
+            "dependencies": [
+              {"name":"pkgconf","host":true},
+              "simde", "c-ares", "kcp", "miniaudio", "libusb", "zstd"
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-ios --host-triplet arm64-osx \
+            --dry-run "--x-write-nuget-packages-config=$plan"
+          python3 - "$plan" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          got = {n.attrib["id"]: n.attrib["version"] for n in ET.parse(sys.argv[1]).getroot()}
+          expected = {
+              "c-ares_arm64-ios": "1.34.5-vcpkg9a6fa4a3347f0dfd9fbdcf7d5f063848b1a1ecc5c176e0c43b66d28401d94b5f",
+              "kcp_arm64-ios": "1.7.0-vcpkgf8e2d7bbc745ea6127d1bb7bc25149f27e6724730a8b05ce4c398fb900044229",
+              "simde_arm64-ios": "0.8.2-vcpkg21b0a268f45cce97ebcea27ea8ab9592f7ee1aaf2dd8f8997cf9f59c2f465080",
+              "miniaudio_arm64-ios": "0.11.22-vcpkg2795d525b37a10565bbe3a3cb550595156bff84f5705fa5be92b047f23e8eccd",
+              "libusb_arm64-ios": "1.0.29-vcpkgc0f5fef829bca528de56b2fdd5dafc5a832bdc266a0997a55e553864ef8d19f9",
+              "zstd_arm64-ios": "1.6.0-vcpkg759f7292898d6c16c86465462e128171b2a149525849bccba07cc71a77b80dfa",
+          }
+          wrong = {k: (v, got.get(k)) for k, v in expected.items() if got.get(k) != v}
+          if wrong:
+              raise SystemExit(f"SaltsCore iOS ABI plan differs: {wrong}")
+          print("Exact SaltsCore iOS cache ABI plan verified")
+          PY
 
   windows:
     name: Contract / windows-2025
@@ -399,6 +495,58 @@ jobs:
           }
           Write-Host "canonical compiler=$compiler"
           Write-Host "canonical sdk=$sdkRoot"
+
+
+      - name: Prepare exact Core Windows ABI host tools
+        shell: pwsh
+        run: choco install nasm ninja strawberryperl -y --no-progress
+
+      - name: Restore exact Core re2c host tool
+        uses: ./.github/actions/setup-re2c-tools
+
+      - name: Prove exact SaltsCore v145 media cache identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Join-Path $env:RUNNER_TEMP "saltscore-v145-cache-plan"
+          $plan = Join-Path $env:RUNNER_TEMP "saltscore-v145-cache-plan.config"
+          $installRoot = Join-Path $env:RUNNER_TEMP "saltscore-v145-cache-plan-install"
+          foreach ($path in @($manifest, $installRoot)) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+          }
+          if (Test-Path -LiteralPath $plan) { Remove-Item -LiteralPath $plan -Force }
+          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
+          $baseline = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "vcpkg.json") -Raw | ConvertFrom-Json)."builtin-baseline"
+          @{
+            name = "saltscore-v145-cache-plan"
+            "version-string" = "1"
+            dependencies = @("libjpeg-turbo", "libyuv")
+            "builtin-baseline" = $baseline
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
+          $vcpkgArgs = @(
+            "install",
+            "--x-manifest-root=$manifest",
+            "--x-install-root=$installRoot",
+            "--triplet=qigao-x64-windows-v145",
+            "--host-triplet=qigao-x64-windows-v145",
+            "--dry-run",
+            "--x-write-nuget-packages-config=$plan"
+          )
+          & "$env:VCPKG_ROOT\vcpkg.exe" @vcpkgArgs
+          if ($LASTEXITCODE -ne 0) { throw "SaltsCore v145 ABI plan failed" }
+          [xml]$xml = Get-Content -LiteralPath $plan -Raw
+          $got = @{}
+          foreach ($node in $xml.packages.package) { $got[$node.id] = $node.version }
+          $expected = @{
+            "libjpeg-turbo_qigao-x64-windows-v145" = "3.1.1-vcpkg16c8819f4c512c4448118a0f64deea7b51dcfc73d17549207d57623eaf24c5ee"
+            "libyuv_qigao-x64-windows-v145" = "1896.0.0-vcpkg38d1bf1155ccd32edaba10244a376354555aff68302d91bd53d28c713d5d26bd"
+          }
+          foreach ($id in $expected.Keys) {
+            if ($got[$id] -ne $expected[$id]) {
+              throw "SaltsCore v145 ABI mismatch for $id expected=$($expected[$id]) actual=$($got[$id])"
+            }
+          }
+          Write-Host "Exact SaltsCore v145 media cache ABI plan verified"
 
   consistent:
     name: Contract identity is cross-platform stable
