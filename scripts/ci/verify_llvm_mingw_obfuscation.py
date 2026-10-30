@@ -8,6 +8,7 @@ ABI, exception, CFG and end-to-end tests. There is no fallback compiler/pass.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -149,6 +150,39 @@ def check_pin(contract: dict, host: str, plugin: Path) -> dict:
 
 def verify(args: argparse.Namespace) -> dict:
     contract = json.loads(LOCK.read_text(encoding="utf-8"))
+    # A fresh source-built plugin cannot have a reviewed SHA in the central
+    # lock yet. Candidate mode accepts exactly one *build-generated* manifest
+    # and still returns release_qualified=False. Product actions never set it.
+    # The candidate is NOT persisted to the canonical Release lock.
+    candidate = getattr(args, "candidate_plugin_manifest", None)
+    if candidate is not None:
+        require(args.compiler_family == "llvm-native" and
+                args.host == args.target and args.require_native,
+                "candidate plugin must prove real matching-host native LLVM runtime")
+        manifest = json.loads(candidate.read_text(encoding="utf-8"))
+        source_pin = contract["sources"]["obfuscator-llvm"]
+        require(isinstance(manifest, dict) and
+                manifest.get("host") == args.host and
+                manifest.get("source_commit") == source_pin["source_commit"] and
+                manifest.get("llvm_version") ==
+                    contract["sources"]["llvm-native"]["llvm_version"] and
+                manifest.get("plugin_sha256") and
+                manifest.get("plugin_sha256") == sha(args.plugin) and
+                manifest.get("compiler_sha256") == sha(args.compiler),
+                "candidate LLVM plugin source/compiler/host/digest mismatch")
+        extension = (".dll" if args.host.startswith("windows-") else
+                     ".dylib" if args.host.startswith("macos-") else ".so")
+        require(args.plugin.name == manifest.get("plugin_name") and
+                args.plugin.name.endswith(extension),
+                "candidate LLVM plugin filename/host binary mismatch")
+        contract = copy.deepcopy(contract)
+        contract["sources"]["obfuscator-llvm"]["host_plugin_assets"].append({
+            "host": args.host,
+            "name": manifest["plugin_name"],
+            "sha256": manifest["plugin_sha256"],
+            "llvm_version": manifest["llvm_version"],
+            "source_commit": manifest["source_commit"],
+        })
     require(contract["state"] == "design-candidate-not-release-qualified",
             "unexpected source lock state")
     selector = (contract["windows_protected_release"]
@@ -271,8 +305,10 @@ def verify(args: argparse.Namespace) -> dict:
                 "native baseline/protected semantic parity failed")
         runtime = baseline_output.strip()
     receipt = {
-        "status": "compiler-plugin-preflight-only",
+        "status": ("source-built-candidate-preflight-only" if candidate is not None
+                   else "compiler-plugin-preflight-only"),
         "release_qualified": False,
+        "candidate_only": candidate is not None,
         "target_native_execution": native,
         "host": args.host, "target": args.target,
         "compiler_family": args.compiler_family,
@@ -310,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compiler-family", choices=("llvm-mingw", "llvm-native"),
                         default="llvm-mingw")
     parser.add_argument("--plugin", type=Path, required=True)
+    parser.add_argument("--candidate-plugin-manifest", type=Path,
+                        help="CI-only source-built plugin receipt; never qualifies Release")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--host", required=True)
     parser.add_argument("--target", choices=tuple(MACHINES), required=True)
@@ -320,7 +358,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         receipt = verify(args)
-        print("LLVM_MINGW_OBFUSCATOR_PREFLIGHT_PASS: " +
+        print(("LLVM_HOST_PLUGIN_CANDIDATE_PASS: " if receipt["candidate_only"]
+               else "LLVM_MINGW_OBFUSCATOR_PREFLIGHT_PASS: ") +
               json.dumps(receipt, sort_keys=True))
         return 0
     except (GateError, OSError, ValueError, KeyError,
