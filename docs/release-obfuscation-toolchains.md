@@ -30,7 +30,7 @@ Windows 32-bit LLVM-MinGW remains a viable future target, but is not assumed adm
 - obfus.h header from commit `71159dfd61ffed463bb3d8942670420bc1940f12`. Fetch this source by exact commit and verify the retrieved header digest in the eventual tool archive.
 - llvm-mingw **20261020**, annotated tag resolving to `e08a31fbfe5cfdad07b698299af22d66e5608383`, built against `llvmorg-23.1.4`. Windows, Linux and macOS **host** archive SHA256 values are in the catalog. The host ZIP/tar and the Windows target CPU are separate dimensions.
 - eshard/obfuscator-llvm at `ad26aa21b90cc5c5118d32114b674d1455f54168`, containing LLVM 23-oriented changes. This is **not** evidence that it loads inside the distributed llvm-mingw 23.1.4 compiler on any given host.
-- Native Linux/macOS LLVM `llvmorg-23.1.4` is a **candidate version only**; no immutable native archive/distribution is pinned yet.
+- The official LLVM `llvmorg-23.1.4` **annotated tag resolves to source commit** `7a941dfb2877a0b8cf30323fefa85ad019e0b0f5`. Its release assets and SHA256 digests are now immutable-locked for Linux x64, Linux ARM64 and macOS ARM64 in the catalog (compressed archives ~2.02GB / 1.83GB / 1.57GB). No matching official macOS x64 asset was found: this lane remains blocked until a separately pinned source-built or released native x64 distribution is qualified. The plugin binaries are still independently unpinned.
 
 Do not upgrade a source or compiler without changing the lock and qualifying the affected host/target lanes. Keep the compiler bundle lock distinct from `VCPKG_CACHE_REVISION`; do not invalidate unrelated dependency ABIs just because a product protection seed changed.
 
@@ -155,10 +155,12 @@ performs SHA256-verified source archive extraction, immutable version
 verification, native Clang and Clang++ selection, a generated Linux/Darwin
 CMake toolchain file, real ELF64/Mach-O64 CPU checks, and **native runtime
 execution**. Its `compiler-contracts/release-obfuscation.json` source lock
-is currently `distribution=not-yet-pinned`, `assets=[]`. The first
-required step is to review and lock an actual LLVM 23.1.4 Linux/macOS host
-archive for each CPU (source commit, archive SHA256 and runtime/SDK ABI).
-**Do not substitute the installed distro clang or AppleClang.**
+is now `distribution=pinned` with exactly three official, SHA256-locked
+host archives for Linux x64, Linux ARM64 and macOS ARM64. macOS x64 has
+no matching official release asset in the reviewed tag and must remain RED
+until an immutable x64 build and full native evidence are obtained. The
+next real gates are exact host plugin builds and LLVM/compiler runtime ABI.
+**Do not substitute an installed distro clang or AppleClang.**
 
 `.github/actions/setup-llvm-native/action.yml` is the reusable native
 equivalent of the Windows llvm-mingw action. On protected Release it requires
