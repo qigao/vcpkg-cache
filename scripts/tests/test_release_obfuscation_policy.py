@@ -178,6 +178,22 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             module.select_profile(data, "Release", "llvm-native",
                                   "linux-x64", "linux-x64")
 
+    def test_pinned_linux_arm64_host_plugin_is_native_and_candidate_only(self):
+        data = self.data()
+        assets = data["sources"]["obfuscator-llvm"]["host_plugin_assets"]
+        candidate = next(x for x in assets if x["host"] == "linux-arm64")
+        self.assertEqual(candidate["sha256"],
+                         "0866756e4f08058c1d407feff59ac55172aea357f7348c7bacda6dee34a8334b")
+        self.assertEqual(candidate["compiler_archive_sha256"],
+                         "9b27cf263d711aa6ebfd4045ab241d947bd09b3cd19ffa5728f48a80c9eb3a91")
+        self.assertEqual(candidate["candidate_artifact_id"], 12994358091)
+        self.assertEqual(candidate["qualification"], "source-built-candidate-only")
+        self.assertIs(candidate["release_qualified"], False)
+        module.validate_contract(data)
+        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
+            module.select_profile(data, "Release", "llvm-native",
+                                  "linux-arm64", "linux-arm64")
+
     def test_native_llvm_archive_without_digest_is_rejected(self):
         data = self.data()
         data["sources"]["llvm-native"]["distribution"] = "pinned"
