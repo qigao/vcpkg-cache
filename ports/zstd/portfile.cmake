@@ -8,6 +8,25 @@ vcpkg_from_github(
     HEAD_REF dev
 )
 
+# The pinned zstd CMake build is C-only when programs/tests are disabled.
+# MinGW still triggers its optional C++ warning-flag probes. CMake >=4.4
+# correctly rejects CHECK_CXX_COMPILER_FLAG before CXX is enabled.
+# Guard ONLY those probes; retain all original C checks and build sources.
+set(_zstd_flags "${SOURCE_PATH}/build/cmake/CMakeModules/AddZstdCompilationFlags.cmake")
+file(READ "${_zstd_flags}" _zstd_flags_text)
+# Exact upstream anchor at 5c7b7bad... is
+# "if (_CXX AND CMAKE_CXX_COMPILER)", which is insufficient: vcpkg
+# defines CMAKE_CXX_COMPILER via a chainload toolchain even in C-only
+# projects. Only CMAKE_CXX_COMPILER_LOADED proves enable_language(CXX).
+set(_zstd_cxx_anchor "if (_CXX AND CMAKE_CXX_COMPILER)")
+string(FIND "${_zstd_flags_text}" "${_zstd_cxx_anchor}" _zstd_cxx_probe)
+if(_zstd_cxx_probe EQUAL -1)
+    message(FATAL_ERROR "Pinned zstd flag probe contract changed")
+endif()
+vcpkg_replace_string("${_zstd_flags}"
+    "${_zstd_cxx_anchor}"
+    "if (_CXX AND CMAKE_CXX_COMPILER_LOADED)")
+
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}/build/cmake"
     OPTIONS
@@ -25,13 +44,40 @@ vcpkg_copy_pdbs()
 vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/zstd)
 vcpkg_fixup_pkgconfig()
 
-if(VCPKG_TARGET_IS_WINDOWS)
+# Upstream's pinned zstd CMake names its static archive:
+#   MSVC: zstd_static.lib      (STATIC_LIBRARY_BASE_NAME=zstd_static)
+#   MinGW: libzstd.a          (STATIC_LIBRARY_BASE_NAME=zstd)
+# The previous unconditional Windows .pc rewrite to -lzstd_static broke
+# libpq.dll with lld: unable to find library -lzstd_static on llvm-mingw.
+# Preserve the MSVC contract, and verify the true target-ABI archive and
+# .pc file on MinGW instead of creating an alias or alternate provider.
+if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
     foreach(ZSTD_PKGCONFIG_FILE IN ITEMS
             "${CURRENT_PACKAGES_DIR}/lib/pkgconfig/libzstd.pc"
             "${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/libzstd.pc")
         if(EXISTS "${ZSTD_PKGCONFIG_FILE}")
             vcpkg_replace_string("${ZSTD_PKGCONFIG_FILE}"
                                  " -lzstd" " -lzstd_static")
+        endif()
+    endforeach()
+elseif(VCPKG_TARGET_IS_MINGW)
+    foreach(_zstd_dir IN ITEMS "" "debug/")
+        if(_zstd_dir STREQUAL "debug/" AND VCPKG_BUILD_TYPE STREQUAL "release")
+            continue()
+        endif()
+        set(_zstd_archive "${CURRENT_PACKAGES_DIR}/${_zstd_dir}lib/libzstd.a")
+        set(_zstd_pc "${CURRENT_PACKAGES_DIR}/${_zstd_dir}lib/pkgconfig/libzstd.pc")
+        if(NOT EXISTS "${_zstd_archive}" OR NOT EXISTS "${_zstd_pc}")
+            message(FATAL_ERROR
+                "Pinned zstd MinGW static archive/pkg-config missing: "
+                "${_zstd_archive} / ${_zstd_pc}")
+        endif()
+        file(READ "${_zstd_pc}" _zstd_pc_contents)
+        string(FIND "${_zstd_pc_contents}" " -lzstd_static" _zstd_bad_alias)
+        string(FIND "${_zstd_pc_contents}" " -lzstd" _zstd_native_lib)
+        if(NOT _zstd_bad_alias EQUAL -1 OR _zstd_native_lib EQUAL -1)
+            message(FATAL_ERROR
+                "Pinned zstd MinGW pkg-config does not link actual libzstd.a")
         endif()
     endforeach()
 endif()

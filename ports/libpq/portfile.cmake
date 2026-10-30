@@ -44,8 +44,123 @@ else()
     set(HAS_TOOLS FALSE)
 endif()
 
+# PostgreSQL's configure.ac demands a runnable host zic when
+# "cross_compiling=yes". The pinned libpq-only Makefile builds only
+# src/{include,common,port,interfaces/libpq,ecpg} and pg_config;
+# it does not build/install src/timezone or any timezone database.
+# Keep the mandatory zic check for the full client-tools profile.
+# Never inject a dummy zic or a fabricated --with-system-tzdata path.
+if(NOT HAS_TOOLS)
+    set(_libpq_configure_ac "${SOURCE_PATH}/configure.ac")
+    file(READ "${_libpq_configure_ac}" _libpq_configure_text)
+    set(_libpq_zic_anchor
+        "if test x\"$cross_compiling\" = x\"yes\" && test -z \"$with_system_tzdata\"; then")
+    string(FIND "${_libpq_configure_text}" "${_libpq_zic_anchor}" _libpq_zic_position)
+    if(_libpq_zic_position EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL 16.9 zic configure anchor changed")
+    endif()
+    vcpkg_replace_string("${_libpq_configure_ac}"
+        "${_libpq_zic_anchor}"
+        "if test x\"$cross_compiling\" = x\"yes\" && test -z \"$with_system_tzdata\" && test x\"$LIBPQ_ENABLE_TOOLS\" = x\"yes\"; then")
+endif()
+
 vcpkg_cmake_get_vars(cmake_vars_file)
 include("${cmake_vars_file}")
+
+# Clang's __builtin_setjmp/longjmp require a pointer buffer (void **),
+# but PostgreSQL 16.9's MinGW fallback defines sigjmp_buf as
+# intptr_t[5]. GCC accepts the original, while llvm-mingw Clang 23
+# rejects it as incompatible pointer types. A pointer[5] has the same
+# size/alignment as intptr_t[5] on the selected Win64 ABI, preserving
+# the five-slot builtin storage and paired longjmp behavior.
+if(VCPKG_TARGET_IS_MINGW AND
+   VCPKG_DETECTED_CMAKE_C_COMPILER MATCHES "clang(\\.exe)?$")
+    set(_libpq_jump_header "${SOURCE_PATH}/src/include/c.h")
+    file(READ "${_libpq_jump_header}" _libpq_jump_source)
+    string(FIND "${_libpq_jump_source}" "typedef intptr_t sigjmp_buf[5];" _libpq_jump_pos)
+    if(_libpq_jump_pos EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL MinGW sigjmp_buf declaration changed")
+    endif()
+    vcpkg_replace_string("${_libpq_jump_header}"
+        "typedef intptr_t sigjmp_buf[5];"
+        "typedef void *sigjmp_buf[5];")
+
+    # PostgreSQL 16.9 forces its own getopt_long() semantics on Windows.
+    # Clang/llvm-mingw exposes struct option from the native getopt.h,
+    # while the pinned generated pg_config.h may report HAVE_STRUCT_OPTION
+    # without making the definition visible to getopt_long.c. Keep the
+    # original PostgreSQL parser and include the actual type definition.
+    set(_libpq_getopt_header "${SOURCE_PATH}/src/include/getopt_long.h")
+    file(READ "${_libpq_getopt_header}" _libpq_getopt_text)
+    string(FIND "${_libpq_getopt_text}" "#include \"pg_getopt.h\"" _libpq_getopt_pos)
+    if(_libpq_getopt_pos EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL getopt_long include anchor changed")
+    endif()
+    # MinGW's getopt.h only exposes struct option when included BEFORE
+    # unistd.h defines __UNISTD_H_SOURCED__. pg_getopt.h includes unistd.h
+    # first, so the earlier appended include did not expose struct option.
+    # Keep PostgreSQL's original getopt_long parser and force a visible
+    # type declaration by including the real MinGW header first.
+    vcpkg_replace_string("${_libpq_getopt_header}"
+        "#include \"pg_getopt.h\""
+        "#if defined(__clang__) && defined(__MINGW64__)\n#include <getopt.h>\n#ifndef __GETOPT_LONG_H__\n#error MinGW_getopt_long_type_not_exposed\n#endif\n#endif\n#include \"pg_getopt.h\"")
+
+    # Keep the platform's pthread implementation, not PostgreSQL's fallback.
+    # The original Autoconf search looks only in -lpthread, whereas the
+    # pinned llvm-mingw runtime exports pthread_barrier_wait via winpthread.
+    # Extend the real compile+link search; do NOT forge ac_cv results.
+    set(_libpq_barrier_search "AC_SEARCH_LIBS(pthread_barrier_wait, pthread)")
+    file(READ "${SOURCE_PATH}/configure.ac" _libpq_barrier_ac)
+    string(FIND "${_libpq_barrier_ac}" "${_libpq_barrier_search}" _libpq_barrier_pos)
+    if(_libpq_barrier_pos EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL native pthread search changed")
+    endif()
+    vcpkg_replace_string("${SOURCE_PATH}/configure.ac"
+        "${_libpq_barrier_search}"
+        "AC_SEARCH_LIBS(pthread_barrier_wait, [winpthread pthread])")
+
+    # The Autoconf check may not discover the DLL-imported Winpthread barrier
+    # when its historical cross-compile search runs with inappropriate
+    # frontend flags. Do not assert ac_cv by compiler name alone: compile
+    # AND LINK the real native header/API using the exact vcpkg target Clang
+    # before recording any configure result. A failed probe is a hard RED.
+    if(NOT VCPKG_DETECTED_CMAKE_C_COMPILER)
+        message(FATAL_ERROR "Clang/MinGW libpq native barrier requires a detected compiler")
+    endif()
+    set(_libpq_native_barrier_src "${CURRENT_BUILDTREES_DIR}/libpq-native-winpthread.c")
+    set(_libpq_native_barrier_exe "${CURRENT_BUILDTREES_DIR}/libpq-native-winpthread.exe")
+    file(WRITE "${_libpq_native_barrier_src}" [=[
+#include <pthread.h>
+int main(void)
+{
+    pthread_barrier_t barrier;
+    if (pthread_barrier_init(&barrier, 0, 1) != 0)
+        return 1;
+    int status = pthread_barrier_wait(&barrier);
+    int retired = pthread_barrier_destroy(&barrier);
+    return retired != 0 || (status != 0 && status != PTHREAD_BARRIER_SERIAL_THREAD);
+}
+]=])
+    execute_process(
+        COMMAND "${VCPKG_DETECTED_CMAKE_C_COMPILER}"
+            "${_libpq_native_barrier_src}"
+            "-o" "${_libpq_native_barrier_exe}"
+            "-lwinpthread"
+        RESULT_VARIABLE _libpq_native_barrier_result
+        OUTPUT_VARIABLE _libpq_native_barrier_stdout
+        ERROR_VARIABLE _libpq_native_barrier_stderr)
+    if(NOT _libpq_native_barrier_result STREQUAL "0" OR
+       NOT EXISTS "${_libpq_native_barrier_exe}")
+        message(FATAL_ERROR
+            "Native Winpthread barrier cannot compile/link with the real target compiler; "
+            "do not replace the original fallback without proof. "
+            "stdout: ${_libpq_native_barrier_stdout}; stderr: ${_libpq_native_barrier_stderr}")
+    endif()
+    message(STATUS "Native Winpthread barrier compile/link qualified for ${TARGET_TRIPLET}")
+    # This is a measured Autoconf result, not a fixed/unconditional cache
+    # assertion. The original pthread interface remains the one in use.
+    set(_libpq_barrier_autoconf_result "ac_cv_func_pthread_barrier_wait=yes")
+endif()
 
 set(required_programs BISON FLEX)
 if(VCPKG_DETECTED_MSVC OR NOT VCPKG_HOST_IS_WINDOWS)
@@ -120,16 +235,26 @@ else()
     if(VCPKG_DETECTED_CMAKE_OSX_SYSROOT)
         list(APPEND BUILD_OPTS "PG_SYSROOT=${VCPKG_DETECTED_CMAKE_OSX_SYSROOT}")
     endif()
+    # The fixed 2023c MSYS2 tzcode archive no longer exists on any
+    # published mirror. It is a *host-side* timezone-tool dependency for
+    # PostgreSQL's optional client tools, not the libpq C client library.
+    # Keep it when those tools are selected; never request a missing
+    # archive for the ordinary libpq-only / no-ssl Studio build.
+    vcpkg_list(SET _libpq_tool_tzcode)
+    if(HAS_TOOLS)
+        vcpkg_list(APPEND _libpq_tool_tzcode DIRECT_PACKAGES
+            "https://mirror.msys2.org/msys/x86_64/tzcode-2023c-1-x86_64.pkg.tar.zst"
+            7550b843964744607f736a7138f10c6cd92489406a1b84ac71d9a9d8aa16bc69048aa1b24e1f49291b010347047008194c334ca9c632e17fa8245e85549e3c7a)
+    endif()
     vcpkg_configure_make(
         SOURCE_PATH "${SOURCE_PATH}"
         COPY_SOURCE
         AUTOCONFIG
         ADDITIONAL_MSYS_PACKAGES autoconf-archive
-            DIRECT_PACKAGES
-                "https://mirror.msys2.org/msys/x86_64/tzcode-2023c-1-x86_64.pkg.tar.zst"
-                7550b843964744607f736a7138f10c6cd92489406a1b84ac71d9a9d8aa16bc69048aa1b24e1f49291b010347047008194c334ca9c632e17fa8245e85549e3c7a
+            ${_libpq_tool_tzcode}
         OPTIONS
             ${BUILD_OPTS}
+            ${_libpq_barrier_autoconf_result}
         OPTIONS_DEBUG
             --enable-debug
     )
