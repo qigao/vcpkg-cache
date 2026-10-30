@@ -2,7 +2,7 @@
 
 Canonical tracking: [vcpkg-cache #243](https://github.com/qigao/vcpkg-cache/issues/243).
 
-**Status: design + fail-closed selector only. No release profiles are qualified, no compiler setup action is published, and no downstream product has been switched.** An accepted contract does not prove that any particular executable was obfuscated.
+**Status (2026-10-30): Windows protected Release **selects** llvm-mingw/UCRT + eshard's obfuscator-llvm for x64/ARM64; MSVC is no longer a protected Release compiler, but can remain for Debug/diagnostics. This is a compiler-profile decision and a fail-closed implementation candidate, **not a completed downstream switch or a qualified Release**. The exact host LLVM 23.1.4 plugin binary and native product evidence are still missing, so Release stays blocked. A successful plugin-source build or an earlier LLVM 14 POC cannot stand in for this evidence.
 
 ## Scope and ownership
 
@@ -71,6 +71,72 @@ This command alone is **not** sufficient for a release. Acceptance must show the
 For Windows, `VCPKG_CHAINLOAD_TOOLCHAIN_FILE` / exact triplets must configure the **same actual llvm-mingw** when producing vcpkg libraries and compiling the consumer. Cache ABI must include target architecture, CRT/UCRT, compiler identity, features, and relevant flags. Never reuse the MSVC v145 `qigao-x64-windows-v145` binary cache as if it were LLVM-MinGW.
 
 For Linux/macOS native builds, use a separately pinned upstream LLVM/Clang distribution. macOS AppleClang is not assumed binary-compatible with upstream LLVM pass plugins. For Android NDK and iOS/Xcode, match the actual SDK/NDK Clang first, then qualify host plugin loading, device/app execution, platform signing/hardening and artifact provenance. If the platform tooling forbids or lacks this support, the protected Release lane remains blocked until it has a validated implementation.
+
+## Windows protected Release: llvm-mingw replaces MSVC
+
+The **Release compiler** for Windows x64/ARM64 first-party protected targets is pinned
+\`llvm-mingw 20261020\` (LLVM **23.1.4**, **UCRT**) with an exact host-built
+\`eshard/obfuscator-llvm\` plugin. MSVC may remain in Debug/diagnostic jobs but
+its Release CI cannot publish, sign or upload the protected Windows artifact.
+Keep non-obfuscated Debug and sanitizer behavior as a baseline; do not delete
+useful Windows OS ABI tests just because they run on Microsoft-hosted runners.
+
+The existing \`.github/actions/setup-llvm-mingw/action.yml\` now accepts
+\`build-type: Release\`, \`MinSizeRel\`, or \`RelWithDebInfo\` only when
+\`plugin-path\` identifies an **already installed host plugin** whose basename,
+SHA256, source commit and LLVM 23.1.4 version exactly match
+\`sources.obfuscator-llvm.host_plugin_assets\`. A Windows x64 plugin is used
+by Windows x64 *host Clang* when compiling either x64 or ARM64 **targets**;
+it is not an ARM64 target DLL and does not execute in the released app.
+
+**Currently the host plugin asset lock is empty.** Therefore a protected
+Release request fails **before downloading llvm-mingw**, until the selected
+upstream LLVM 23.1.4 host plugin is actually built, its artifact and SHA256
+are pinned, and its provenance is reviewed. No arbitrary system LLVM,
+Microsoft clang-cl, MSVC or TinyCC substitution is allowed.
+
+After a pinned plugin is available, the action calls
+\`scripts/ci/verify_llvm_mingw_obfuscation.py\` against the **real selected
+clang**, with a nontrivial C11 source held in this script (not an
+installer/consumer project). It requires:
+- LLVM plugin digest and real compiler identity, with fixed recorded
+  \`LLVM_OBF_SEED\`.
+- \`flattening\` **and** \`substitution\` independently change the
+  protected function's IR, as does the combined pipeline.
+- Clang compiles the transformed IR to COFF and produces nonidentical,
+  machine-correct x64/AA64 PE artifacts.
+- On a matching native host, baseline and protected PE executions have
+  exactly the same output and exit successfully.
+- A machine-readable receipt includes compiler/plugin/source/binary hashes;
+  the action exposes \`obfuscator-verified\` and
+  \`obfuscator-compile-flag\` but deliberately keeps
+  \`release-qualified=false\`. **The product's target-native acceptance,
+  tests, ABI, CFG/SEH, ownership, signing and package receipt remain required.**
+
+Downstream usage after the immutable plugin is supplied:
+\`\`\`yaml
+- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-mingw@EXACT_REVIEWED_COMMIT
+  id: llvm
+  with:
+    target: arm64
+    build-type: Release
+    plugin-path: ${{ steps.verified_plugin.outputs.absolute_path }}
+\`\`\`
+
+\`verified_plugin\` above is an *illustrative prerequisite*, **not an
+existing action**. It must itself obtain a locked host artifact, not a
+floating binary. Bind the action's \`toolchain-file\` output to the actual
+Windows GNU/UCRT CMake/vcpkg triplet, and apply its
+\`obfuscator-compile-flag\` **per first-party protected target**, rather than
+globally to third-party/vcpkg dependency compiles. Never reuse MSVC v145
+binary caches as if their CRT, ABI, libraries or link format were identical.
+
+The release job should build both Windows x64 and ARM64 with llvm-mingw,
+run x64 natively, then run the **same hash-verified ARM64 PE** on actual
+Windows ARM64. Native ABI, exceptions, CFG and application workflow remain
+independent. Cross compilation alone is not ARM64 Release acceptance.
+Compiler setup and the compiler-plugin preflight are never a substitute
+for a complete product Release gate.
 
 ## TinyCC / obfus.h release compilation
 
