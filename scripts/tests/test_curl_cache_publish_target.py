@@ -202,7 +202,7 @@ class CoreArm64SourceProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "actual infrastructure contract differs"):
                     proof.verify_infrastructure(infrastructure)
 
-    def test_install_child_unsets_system_flag_without_changing_bootstrap(self):
+    def test_install_child_uses_the_production_post_bootstrap_environment(self):
         observed = self.root / "child-environment.json"
         child = self.root / "observe.py"
         child.write_text(
@@ -213,18 +213,20 @@ class CoreArm64SourceProofTests(unittest.TestCase):
             " 'binary_sources': os.environ.get('VCPKG_BINARY_SOURCES'),\n"
             " 'arguments': sys.argv[2:]}))\n"
             "sys.exit(17)\n")
-        environment = dict(os.environ, VCPKG_ROOT=str(self.root),
-                           VCPKG_FORCE_SYSTEM_BINARIES="1", VCPKG_FORCE_DOWNLOADED_BINARIES="1",
-                           VCPKG_BINARY_SOURCES="clear;files,fixture-source-cache,write")
+        environment = dict(
+            os.environ,
+            VCPKG_ROOT=str(self.root),
+            VCPKG_FORCE_DOWNLOADED_BINARIES="1",
+            VCPKG_BINARY_SOURCES="clear;files,fixture-source-cache,write")
+        environment.pop("VCPKG_FORCE_SYSTEM_BINARIES", None)
         original_environment = environment.copy()
         arguments = ["install", "--dry-run", "--x-install-root=" + str(self.root / "fresh")]
         real_run = subprocess.run
 
         def observe_child(command, *, env, check):
-            # Execute a real child to test environment transport and exit status;
-            # this fixture does not claim to compile or compute a native ABI.
-            return real_run([sys.executable, "-B", str(child), str(observed), *command],
-                            env=env, check=check)
+            return real_run(
+                [sys.executable, "-B", str(child), str(observed), *command],
+                env=env, check=check)
 
         with mock.patch.object(proof.subprocess, "run", side_effect=observe_child):
             self.assertEqual(proof.run_vcpkg_install(["--", *arguments], environment), 17)
@@ -235,22 +237,28 @@ class CoreArm64SourceProofTests(unittest.TestCase):
         self.assertEqual(result["arguments"], [str(self.root / "vcpkg"), *arguments])
         self.assertEqual(environment, original_environment)
 
-    def test_install_adapter_rejects_changed_bootstrap_and_other_commands(self):
-        environment = {"VCPKG_FORCE_SYSTEM_BINARIES": "1", "VCPKG_FORCE_DOWNLOADED_BINARIES": "1"}
+    def test_install_adapter_rejects_leaked_system_flag_and_changed_downloaded_flag(self):
+        good = {"VCPKG_FORCE_DOWNLOADED_BINARIES": "1"}
         with mock.patch.object(proof.subprocess, "run") as child:
-            for key in environment:
-                for value in (None, "0", ""):
-                    altered = environment.copy()
-                    if value is None:
-                        del altered[key]
-                    else:
-                        altered[key] = value
-                    with self.subTest(key=key, value=value), self.assertRaisesRegex(
-                            ValueError, "original ARM64 bootstrap environment differs"):
-                        proof.run_vcpkg_install(["install"], altered)
+            for value in ("1", "0", ""):
+                altered = good.copy()
+                altered["VCPKG_FORCE_SYSTEM_BINARIES"] = value
+                with self.subTest(system=value), self.assertRaisesRegex(
+                        ValueError, "system-binary admission leaked"):
+                    proof.run_vcpkg_install(["install"], altered)
+            for value in (None, "0", ""):
+                altered = good.copy()
+                if value is None:
+                    del altered["VCPKG_FORCE_DOWNLOADED_BINARIES"]
+                else:
+                    altered["VCPKG_FORCE_DOWNLOADED_BINARIES"] = value
+                with self.subTest(downloaded=value), self.assertRaisesRegex(
+                        ValueError, "downloaded host-tool preference is missing"):
+                    proof.run_vcpkg_install(["install"], altered)
             for command in ([], ["x-add-version"], ["--publish"]):
-                with self.subTest(command=command), self.assertRaisesRegex(ValueError, "limited to vcpkg install"):
-                    proof.run_vcpkg_install(command, environment)
+                with self.subTest(command=command), self.assertRaisesRegex(
+                        ValueError, "limited to vcpkg install"):
+                    proof.run_vcpkg_install(command, good)
             child.assert_not_called()
 
     def test_404_observation_does_not_claim_absent_publication_or_success(self):
