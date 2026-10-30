@@ -6,6 +6,7 @@ on:
       - 'compiler-contracts/release-obfuscation.json'
       - 'docs/release-obfuscation-toolchains.md'
       - 'scripts/ci/validate_release_obfuscation.py'
+      - 'scripts/ci/verify_llvm_mingw_obfuscation.py'
       - 'scripts/tests/test_release_obfuscation_policy.py'
       - '.github/workflows/validate-release-obfuscation.yml'
   push:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'compiler-contracts/release-obfuscation.json'
       - 'scripts/ci/validate_release_obfuscation.py'
+      - 'scripts/ci/verify_llvm_mingw_obfuscation.py'
       - 'scripts/tests/test_release_obfuscation_policy.py'
       - '.github/workflows/validate-release-obfuscation.yml'
   workflow_dispatch:
@@ -63,5 +65,11 @@ jobs:
               --build-type Release --compiler tinycc-builder \
               --host windows-x64 --target windows-arm64; then
             echo 'unsupported TinyCC ARM64 Release must be denied' >&2
+            exit 1
+          fi
+          if python3 scripts/ci/validate_release_obfuscation.py \
+              --build-type Release --compiler msvc \
+              --host windows-x64 --target windows-x64; then
+            echo 'MSVC protected Windows Release must be denied' >&2
             exit 1
           fi
