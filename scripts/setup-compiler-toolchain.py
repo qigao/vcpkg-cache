@@ -48,7 +48,8 @@ NATIVE_MACHINES = {
     "macos-arm64": ("Mach-O", 0x0100000C),
 }
 MAX_ARCHIVE = 750 * 1024 * 1024
-MAX_EXTRACTED = 5 * 1024 * 1024 * 1024
+MAX_NATIVE_LLVM_ARCHIVE = 2400 * 1024 * 1024
+MAX_EXTRACTED = 12 * 1024 * 1024 * 1024
 MAX_FILES = 100_000
 HEADER_MAX = 5 * 1024 * 1024
 
@@ -402,12 +403,18 @@ def install(args: argparse.Namespace) -> dict[str, str]:
         archive = workspace / asset["name"]
         url = (f"https://github.com/{source['repository']}/releases/download/"
                f"{expected_tag}/{asset['name']}")
-        verified_download(url, archive, asset["sha256"], MAX_ARCHIVE)
+        limit = MAX_NATIVE_LLVM_ARCHIVE if args.compiler == "llvm-native" else MAX_ARCHIVE
+        verified_download(url, archive, asset["sha256"], limit)
         extracted = workspace / "extracted"
         safe_extract(archive, extracted)
         payload = find_toolchain_root(extracted, args.compiler)
         root = workspace / "installed"
-        shutil.copytree(payload, root, symlinks=True)
+        if args.compiler == "llvm-native":
+            # Official LLVM source-tag archives exceed 1.5GB compressed.
+            # Copying unpacked binaries twice would waste many GB per runner.
+            payload.rename(root)
+        else:
+            shutil.copytree(payload, root, symlinks=True)
 
         obfus_header = None
         if args.compiler == "tinycc-builder":
