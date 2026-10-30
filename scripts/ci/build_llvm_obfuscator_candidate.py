@@ -96,18 +96,28 @@ def validate_inputs(args: argparse.Namespace) -> tuple[dict, dict, Path, dict]:
     return source, llvm, root, assets[0]
 
 
-def build(args: argparse.Namespace) -> dict:
-    source, llvm, root, asset = validate_inputs(args)
+def pinned_host_build_environment(host: str, root: Path) -> dict[str, str]:
     build_env = os.environ.copy()
-    lib = str(root / "lib")
-    if args.host.startswith("linux-"):
+    if host.startswith("linux-"):
+        lib = str(root / "lib")
         build_env["LD_LIBRARY_PATH"] = lib + (
             ":" + build_env["LD_LIBRARY_PATH"]
             if build_env.get("LD_LIBRARY_PATH") else "")
+    elif host.startswith("macos-"):
+        # Do not globally prepend the official LLVM /lib directory to dyld's
+        # library search. Its bundled libc++.1.0.dylib shadows the macOS
+        # runtime and breaks llvm-config (___cxa_guard_release missing).
+        # The actual installed tool's @rpath and the pinned Xcode SDK resolve
+        # dependencies; never silently substitute the system compiler.
+        build_env.pop("DYLD_LIBRARY_PATH", None)
     else:
-        build_env["DYLD_LIBRARY_PATH"] = lib + (
-            ":" + build_env["DYLD_LIBRARY_PATH"]
-            if build_env.get("DYLD_LIBRARY_PATH") else "")
+        raise CandidateError("no supported native LLVM plugin host")
+    return build_env
+
+
+def build(args: argparse.Namespace) -> dict:
+    source, llvm, root, asset = validate_inputs(args)
+    build_env = pinned_host_build_environment(args.host, root)
     clang = root / "bin" / "clang"
     clangxx = root / "bin" / "clang++"
     config = root / "bin" / "llvm-config"

@@ -10,6 +10,7 @@ import pathlib
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "ci" / "validate_release_obfuscation.py"
@@ -97,6 +98,24 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             lib.write_bytes(macho)
             with self.assertRaisesRegex(proof.GateError, "MH_DYLIB"):
                 proof.check_host_plugin_image(lib, "macos-arm64")
+
+    def test_macos_llvm_plugin_does_not_shadow_system_libcxx(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pinned-llvm"
+            with mock.patch.dict(builder.os.environ, {
+                    "DYLD_LIBRARY_PATH": "/fake/llvm/lib",
+                    "SDKROOT": "/absolute/pinned/MacOSX.sdk",
+                    "LD_LIBRARY_PATH": "/original/linux/lib",
+            }):
+                mac = builder.pinned_host_build_environment("macos-arm64", root)
+                linux = builder.pinned_host_build_environment("linux-x64", root)
+            self.assertNotIn("DYLD_LIBRARY_PATH", mac)
+            self.assertEqual(mac["SDKROOT"], "/absolute/pinned/MacOSX.sdk")
+            self.assertEqual(mac["LD_LIBRARY_PATH"], "/original/linux/lib")
+            self.assertEqual(linux["LD_LIBRARY_PATH"],
+                             str(root / "lib") + ":/original/linux/lib")
+            with self.assertRaisesRegex(builder.CandidateError, "no supported"):
+                builder.pinned_host_build_environment("windows-x64", root)
 
     def test_source_plugin_builder_has_exact_scope_and_no_release_fallback(self):
         with tempfile.TemporaryDirectory() as scratch:
