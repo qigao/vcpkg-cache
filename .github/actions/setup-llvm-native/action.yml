@@ -1,0 +1,123 @@
+name: Set up pinned native LLVM/Clang and obfuscator
+description: SHA256-locked Linux/macOS LLVM toolchain; GCC/AppleClang cannot build protected Release.
+inputs:
+  version:
+    description: Exact LLVM source tag
+    required: false
+    default: "llvmorg-23.1.4"
+  target:
+    description: Native x64 or arm64, equal to the runner architecture
+    required: false
+    default: x64
+  build-type:
+    description: toolchain-only, Debug, Release, MinSizeRel or RelWithDebInfo
+    required: false
+    default: toolchain-only
+  plugin-path:
+    description: Absolute host LLVMObfuscator plugin path for protected Release
+    required: false
+    default: ""
+  obfuscation-seed:
+    description: Nonsecret deterministic LLVM obfuscation seed
+    required: false
+    default: "0xA04252B187478C00A40BC6D81D1A8A52"
+  install-root:
+    description: Fresh absolute installation destination (optional)
+    required: false
+    default: ""
+outputs:
+  root:
+    value: ${{ steps.install.outputs.root }}
+  cc:
+    value: ${{ steps.install.outputs.cc }}
+  cxx:
+    value: ${{ steps.install.outputs.cxx }}
+  ar:
+    value: ${{ steps.install.outputs.ar }}
+  toolchain-file:
+    value: ${{ steps.install.outputs.toolchain-file }}
+  archive-sha256:
+    value: ${{ steps.install.outputs.archive-sha256 }}
+  release-qualified:
+    description: A compiler/plugin preflight cannot authorize product Release
+    value: "false"
+  obfuscator-verified:
+    value: ${{ steps.prove.outputs.verified || 'false' }}
+  obfuscator-compile-flag:
+    value: ${{ steps.prove.outputs.compile-flag }}
+  obfuscator-preflight-receipt:
+    value: ${{ steps.prove.outputs.receipt }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Verify immutable host LLVM and plugin before installation
+      id: install
+      shell: pwsh
+      env:
+        VERSION: ${{ inputs.version }}
+        TARGET: ${{ inputs.target }}
+        BUILD_TYPE: ${{ inputs.build-type }}
+        PLUGIN: ${{ inputs.plugin-path }}
+        INSTALL_ROOT: ${{ inputs.install-root }}
+        HOST_OS: ${{ runner.os }}
+        HOST_ARCH: ${{ runner.arch }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $root = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $script = Join-Path $root 'scripts/setup-compiler-toolchain.py'
+        $sourceLock = Join-Path $root 'compiler-contracts/release-obfuscation.json'
+        if (-not (Test-Path -LiteralPath $script -PathType Leaf) -or -not (Test-Path -LiteralPath $sourceLock -PathType Leaf)) { throw 'Native LLVM canonical compiler source missing' }
+        $osName = @{Linux='linux';macOS='macos'}[$env:HOST_OS]
+        $arch = @{X64='x64';ARM64='arm64'}[$env:HOST_ARCH]
+        if (-not $osName -or -not $arch -or $arch -ne $env:TARGET) { throw 'Native Release LLVM target must match Linux/macOS runner CPU' }
+        $hostId = "$osName-$arch"
+        $lock = Get-Content -LiteralPath $sourceLock -Raw | ConvertFrom-Json
+        $source = $lock.sources.'llvm-native'
+        $archives = @($source.assets | Where-Object { $_.host -eq $hostId })
+        if ($source.distribution -ne 'pinned' -or $archives.Count -ne 1 -or $source.source_tag -ne $env:VERSION -or $source.llvm_version -ne $lock.sources.'llvm-mingw'.llvm_version) {
+          throw "Native LLVM $hostId source archive not immutable/pinned"
+        }
+        $setupMode = $env:BUILD_TYPE
+        if ($env:BUILD_TYPE -in @('Release','MinSizeRel','RelWithDebInfo')) {
+          if (-not [IO.Path]::IsPathFullyQualified($env:PLUGIN) -or -not (Test-Path -LiteralPath $env:PLUGIN -PathType Leaf)) { throw 'Protected native Release requires pinned absolute LLVMObfuscator plugin' }
+          $pins = @($lock.sources.'obfuscator-llvm'.host_plugin_assets | Where-Object { $_.host -eq $hostId })
+          if ($pins.Count -ne 1) { throw "No locked host LLVM obfuscator library for $hostId" }
+          $pin = $pins[0]
+          if ($pin.llvm_version -ne $source.llvm_version -or $pin.source_commit -ne $lock.sources.'obfuscator-llvm'.source_commit -or $pin.name -ne [IO.Path]::GetFileName($env:PLUGIN) -or $pin.sha256 -ne (Get-FileHash -LiteralPath $env:PLUGIN -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Host plugin LLVM/source/SHA mismatch: Release denied' }
+          $setupMode = 'toolchain-only'
+        } elseif ($env:BUILD_TYPE -notin @('toolchain-only','Debug')) { throw 'Unknown native LLVM build type' }
+        $destination = $env:INSTALL_ROOT
+        if (-not $destination) { $destination = Join-Path $env:RUNNER_TEMP "llvm-native-$env:VERSION-$hostId" }
+        if (-not [IO.Path]::IsPathFullyQualified($destination)) { throw 'Native LLVM install root must be an absolute fresh directory' }
+        $argv = @('--compiler','llvm-native','--version',$env:VERSION,'--target',$env:TARGET,'--build-type',$setupMode,'--runner-os',$env:HOST_OS,'--runner-arch',$env:HOST_ARCH,'--destination',$destination,'--github-output',$env:GITHUB_OUTPUT,'--github-path',$env:GITHUB_PATH,'--github-env',$env:GITHUB_ENV,'--verify-smoke')
+        & python $script @argv
+        if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM native installer or executable validation failed' }
+    - name: Prove plugin IR transformation and actual ELF/Mach-O execution
+      id: prove
+      if: inputs.build-type == 'Release' || inputs.build-type == 'MinSizeRel' || inputs.build-type == 'RelWithDebInfo'
+      shell: pwsh
+      env:
+        CLANG_PATH: ${{ steps.install.outputs.cc }}
+        PLUGIN: ${{ inputs.plugin-path }}
+        BUILD_TYPE: ${{ inputs.build-type }}
+        SEED: ${{ inputs.obfuscation-seed }}
+        HOST_OS: ${{ runner.os }}
+        HOST_ARCH: ${{ runner.arch }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $base = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $gate = Join-Path $base 'scripts/ci/verify_llvm_mingw_obfuscation.py'
+        if (-not (Test-Path -LiteralPath $gate -PathType Leaf)) { throw 'Missing single LLVM IR/PE/ELF/Mach-O verifier' }
+        $osName = @{Linux='linux';macOS='macos'}[$env:HOST_OS]
+        $arch = @{X64='x64';ARM64='arm64'}[$env:HOST_ARCH]
+        $hostId = "$osName-$arch"
+        $out = Join-Path $env:RUNNER_TEMP "llvm-native-obf-$env:GITHUB_RUN_ID-$arch"
+        $args = @('--compiler-family','llvm-native','--compiler',$env:CLANG_PATH,'--plugin',$env:PLUGIN,'--host',$hostId,'--target',$hostId,'--build-type',$env:BUILD_TYPE,'--seed',$env:SEED,'--output',$out,'--require-native')
+        & python $gate @args
+        if ($LASTEXITCODE -ne 0) { throw 'LLVM native obfuscation IR or native runtime gate RED' }
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'verified=true'
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "compile-flag=-fpass-plugin=$env:PLUGIN"
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "receipt=$out/obfuscation-preflight.json"
