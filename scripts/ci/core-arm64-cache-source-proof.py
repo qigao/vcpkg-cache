@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "cache-contracts/salts-core-arm64"
-LOCK_SHA256 = "aa2bcd509ae4266813b7097048bfa5ef184fbb51c40874314684082b30b38b79"
+LOCK_GIT_BLOB = "6daf958360608fc70e0c55bca163c1ac241d3bab"
 TOOL_VERSION_SOURCE = (
     "https://github.com/microsoft/vcpkg-tool/blob/"
     "98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8/src/vcpkg/tools.cpp#L1069-L1193")
@@ -45,9 +45,20 @@ def unique_object(pairs):
     return value
 
 
+def lock_bytes(directory=CONTRACT):
+    return (directory / "source-lock.json").read_bytes()
+
+
+def lock_sha256(directory=CONTRACT):
+    return hashlib.sha256(lock_bytes(directory)).hexdigest()
+
+
 def load_contract(directory=CONTRACT):
-    raw = (directory / "source-lock.json").read_bytes()
-    require(hashlib.sha256(raw).hexdigest() == LOCK_SHA256,
+    raw = lock_bytes(directory)
+    blob = hashlib.sha1(
+        b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw
+    ).hexdigest()
+    require(blob == LOCK_GIT_BLOB,
             "Core ARM64 source lock differs from the reviewed exact inputs")
     lock = json.loads(raw, object_pairs_hook=unique_object)
     for name, expected in lock["product"]["files"].items():
@@ -89,13 +100,10 @@ def tree_bytes(root):
 
 def effective_vcpkg_environment(environment=None):
     env = dict(os.environ if environment is None else environment)
-    for key in ("VCPKG_FORCE_SYSTEM_BINARIES", "VCPKG_FORCE_DOWNLOADED_BINARIES"):
-        require(env.get(key) == "1", "original ARM64 bootstrap environment differs: " + key)
-    # The pinned tool reports cached tools as version "0" when this variable
-    # exists, even with FORCE_DOWNLOADED=1. Keep the same downloaded tools but
-    # retain real version detection on every install invocation. Setting "0"
-    # would not work: vcpkg checks variable presence, not its value.
-    del env["VCPKG_FORCE_SYSTEM_BINARIES"]
+    require("VCPKG_FORCE_SYSTEM_BINARIES" not in env,
+            "ARM64 system-binary admission leaked beyond vcpkg bootstrap")
+    require(env.get("VCPKG_FORCE_DOWNLOADED_BINARIES") == "1",
+            "downloaded host-tool preference is missing")
     return env
 
 
@@ -118,7 +126,7 @@ def verify_inputs(infrastructure, environment=None):
         "VCPKG_CACHE_REVISION": identity["contract_revision"],
         "VCPKG_SCRIPTS_REVISION": identity["scripts_revision"],
         "VCPKG_TOOL_REVISION": identity["tool_revision"],
-        "VCPKG_FORCE_SYSTEM_BINARIES": "1", "VCPKG_FORCE_DOWNLOADED_BINARIES": "1",
+        "VCPKG_FORCE_DOWNLOADED_BINARIES": "1",
         "RE2C_PACKAGE_VERSION": lock["re2c"]["version"],
         "RE2C_PACKAGE_SHA256": lock["re2c"]["sha256"],
     }
@@ -143,9 +151,11 @@ def verify_inputs(infrastructure, environment=None):
             "infrastructure": identity, "bootstrap_environment": expected,
             "effective_vcpkg_environment": {key: effective[key] for key in expected if key in effective},
             "tool_environment_correction": {
-                "removed_variable": "VCPKG_FORCE_SYSTEM_BINARIES",
-                "reason": "Preserve real versions of the same downloaded tools on repeated install invocations",
+                "bootstrap_local_variable": "VCPKG_FORCE_SYSTEM_BINARIES",
+                "persistent_variable": "VCPKG_FORCE_DOWNLOADED_BINARIES",
+                "reason": "Preserve real versions of downloaded tools on every manifest install while admitting Linux ARM64 bootstrap",
                 "implementation_source": TOOL_VERSION_SOURCE,
+                "maintenance_commit": identity["commit"],
                 "observed_failure": "https://github.com/qigao/vcpkg-cache/actions/runs/40852469213/job/123375098434",
             },
             "cc": run("cc", "--version"), "cxx": run("c++", "--version"),
@@ -224,7 +234,7 @@ def cache_receipt(plan, cache, compare=None):
             "unplanned package in the bounded Core source cache")
     receipt = {"schema": 1, "scope": "cache-payload-proof-not-publication-admission",
                "producer_commit": run("git", "-C", str(ROOT), "rev-parse", "HEAD"),
-               "workflow_run": os.environ.get("GITHUB_RUN_ID"), "lock_sha256": LOCK_SHA256,
+               "workflow_run": os.environ.get("GITHUB_RUN_ID"), "lock_sha256": lock_sha256(),
                "product": lock["product"], "infrastructure": lock["infrastructure"],
                "packages": artifacts}
     if compare:
