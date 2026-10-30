@@ -80,7 +80,8 @@
       "source_tag": "llvmorg-23.1.4",
       "llvm_version": "23.1.4",
       "distribution": "not-yet-pinned",
-      "assets": []
+      "assets": [],
+      "source_commit": null
     },
     "obfuscator-llvm": {
       "repository": "eshard/obfuscator-llvm",
@@ -92,7 +93,7 @@
         "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES": "flattening,substitution"
       },
       "host_plugin_assets": [],
-      "host_plugin_status": "pending-exact-llvm-23.1.4-host-dll"
+      "host_plugin_status": "pending-exact-llvm-23.1.4-host-binaries"
     }
   },
   "profiles": [
@@ -249,6 +250,25 @@
     "tinycc_release": "independent-unqualified-profile",
     "native_target_execution": "required",
     "absent_plugin": "fail",
+    "third_party_vcpkg": "baseline-not-automatically-obfuscated"
+  },
+  "native_protected_release": {
+    "compiler": "llvm-native",
+    "obfuscator": "obfuscator-llvm",
+    "targets": [
+      "linux-x64",
+      "linux-arm64",
+      "macos-x64",
+      "macos-arm64"
+    ],
+    "llvm_version": "23.1.4",
+    "gcc_release": "forbidden",
+    "gcc_tests": "allowed",
+    "appleclang_release": "forbidden",
+    "msvc_release": "forbidden",
+    "native_target_execution": "required",
+    "absent_plugin": "fail",
+    "unpinned_compiler": "fail",
     "third_party_vcpkg": "baseline-not-automatically-obfuscated"
   }
 }
