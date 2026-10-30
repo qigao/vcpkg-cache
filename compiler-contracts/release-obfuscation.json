@@ -116,8 +116,22 @@
       "required_passes": {
         "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES": "flattening,substitution"
       },
-      "host_plugin_assets": [],
-      "host_plugin_status": "pending-exact-llvm-23.1.4-host-binaries"
+      "host_plugin_assets": [
+        {
+          "host": "linux-x64",
+          "name": "libLLVMObfuscator.so",
+          "sha256": "25d60344fd90d80ce31f1578e4195ef154c28bf768c22a43dc3d7c2b845ea86a",
+          "llvm_version": "23.1.4",
+          "source_commit": "ad26aa21b90cc5c5118d32114b674d1455f54168",
+          "qualification": "source-built-candidate-only",
+          "release_qualified": false,
+          "compiler_archive_sha256": "25d814fda50d5fb0084b42be09605d8b1595d49d5e2e03a3345d7e112ff6f9f3",
+          "compiler_sha256": "c336d48383874cffaab0dc4c5c359456d871f21380b746520dde5c7f4c125a67",
+          "candidate_run": "https://github.com/qigao/vcpkg-cache/actions/runs/41090219912",
+          "candidate_artifact_id": 12993687562
+        }
+      ],
+      "host_plugin_status": "linux-x64-source-built-candidate-pinned;other-hosts-pending"
     }
   },
   "profiles": [

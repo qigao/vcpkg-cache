@@ -30,7 +30,7 @@ Windows 32-bit LLVM-MinGW remains a viable future target, but is not assumed adm
 - obfus.h header from commit `71159dfd61ffed463bb3d8942670420bc1940f12`. Fetch this source by exact commit and verify the retrieved header digest in the eventual tool archive.
 - llvm-mingw **20261020**, annotated tag resolving to `e08a31fbfe5cfdad07b698299af22d66e5608383`, built against `llvmorg-23.1.4`. Windows, Linux and macOS **host** archive SHA256 values are in the catalog. The host ZIP/tar and the Windows target CPU are separate dimensions.
 - eshard/obfuscator-llvm at `ad26aa21b90cc5c5118d32114b674d1455f54168`, containing LLVM 23-oriented changes. This is **not** evidence that it loads inside the distributed llvm-mingw 23.1.4 compiler on any given host.
-- The official LLVM `llvmorg-23.1.4` **annotated tag resolves to source commit** `7a941dfb2877a0b8cf30323fefa85ad019e0b0f5`. Its release assets and SHA256 digests are now immutable-locked for Linux x64, Linux ARM64 and macOS ARM64 in the catalog (compressed archives ~2.02GB / 1.83GB / 1.57GB). No matching official macOS x64 asset was found: this lane remains blocked until a separately pinned source-built or released native x64 distribution is qualified. The plugin binaries are still independently unpinned.
+- The official LLVM `llvmorg-23.1.4` **annotated tag resolves to source commit** `7a941dfb2877a0b8cf30323fefa85ad019e0b0f5`. Its release assets and SHA256 digests are now immutable-locked for Linux x64, Linux ARM64 and macOS ARM64 in the catalog (compressed archives ~2.02GB / 1.83GB / 1.57GB). No matching official macOS x64 asset was found: this lane remains blocked until a separately pinned source-built or released native x64 distribution is qualified. A real Linux x64 source-built plugin candidate is independently SHA256-locked with native IR/ELF proof; Windows, Linux ARM64 and macOS plugin assets remain unpinned, and every Release profile remains pending.
 
 Do not upgrade a source or compiler without changing the lock and qualifying the affected host/target lanes. Keep the compiler bundle lock distinct from `VCPKG_CACHE_REVISION`; do not invalidate unrelated dependency ABIs just because a product protection seed changed.
 
@@ -89,7 +89,7 @@ SHA256, source commit and LLVM 23.1.4 version exactly match
 by Windows x64 *host Clang* when compiling either x64 or ARM64 **targets**;
 it is not an ARM64 target DLL and does not execute in the released app.
 
-**Currently the host plugin asset lock is empty.** Therefore a protected
+**No Windows host plugin is pinned yet.** Linux x64 has only a candidate source-build lock; a protected
 Release request fails **before downloading llvm-mingw**, until the selected
 upstream LLVM 23.1.4 host plugin is actually built, its artifact and SHA256
 are pinned, and its provenance is reviewed. No arbitrary system LLVM,
@@ -279,3 +279,9 @@ python3 scripts/ci/validate_release_obfuscation.py --build-type Debug
 ```
 
 Do not mark a profile qualified based only on these Python tests. No downstream release compiler default changes are authorized by this design.
+
+### Source-built Linux x64 host plugin: verified candidate (2026-10-30)
+
+[Exact source-build/native CI #41090219912](https://github.com/qigao/vcpkg-cache/actions/runs/41090219912) built `libLLVMObfuscator.so` from eshard source `ad26aa21b90cc5c5118d32114b674d1455f54168` using SHA256-pinned LLVM 23.1.4 on Linux x64. The resulting shared library is **208,320 bytes**, SHA256 `25d60344fd90d80ce31f1578e4195ef154c28bf768c22a43dc3d7c2b845ea86a` (GitHub Actions artifact ID `12993687562`). The actual plugin loaded in selected Clang, `flattening` and `substitution` each changed the protected function IR, and both real native ELF executables returned `14761527457222933259`.
+
+The digest is recorded **candidate-only** in the central lock; the short-retention CI archive is not a durable published plugin or a product release. Linux x64 still requires downstream app ABI/exception/CFG/ownership gates and explicit Release-profile qualification. Other hosts require independently built and verified plugin binaries. The expensive PR opt-in marker was disabled after success to avoid repetitive 2GB LLVM downloads; an explicit workflow dispatch can rerun candidate qualification.

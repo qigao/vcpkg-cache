@@ -176,13 +176,18 @@ def verify(args: argparse.Namespace) -> dict:
                 args.plugin.name.endswith(extension),
                 "candidate LLVM plugin filename/host binary mismatch")
         contract = copy.deepcopy(contract)
-        contract["sources"]["obfuscator-llvm"]["host_plugin_assets"].append({
+        # Only a local candidate copy can replace this host pin: the canonical
+        # production SHA remains locked until independently re-reviewed.
+        previously_locked = contract["sources"]["obfuscator-llvm"]["host_plugin_assets"]
+        contract["sources"]["obfuscator-llvm"]["host_plugin_assets"] = [
+            entry for entry in previously_locked if entry["host"] != args.host
+        ] + [{
             "host": args.host,
             "name": manifest["plugin_name"],
             "sha256": manifest["plugin_sha256"],
             "llvm_version": manifest["llvm_version"],
             "source_commit": manifest["source_commit"],
-        })
+        }]
     require(contract["state"] == "design-candidate-not-release-qualified",
             "unexpected source lock state")
     selector = (contract["windows_protected_release"]
