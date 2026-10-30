@@ -34,17 +34,17 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             self.data(), "Debug", "", "", ""))
 
     def test_relwithdebinfo_is_a_protected_release_variant(self):
-        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
+        with self.assertRaisesRegex(module.PolicyError, "plugin host artifact not SHA256-pinned"):
             module.select_profile(
                 self.data(), "RelWithDebInfo", "llvm-mingw", "windows-x64", "windows-x64")
 
     def test_tinycc_release_without_evidence_fails_closed(self):
-        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
+        with self.assertRaisesRegex(module.PolicyError, "requires llvm-mingw"):
             module.select_profile(
                 self.data(), "Release", "tinycc-builder", "windows-x64", "windows-x64")
 
     def test_llvm_mingw_release_without_evidence_fails_closed(self):
-        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
+        with self.assertRaisesRegex(module.PolicyError, "plugin host artifact not SHA256-pinned"):
             module.select_profile(
                 self.data(), "Release", "llvm-mingw", "linux-arm64", "windows-arm64")
 
@@ -111,6 +111,37 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
         data["sources"]["llvm-mingw"]["crt"] = "msvcrt"
         with self.assertRaisesRegex(module.PolicyError, "UCRT ABI"):
             module.validate_contract(data)
+
+    def test_windows_release_must_never_select_msvc(self):
+        with self.assertRaisesRegex(module.PolicyError, "requires llvm-mingw"):
+            module.select_profile(
+                self.data(), "Release", "msvc", "windows-x64", "windows-arm64")
+
+    def test_msvc_is_still_allowed_for_unprotected_debug(self):
+        self.assertIsNone(module.select_profile(
+            self.data(), "Debug", "msvc", "windows-x64", "windows-x64"))
+
+    def test_no_unlocked_host_plugin_is_accepted(self):
+        data = self.data()
+        data["sources"]["obfuscator-llvm"]["host_plugin_assets"] = [{
+            "host": "windows-x64", "name": "LLVMObfuscator.dll",
+            "sha256": "fake", "llvm_version": "23.1.4",
+            "source_commit": data["sources"]["obfuscator-llvm"]["source_commit"],
+        }]
+        with self.assertRaisesRegex(module.PolicyError, "plugin needs locked host binary"):
+            module.validate_contract(data)
+
+    def test_plugin_is_not_same_as_windows_target_arch(self):
+        data = self.data()
+        data["sources"]["obfuscator-llvm"]["host_plugin_assets"] = [{
+            "host": "windows-x64", "name": "LLVMObfuscator.dll",
+            "sha256": "a"*64, "llvm_version": "23.1.4",
+            "source_commit": data["sources"]["obfuscator-llvm"]["source_commit"],
+        }]
+        module.validate_contract(data)
+        with self.assertRaisesRegex(module.PolicyError, "not qualified"):
+            module.select_profile(
+                data, "Release", "llvm-mingw", "windows-x64", "windows-arm64")
 
     def test_unsupported_host_missing_archive_is_rejected(self):
         data = self.data()
