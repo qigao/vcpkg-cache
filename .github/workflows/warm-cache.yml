@@ -521,7 +521,8 @@ jobs:
               "kcp",
               "miniaudio",
               "libusb",
-              "zstd"
+              "zstd",
+              "tre"
             ],
             "builtin-baseline": "$baseline"
           }
