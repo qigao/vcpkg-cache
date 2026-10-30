@@ -72,7 +72,7 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
                 self.data(), "Release", "llvm-mingw", "linux-arm64", "windows-arm64")
 
     def test_native_llvm_release_without_evidence_fails_closed(self):
-        with self.assertRaisesRegex(module.PolicyError, "compiler distribution not SHA256-pinned"):
+        with self.assertRaisesRegex(module.PolicyError, "plugin host artifact not SHA256-pinned"):
             module.select_profile(
                 self.data(), "Release", "llvm-native", "linux-x64", "linux-x64")
 
@@ -80,8 +80,10 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
         for platform in ("linux-x64", "linux-arm64", "macos-x64", "macos-arm64"):
             for mode in ("Release", "MinSizeRel", "RelWithDebInfo"):
                 with self.subTest(platform=platform, mode=mode):
-                    with self.assertRaisesRegex(
-                            module.PolicyError, "compiler distribution not SHA256-pinned"):
+                    block = ("compiler distribution not SHA256-pinned"
+                             if platform == "macos-x64"
+                             else "plugin host artifact not SHA256-pinned")
+                    with self.assertRaisesRegex(module.PolicyError, block):
                         module.select_profile(
                             self.data(), mode, "llvm-native", platform, platform)
 
@@ -105,6 +107,15 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
         for backend in ("gcc", "appleclang"):
             self.assertIsNone(module.select_profile(
                 self.data(), "Debug", backend, "linux-arm64", "linux-arm64"))
+
+    def test_official_native_llvm_archive_receipts_are_locked(self):
+        source = self.data()["sources"]["llvm-native"]
+        self.assertEqual(source["source_commit"],
+                         "7a941dfb2877a0b8cf30323fefa85ad019e0b0f5")
+        self.assertEqual(source["distribution"], "pinned")
+        self.assertEqual({a["host"] for a in source["assets"]},
+                         {"linux-x64", "linux-arm64", "macos-arm64"})
+        self.assertEqual(len({a["sha256"] for a in source["assets"]}), 3)
 
     def test_native_llvm_archive_without_digest_is_rejected(self):
         data = self.data()
