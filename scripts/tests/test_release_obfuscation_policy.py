@@ -15,6 +15,12 @@ assert SPEC and SPEC.loader
 module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
 
+PROOF_SCRIPT = ROOT / "scripts" / "ci" / "verify_llvm_mingw_obfuscation.py"
+PROOF_SPEC = importlib.util.spec_from_file_location("llvm_mingw_obfuscation_proof", PROOF_SCRIPT)
+assert PROOF_SPEC and PROOF_SPEC.loader
+proof = importlib.util.module_from_spec(PROOF_SPEC)
+PROOF_SPEC.loader.exec_module(proof)
+
 
 class ReleaseObfuscationPolicyTests(unittest.TestCase):
     @classmethod
@@ -28,6 +34,23 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
 
     def test_contract_is_well_formed(self):
         module.validate_contract(self.data())
+
+    def test_plugin_release_preflight_does_not_accept_an_unpinned_host(self):
+        with self.assertRaisesRegex(proof.GateError, "no unique pinned"):
+            proof.check_pin(self.data(), "windows-x64",
+                            pathlib.Path("/nonexistent/LLVMObfuscator.dll"))
+
+    def test_ir_proof_requires_a_real_compiler_function(self):
+        self.assertIn("ret i32", proof.function_body(
+            "define dso_local i32 @obf_probe(i32 %x) {\nentry:\n"
+            "  ret i32 %x\n}\n"))
+        with self.assertRaisesRegex(proof.GateError, "eliminated or renamed"):
+            proof.function_body("declare i32 @obf_probe(i32)\n")
+
+    def test_llvm_release_seed_policy(self):
+        self.assertIsNotNone(proof.SEED.fullmatch(
+            "0xA04252B187478C00A40BC6D81D1A8A52"))
+        self.assertIsNone(proof.SEED.fullmatch("1234"))
 
     def test_debug_does_not_require_obfuscator(self):
         self.assertIsNone(module.select_profile(
