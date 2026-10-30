@@ -96,15 +96,28 @@ if(VCPKG_TARGET_IS_MINGW AND
     if(_libpq_getopt_pos EQUAL -1)
         message(FATAL_ERROR "Pinned PostgreSQL getopt_long include anchor changed")
     endif()
+    # MinGW's getopt.h only exposes struct option when included BEFORE
+    # unistd.h defines __UNISTD_H_SOURCED__. pg_getopt.h includes unistd.h
+    # first, so the earlier appended include did not expose struct option.
+    # Keep PostgreSQL's original getopt_long parser and force a visible
+    # type declaration by including the real MinGW header first.
     vcpkg_replace_string("${_libpq_getopt_header}"
         "#include \"pg_getopt.h\""
-        "#include \"pg_getopt.h\"\n#if defined(__clang__) && defined(__MINGW64__)\n#include <getopt.h>\n#endif")
+        "#if defined(__clang__) && defined(__MINGW64__)\n#include <getopt.h>\n#ifndef __GETOPT_LONG_H__\n#error MinGW_getopt_long_type_not_exposed\n#endif\n#endif\n#include \"pg_getopt.h\"")
 
-    # The toolchain's native winpthread already declares pthread_barrier_t
-    # and the barrier API in pthread.h. Make the real linker admission
-    # resolve -lwinpthread before PostgreSQL decides whether to compile
-    # its conflicting fallback implementation. No hardcoded ac_cv=pass.
-    set(ENV{LIBS} "$ENV{LIBS} -lwinpthread")
+    # Keep the platform's pthread implementation, not PostgreSQL's fallback.
+    # The original Autoconf search looks only in -lpthread, whereas the
+    # pinned llvm-mingw runtime exports pthread_barrier_wait via winpthread.
+    # Extend the real compile+link search; do NOT forge ac_cv results.
+    set(_libpq_barrier_search "AC_SEARCH_LIBS(pthread_barrier_wait, pthread)")
+    file(READ "${SOURCE_PATH}/configure.ac" _libpq_barrier_ac)
+    string(FIND "${_libpq_barrier_ac}" "${_libpq_barrier_search}" _libpq_barrier_pos)
+    if(_libpq_barrier_pos EQUAL -1)
+        message(FATAL_ERROR "Pinned PostgreSQL native pthread search changed")
+    endif()
+    vcpkg_replace_string("${SOURCE_PATH}/configure.ac"
+        "${_libpq_barrier_search}"
+        "AC_SEARCH_LIBS(pthread_barrier_wait, [winpthread pthread])")
 endif()
 
 set(required_programs BISON FLEX)
