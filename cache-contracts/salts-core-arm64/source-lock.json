@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "scope": "read-only-core-arm64-source-proof",
+  "product": {
+    "repository": "qigao/salts-core",
+    "commit": "55e4275e7b8920ee58e5574bcda329aee1308b01",
+    "files": {
+      "vcpkg.json": "2c8a179110fc1889a85721ff84e29e99b8199118",
+      "vcpkg-configuration.json": "e8f12962c10fe9fb222eafa79e4bdb53bfff2202"
+    }
+  },
+  "infrastructure": {
+    "repository": "qigao/vcpkg-cache",
+    "commit": "1d8efe881a7ddb65f2ecc512530ef15a9814b034",
+    "contract_version": "8",
+    "contract_revision": "07d8fa1d31497569a71781b6b64fb772c0dba4634cb0d0ecf48024ddd4aa2a56",
+    "scripts_revision": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4",
+    "tool_revision": "2026-07-27-98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8"
+  },
+  "triplet": "arm64-linux",
+  "host_triplet": "arm64-linux",
+  "features": [
+    "simd",
+    "usb",
+    "playback",
+    "capture",
+    "zstd"
+  ],
+  "re2c": {
+    "package": "Qigao.Re2c.Binary",
+    "version": "4.6.5",
+    "sha256": "dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed"
+  },
+  "observed_runner": {
+    "label": "ubuntu-24.04-arm",
+    "image_version": "20261025.165.1"
+  },
+  "target_packages": {
+    "libjpeg-turbo_arm64-linux": "3.1.1-vcpkg4d13507903a7488cb020d623f871df3ff5569e23a98d7dc251f067cb60dfd752",
+    "libyuv_arm64-linux": "1896.0.0-vcpkg2d1856d8df71a1c2c3e0dc0c65b6d9c8b968a612fb26ffd5d44997619877e8d1",
+    "vcpkg-make_arm64-linux": "2025.8.21-vcpkg00446bd41ad1c66da629caa7c978da1cc6ca1595df64e30a41de7c1c82d5e94d",
+    "libusb_arm64-linux": "1.0.29-vcpkgfe6cb21725b78bcea20d2d063dca598bf161b19df1bde97efc27415d352ea07d"
+  },
+  "observed_package_versions": {
+    "c-ares_arm64-linux": "1.34.5-vcpkg4e4524f470a269cef32ccb0772257bb640c0132612655b3e3ea9d187403a1dd0",
+    "kcp_arm64-linux": "1.7.0-vcpkgcc1b77f11c80d5765c49342404d93ea8d6b2333f0b95fa330fdfdcb86fd304ec",
+    "libjpeg-turbo_arm64-linux": "3.1.1-vcpkg4d13507903a7488cb020d623f871df3ff5569e23a98d7dc251f067cb60dfd752",
+    "libusb_arm64-linux": "1.0.29-vcpkgfe6cb21725b78bcea20d2d063dca598bf161b19df1bde97efc27415d352ea07d",
+    "libyuv_arm64-linux": "1896.0.0-vcpkg2d1856d8df71a1c2c3e0dc0c65b6d9c8b968a612fb26ffd5d44997619877e8d1",
+    "miniaudio_arm64-linux": "0.11.22-vcpkgd985ec52e5a3a977e687856cf81b8ede7865062f44e2db18b87dfc50681e642a",
+    "pkgconf_arm64-linux": "2.5.1-vcpkg5ebc32337faa94cda990b8b498c9ccfab93ad46bffc598b6739811b5a8aa5b5c",
+    "simde_arm64-linux": "0.8.2-vcpkg13366cb3c7c0a168a12a2128cd96e7e3d69a8310333893803b95a1f9005da539",
+    "vcpkg-cmake_arm64-linux": "2024.4.23-vcpkg6c1cbcde5d6be534063042b999a68f2b28db36e1cb1781c09fb93561877f3ccb",
+    "vcpkg-cmake-config_arm64-linux": "2024.5.23-vcpkge4c0ac45e59b4b651196e4f5c135f45f30df7832fc1e263fef534a4aa15fc6ac",
+    "vcpkg-cmake-get-vars_arm64-linux": "2025.5.29-vcpkgea743552fd917ccf1be2777401c4b03ac9e65e648b5fc1d5a48291e39b4230fd",
+    "vcpkg-make_arm64-linux": "2025.8.21-vcpkg00446bd41ad1c66da629caa7c978da1cc6ca1595df64e30a41de7c1c82d5e94d",
+    "vcpkg-tool-meson_arm64-linux": "1.9.0-vcpkgb46ea0f8d273cd11a1bd54f312d34a0219615a44c2fd298a577cfa4864385c28",
+    "zstd_arm64-linux": "1.6.0-vcpkga079b9b21f32edcea91275eaa5521ceb51cbb4fcc5919372426fe8035dd35ee9"
+  },
+  "evidence_jobs": [
+    "https://github.com/qigao/salts-core/actions/runs/40843699028/job/123345971309",
+    "https://github.com/qigao/salts-core/actions/runs/40843698858/job/123346007577"
+  ],
+  "qualification": "Source proof of the Core v8 contract with the ARM64 bootstrap-environment maintenance commit; read-only upstream-token availability only; no publication authorization or salts-core migration acceptance."
+}

@@ -102,3 +102,94 @@ against existing immutable GitHub Packages. No secrets appear in argv.
 - Do not downgrade ABI validation or revert to NuGet/Mono as a fallback.
 
 Tracking: https://github.com/qigao/vcpkg-cache/issues/217
+
+## Core ARM64 source proof and read-only availability
+
+`.github/workflows/core-arm64-cache-source-proof.yml` is a separate, **read-only**
+qualification workflow. It has no package write permission or upload operation,
+and does not add a package set to the protected publisher above. Its pull-request
+paths cover its own workflow, proof code, fixed manifests and tests. A re2c-only
+repair does not trigger this cache qualification. Manual dispatch requires the
+exact infrastructure workflow commit in `expected_source_sha`.
+
+The frozen inputs in `cache-contracts/salts-core-arm64/` reproduce Core commit
+`55e4275e7b8920ee58e5574bcda329aee1308b01`. Both product manifest files retain their
+original Git blob bytes. `source-lock.json` records the four unavailable exact
+package versions, the complete 14-package SDK graph, and the original job links.
+The verifier independently pins that lock and the manifest blobs; changing an ABI,
+dropping a dependency, changing a triplet or repointing the source is a failure.
+
+The proof uses native `ubuntu-24.04-arm`, target/host `arm64-linux`, and features
+`simd,usb,playback,capture,zstd`. It isolates ABI infrastructure
+`7bb5b556a001bc82d2922a04a718e986a7f47f54`, including its scripts, overlays and
+contract revision `07d8fa1d31497569a71781b6b64fb772c0dba4634cb0d0ecf48024ddd4aa2a56`.
+It must run on a revision containing the exact-version re2c reader: the historical
+host input is `Qigao.Re2c.Binary/4.6.4`, SHA256
+`9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`.
+The newer repository's overlays and floating package lookup are not used.
+
+### Stable tool version reporting on repeated installs
+
+[Proof run 40852469213](https://github.com/qigao/vcpkg-cache/actions/runs/40852469213/job/123375098434)
+at `02fbb13eb468404ba28d5f1956b77f83d0f916b1` remains a failed qualification.
+Its first plan matched all 14 original ABIs and all 14 source builds completed,
+but the later invocations recorded `cmake 0` instead of `cmake 4.4.2` in their
+ABI inputs. The retained CMakeCache files show the same downloaded CMake 4.4.2
+executable. The diagnostic artifact SHA256 is
+`1f8b54644c3dbeb4b719dc570774b85e3fb6f21dcee5963bf100f52d5f06d0d9`.
+
+The [pinned vcpkg tool implementation](https://github.com/microsoft/vcpkg-tool/blob/98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8/src/vcpkg/tools.cpp#L1069-L1193)
+disables version detection when `VCPKG_FORCE_SYSTEM_BINARIES` is present.
+With both ARM64 bootstrap flags set, a newly downloaded tool reports its actual
+version, while the same cached tool is subsequently assigned version `0`.
+
+The original bootstrap environment and its checks remain unchanged. Only formal
+`vcpkg install` children use the proof's `vcpkg-install` adapter, which copies that
+environment, removes `VCPKG_FORCE_SYSTEM_BINARIES`, and retains
+`VCPKG_FORCE_DOWNLOADED_BINARIES=1`. Setting the former to `0` would still trigger
+the defect. `inputs.json` records `bootstrap_environment` and
+`effective_vcpkg_environment` separately, with the reason and implementation
+reference. The same fixed downloaded tools, scripts, overlays and original
+14-package ABI lock remain required; no cache metadata is rewritten.
+
+Both jobs run a second dry-run in a new, empty install root after the first plan
+has acquired CMake. That cached-tool plan must again match every original ABI
+before source compilation or binary-only installation can start. A new CI run
+must verify the corrected source ZIPs and strict remote read-back; this correction
+does not make the old run valid or resolve any package's observed HTTP 404.
+
+Two jobs keep source proof and remote availability distinct:
+
+1. `source-proof` first issues authenticated GETs for the four exact targets with
+   this upstream workflow's read token. `availability.json` records `available` or
+   `unavailable_to_workflow_token_404`; a 404 means **absent or inaccessible**, with
+   that distinction unresolved. An HTTP/metadata error fails. An observed 404 lets
+   source diagnosis proceed, but does not qualify remote availability. The job
+   then derives the exact plan in a fresh install root, builds all 14 dependencies
+   into an empty write-only files cache, and rechecks the plan in another fresh
+   root. Real cache ZIP `CONTROL`/`BUILD_INFO`, archive hashes and native payload
+   hashes are retained. The executable bootstrap helpers must match the pinned
+   Git objects, the actual canonical contract must match, and copied overlay
+   bytes must equal the isolated input. A whole-repository text-normalization
+   status is not a substitute for these checks.
+2. `fresh-read-back` runs on a separate runner. It downloads only the same-run
+   source metadata, never the source cache. With the same input pins it recomputes
+   the 14-package plan, fetches every immutable package using curl, and requires
+   `vcpkg install --only-binarycaching`. A missing package remains **RED**. The source
+   receipt must match this workflow run, infrastructure commit and all 14 exact
+   package identities. Each retrieved payload is compared with that actual source
+   build; differing payload and ZIP hashes are recorded per package as a separate
+   reproducibility observation. An already-published ABI does not promise a
+   byte-reproducible rebuild, so such differences are not labelled cache misses.
+   This read-only comparison does not approve immutable publication: the existing
+   protected publisher still rejects payload conflicts for an immutable version.
+   The reader cannot use a source build to repair a miss or accept a different ABI.
+   Diagnostics are uploaded on failure.
+
+Upstream-token availability does not establish `salts-core` token access. If these
+exact versions are readable upstream while Core cannot read them, an administrator
+must check package Actions access and repeat the original Core request. If they
+remain unavailable, a package administrator must determine existence before any
+separately reviewed production/publication work. Neither outcome authorizes this
+workflow to publish. Even a successful source build and binary read-back do not
+qualify Core's original source/function migration or release admission.

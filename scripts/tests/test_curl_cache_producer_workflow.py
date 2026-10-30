@@ -79,5 +79,69 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
                 self.assertNotIn(forbidden, self.source)
 
 
+class CoreArm64ReadOnlyWorkflowPolicy(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        path = WORKFLOW.with_name("core-arm64-cache-source-proof.yml")
+        cls.source = path.read_text(encoding="utf-8")
+        cls.producer, cls.reader = cls.source.split("\n  fresh-read-back:", 1)
+
+    def test_proof_cannot_extend_the_privileged_publisher(self):
+        self.assertIn("permissions:\n  contents: read\n  packages: read", self.source)
+        for forbidden in ("packages: write", "--publish", "native-cache-publish",
+                          "continue-on-error", "setup-vcpkg-cache", "nuget push"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.source)
+        self.assertIn("inputs.expected_source_sha", self.producer)
+        self.assertIn('test "$REQUESTED_SHA" = "$PROOF_SOURCE_SHA"', self.producer)
+
+    def test_independent_reader_never_downloads_source_cache(self):
+        self.assertIn("needs: source-proof", self.reader)
+        self.assertIn("runs-on: ubuntu-24.04-arm", self.reader)
+        self.assertIn("--only-binarycaching", self.reader)
+        self.assertIn('VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,read"', self.reader)
+        self.assertIn("core-arm64-source-contract-", self.reader)
+        self.assertNotIn("core-arm64-source-diagnostics-", self.reader)
+        self.assertIn("github-packages.py cache", self.reader)
+        self.assertIn("--compare", self.reader)
+        self.assertIn('"--x-install-root=$proof/abi-probe"', self.reader)
+
+    def test_native_source_graph_uses_fresh_roots_and_consumer_infrastructure(self):
+        self.assertIn('VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"', self.producer)
+        for root in ("source-install", "abi-before", "abi-cached-tools", "abi-after"):
+            with self.subTest(root=root):
+                self.assertIn(f'test ! -e "$proof/{root}"', self.producer)
+                self.assertIn(f'"--x-install-root=$proof/{root}"', self.producer)
+        for section in (self.producer, self.reader):
+            self.assertIn("ref: 1d8efe881a7ddb65f2ecc512530ef15a9814b034", section)
+            self.assertIn("--version 4.6.5", section)
+            self.assertIn("--sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed", section)
+            self.assertIn("--triplet=arm64-linux --host-triplet=arm64-linux", section)
+            for feature in ("simd", "usb", "playback", "capture", "zstd"):
+                self.assertIn("--x-feature=" + feature, section)
+
+    def test_all_installs_use_effective_environment_and_recheck_cached_tools(self):
+        for section, invocations in ((self.producer, 4), (self.reader, 3)):
+            with self.subTest(invocations=invocations):
+                self.assertNotIn('"$VCPKG_ROOT/vcpkg"', section)
+                self.assertEqual(section.count("core-arm64-cache-source-proof.py vcpkg-install --"), invocations)
+                self.assertIn('test ! -e "$proof/abi-cached-tools"', section)
+                self.assertIn('"--x-install-root=$proof/abi-cached-tools"', section)
+                self.assertIn('--dry-run "--x-write-nuget-packages-config=$proof/cached-tools.config"', section)
+                self.assertIn('core-arm64-cache-source-proof.py plan --plan "$proof/cached-tools.config"', section)
+                cached_check = section.index('plan --plan "$proof/cached-tools.config"')
+                actual_install = section.index('"--x-install-root=$proof/' + (
+                    "source-install" if invocations == 4 else "installed") + '"')
+                self.assertLess(cached_check, actual_install)
+
+    def test_re2c_repair_alone_does_not_trigger_intentional_cache_readback(self):
+        filters = self.source.split("  pull_request:\n", 1)[1].split("  workflow_dispatch:", 1)[0]
+        for unrelated in ("scripts/github-packages.py", "re2c-tools-package", "ports/**", "scripts/**"):
+            with self.subTest(path=unrelated):
+                self.assertNotIn(unrelated, filters)
+        self.assertIn("scripts/ci/core-arm64-cache-source-proof.py", filters)
+        self.assertIn("cache-contracts/salts-core-arm64/**", filters)
+
+
 if __name__ == "__main__":
     unittest.main()
