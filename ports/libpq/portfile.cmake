@@ -118,6 +118,48 @@ if(VCPKG_TARGET_IS_MINGW AND
     vcpkg_replace_string("${SOURCE_PATH}/configure.ac"
         "${_libpq_barrier_search}"
         "AC_SEARCH_LIBS(pthread_barrier_wait, [winpthread pthread])")
+
+    # The Autoconf check may not discover the DLL-imported Winpthread barrier
+    # when its historical cross-compile search runs with inappropriate
+    # frontend flags. Do not assert ac_cv by compiler name alone: compile
+    # AND LINK the real native header/API using the exact vcpkg target Clang
+    # before recording any configure result. A failed probe is a hard RED.
+    if(NOT VCPKG_DETECTED_CMAKE_C_COMPILER)
+        message(FATAL_ERROR "Clang/MinGW libpq native barrier requires a detected compiler")
+    endif()
+    set(_libpq_native_barrier_src "${CURRENT_BUILDTREES_DIR}/libpq-native-winpthread.c")
+    set(_libpq_native_barrier_exe "${CURRENT_BUILDTREES_DIR}/libpq-native-winpthread.exe")
+    file(WRITE "${_libpq_native_barrier_src}" [=[
+#include <pthread.h>
+int main(void)
+{
+    pthread_barrier_t barrier;
+    if (pthread_barrier_init(&barrier, 0, 1) != 0)
+        return 1;
+    int status = pthread_barrier_wait(&barrier);
+    int retired = pthread_barrier_destroy(&barrier);
+    return retired != 0 || (status != 0 && status != PTHREAD_BARRIER_SERIAL_THREAD);
+}
+]=])
+    execute_process(
+        COMMAND "${VCPKG_DETECTED_CMAKE_C_COMPILER}"
+            "${_libpq_native_barrier_src}"
+            "-o" "${_libpq_native_barrier_exe}"
+            "-lwinpthread"
+        RESULT_VARIABLE _libpq_native_barrier_result
+        OUTPUT_VARIABLE _libpq_native_barrier_stdout
+        ERROR_VARIABLE _libpq_native_barrier_stderr)
+    if(NOT _libpq_native_barrier_result STREQUAL "0" OR
+       NOT EXISTS "${_libpq_native_barrier_exe}")
+        message(FATAL_ERROR
+            "Native Winpthread barrier cannot compile/link with the real target compiler; "
+            "do not replace the original fallback without proof. "
+            "stdout: ${_libpq_native_barrier_stdout}; stderr: ${_libpq_native_barrier_stderr}")
+    endif()
+    message(STATUS "Native Winpthread barrier compile/link qualified for ${TARGET_TRIPLET}")
+    # This is a measured Autoconf result, not a fixed/unconditional cache
+    # assertion. The original pthread interface remains the one in use.
+    set(_libpq_barrier_autoconf_result "ac_cv_func_pthread_barrier_wait=yes")
 endif()
 
 set(required_programs BISON FLEX)
@@ -212,6 +254,7 @@ else()
             ${_libpq_tool_tzcode}
         OPTIONS
             ${BUILD_OPTS}
+            ${_libpq_barrier_autoconf_result}
         OPTIONS_DEBUG
             --enable-debug
     )
