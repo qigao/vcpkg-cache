@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a pinned host LLVM pass against the real llvm-mingw compiler.
+"""Validate a pinned host LLVM pass against real LLVM/Clang or llvm-mingw.
 
 This is a compiler/IR/native *preflight*, not product Release qualification.
 A product must separately compile every protected target and run target-native
@@ -18,9 +18,22 @@ import subprocess
 import sys
 
 LOCK = Path(__file__).resolve().parents[2] / "compiler-contracts/release-obfuscation.json"
-MACHINES = {"windows-x64": 0x8664, "windows-arm64": 0xAA64}
-TRIPLES = {"windows-x64": "x86_64-w64-mingw32",
-           "windows-arm64": "aarch64-w64-mingw32"}
+MACHINES = {
+    "windows-x64": ("PE", 0x8664),
+    "windows-arm64": ("PE", 0xAA64),
+    "linux-x64": ("ELF", 62),
+    "linux-arm64": ("ELF", 183),
+    "macos-x64": ("Mach-O", 0x01000007),
+    "macos-arm64": ("Mach-O", 0x0100000C),
+}
+TRIPLES = {
+    "windows-x64": "x86_64-w64-mingw32",
+    "windows-arm64": "aarch64-w64-mingw32",
+    "linux-x64": "x86_64-unknown-linux-gnu",
+    "linux-arm64": "aarch64-unknown-linux-gnu",
+    "macos-x64": "x86_64-apple-darwin",
+    "macos-arm64": "arm64-apple-darwin",
+}
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 SEED = re.compile(r"(?:0x)?[0-9A-Fa-f]{32}\Z")
 PROBE = r"""#include <stdio.h>
@@ -92,6 +105,21 @@ def pe_machine(path: Path) -> int:
     return struct.unpack_from("<H", nt, 4)[0]
 
 
+def binary_machine(path: Path) -> tuple[str, int]:
+    with path.open("rb") as fp:
+        start = fp.read(64)
+    require(len(start) >= 24, "compiled native executable is truncated")
+    if start[:2] == b"MZ":
+        return "PE", pe_machine(path)
+    if start[:4] == b"\x7fELF":
+        require(start[4] == 2 and start[5] == 1,
+                "Release ELF must use 64-bit little-endian encoding")
+        return "ELF", struct.unpack_from("<H", start, 18)[0]
+    if start[:4] == b"\xcf\xfa\xed\xfe":
+        return "Mach-O", struct.unpack_from("<I", start, 4)[0]
+    raise GateError("not an expected PE, ELF64 or thin Mach-O64 native executable")
+
+
 def function_body(ir: str) -> str:
     match = re.search(r"(?ms)^define\b[^\n]*@obf_probe\([^)]*\)[^\n]*\{\n(.*?)^\}", ir)
     require(match is not None, "compiler eliminated or renamed protected function")
@@ -123,11 +151,23 @@ def verify(args: argparse.Namespace) -> dict:
     contract = json.loads(LOCK.read_text(encoding="utf-8"))
     require(contract["state"] == "design-candidate-not-release-qualified",
             "unexpected source lock state")
-    release = contract["windows_protected_release"]
+    selector = (contract["windows_protected_release"]
+                if args.compiler_family == "llvm-mingw"
+                else contract["native_protected_release"])
     require(args.build_type in contract["release_configs"] and
-            args.target in release["targets"] and
-            release["compiler"] == "llvm-mingw",
-            "Windows Release requires the selected llvm-mingw compiler profile")
+            args.target in selector["targets"] and
+            selector["compiler"] == args.compiler_family,
+            "Release compiler family/OS/architecture does not match required LLVM profile")
+    require(args.compiler_family in ("llvm-mingw", "llvm-native"),
+            "only llvm-mingw and native LLVM/Clang may produce protected Release")
+    if args.compiler_family == "llvm-native":
+        require(args.host == args.target,
+                "native LLVM Release must compile and run on the requested host architecture")
+        native = contract["sources"]["llvm-native"]
+        require(native["distribution"] == "pinned" and any(
+                item["host"] == args.host for item in native["assets"]),
+                "native LLVM distribution not SHA256-pinned for actual Release host")
+
     require(args.host in ("windows-x64", "windows-arm64", "linux-x64",
                            "linux-arm64", "macos-x64", "macos-arm64"),
             "unknown plugin host")
@@ -138,11 +178,27 @@ def verify(args: argparse.Namespace) -> dict:
     pin = check_pin(contract, args.host, args.plugin)
     clang_version = run([str(args.compiler), "--version"],
                         cwd=LOCK.parent, env=os.environ.copy())
-    required_version = contract["sources"]["llvm-mingw"]["llvm_version"]
+    required_version = contract["sources"][args.compiler_family]["llvm_version"]
     require(re.search(r"\bclang version " + re.escape(required_version) + r"\b",
                       clang_version) is not None,
             "actual llvm-mingw clang version differs from pinned plugin ABI")
     source = contract["sources"]["obfuscator-llvm"]
+    actual_target = run([str(args.compiler), "-dumpmachine"],
+                        cwd=LOCK.parent, env=os.environ.copy()).strip().lower()
+    native_prefix = {"linux-x64": ("x86_64", "linux"),
+                     "linux-arm64": ("aarch64", "linux"),
+                     "macos-x64": ("x86_64", "darwin"),
+                     "macos-arm64": ("aarch64", "darwin")}
+    if args.compiler_family == "llvm-native":
+        required_arch, required_os = native_prefix[args.target]
+        require(actual_target.startswith((required_arch, "arm64" if
+                required_arch == "aarch64" else required_arch)) and
+                required_os in actual_target,
+                "native Clang target triple does not match platform/architecture")
+    else:
+        required_arch = "aarch64" if args.target == "windows-arm64" else "x86_64"
+        require(required_arch in actual_target and "mingw32" in actual_target,
+                "llvm-mingw Clang target triple differs from Release target")
     pipeline = source["required_passes"]
     require(pipeline.get("LLVM_OBF_SCALAROPTIMIZERLATE_PASSES"),
             "LLVM pass pipeline missing from pinned lock")
@@ -160,8 +216,9 @@ def verify(args: argparse.Namespace) -> dict:
     load = [f"-fpass-plugin={args.plugin}"]
     baseline_ir = args.output / "baseline.ll"
     protected_ir = args.output / "protected.ll"
-    baseline_exe = args.output / "baseline.exe"
-    protected_exe = args.output / "protected.exe"
+    suffix = ".exe" if args.target.startswith("windows-") else ""
+    baseline_exe = args.output / ("baseline" + suffix)
+    protected_exe = args.output / ("protected" + suffix)
     run(basic + ["-S", "-emit-llvm", "-o", str(baseline_ir)],
         cwd=args.output, env=env)
     run(basic + load + ["-S", "-emit-llvm", "-o", str(protected_ir)],
@@ -197,11 +254,13 @@ def verify(args: argparse.Namespace) -> dict:
     run(basic + load + ["-o", str(protected_exe)],
         cwd=args.output, env=env)
     for exe in (baseline_exe, protected_exe):
-        require(pe_machine(exe) == MACHINES[args.target],
-                f"wrong target PE machine: {exe.name}")
+        require(binary_machine(exe) == MACHINES[args.target],
+                f"wrong native artifact architecture/format: {exe.name}")
     require(sha(baseline_exe) != sha(protected_exe),
             "baseline and protected binaries are byte-identical")
     native = (args.host == args.target)
+    if args.compiler_family == "llvm-native":
+        require(native, "native LLVM release compiler must execute on matching OS/architecture")
     require(not args.require_native or native,
             "native runtime was requested on a cross-compiler host")
     runtime = None
@@ -215,13 +274,17 @@ def verify(args: argparse.Namespace) -> dict:
         "status": "compiler-plugin-preflight-only",
         "release_qualified": False,
         "target_native_execution": native,
-        "host": args.host, "target": args.target, "target_triple": TRIPLES[args.target],
+        "host": args.host, "target": args.target,
+        "compiler_family": args.compiler_family,
+        "compiler_target_triple": actual_target,
+        "target_triple": TRIPLES[args.target],
         "build_type": args.build_type,
         "clang_version": required_version,
         "compiler_sha256": sha(args.compiler),
         "compiler_archive_sha256": next(
-            (a["sha256"] for a in contract["sources"]["llvm-mingw"]["assets"]
-             if a["host"] == args.host), None),
+            (a["sha256"] for a in contract["sources"][args.compiler_family]["assets"]
+             if a["host"] == args.host or
+             (a["host"] == "macos-universal" and args.host.startswith("macos-"))), None),
         "obfuscator_source_commit": source["source_commit"],
         "host_plugin_sha256": pin["sha256"], "host_plugin_name": pin["name"],
         "pass_pipeline": pipeline, "verified_named_passes": pass_digests,
@@ -230,9 +293,10 @@ def verify(args: argparse.Namespace) -> dict:
         "baseline_ir_function_sha256": hashlib.sha256(normal_body.encode()).hexdigest(),
         "protected_ir_function_sha256": hashlib.sha256(changed_body.encode()).hexdigest(),
         "protected_ir_verified": True,
-        "pe_machine": f"{MACHINES[args.target]:04x}",
-        "baseline_pe_sha256": sha(baseline_exe),
-        "protected_pe_sha256": sha(protected_exe),
+        "native_format": MACHINES[args.target][0],
+        "native_machine": f"{MACHINES[args.target][1]:08x}",
+        "baseline_artifact_sha256": sha(baseline_exe),
+        "protected_artifact_sha256": sha(protected_exe),
         "native_parity_result": runtime,
     }
     (args.output / "obfuscation-preflight.json").write_text(
@@ -243,6 +307,8 @@ def verify(args: argparse.Namespace) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler", type=Path, required=True)
+    parser.add_argument("--compiler-family", choices=("llvm-mingw", "llvm-native"),
+                        default="llvm-mingw")
     parser.add_argument("--plugin", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--host", required=True)
