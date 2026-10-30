@@ -2,6 +2,7 @@
 """Fail-closed policy tests, not a claim of successful obfuscator execution."""
 from __future__ import annotations
 
+import argparse
 import copy
 import importlib.util
 import json
@@ -22,6 +23,11 @@ PROOF_SPEC = importlib.util.spec_from_file_location("llvm_mingw_obfuscation_proo
 assert PROOF_SPEC and PROOF_SPEC.loader
 proof = importlib.util.module_from_spec(PROOF_SPEC)
 PROOF_SPEC.loader.exec_module(proof)
+BUILDER_SCRIPT = ROOT / "scripts" / "ci" / "build_llvm_obfuscator_candidate.py"
+BUILDER_SPEC = importlib.util.spec_from_file_location("source_built_llvm_plugin", BUILDER_SCRIPT)
+assert BUILDER_SPEC and BUILDER_SPEC.loader
+builder = importlib.util.module_from_spec(BUILDER_SPEC)
+BUILDER_SPEC.loader.exec_module(builder)
 
 
 class ReleaseObfuscationPolicyTests(unittest.TestCase):
@@ -62,6 +68,31 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             path.write_bytes(bytes(64))
             with self.assertRaisesRegex(proof.GateError, "not an expected"):
                 proof.binary_machine(path)
+
+    def test_source_plugin_builder_has_exact_scope_and_no_release_fallback(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            candidate = argparse.Namespace(
+                llvm_root=pathlib.Path(scratch) / "missing",
+                output=pathlib.Path(scratch) / "output",
+                host="linux-x64", target="linux-x64")
+            with self.assertRaisesRegex(
+                    builder.CandidateError, "existing absolute pinned installation"):
+                builder.validate_inputs(candidate)
+            candidate.host = "macos-x64"
+            candidate.target = "macos-x64"
+            with self.assertRaisesRegex(
+                    builder.CandidateError, "no approved native host"):
+                builder.validate_inputs(candidate)
+
+    def test_candidate_proof_requires_host_native_execution(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            base = pathlib.Path(scratch)
+            args = argparse.Namespace(
+                compiler_family="llvm-native", host="linux-x64",
+                target="macos-arm64", require_native=True,
+                candidate_plugin_manifest=base / "nonexistent.json")
+            with self.assertRaisesRegex(proof.GateError, "matching-host native LLVM"):
+                proof.verify(args)
 
     def test_llvm_release_seed_policy(self):
         self.assertIsNotNone(proof.SEED.fullmatch(
