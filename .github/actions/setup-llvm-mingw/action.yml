@@ -119,6 +119,22 @@ runs:
               -not (Test-Path -LiteralPath $env:INPUT_PLUGIN_PATH -PathType Leaf)) {
             throw 'Protected Release needs an absolute, preinstalled pinned host LLVM pass plugin'
           }
+          # Fail BEFORE the large compiler download when the host plugin
+          # lacks an immutable lock or the supplied binary digest is wrong.
+          $hostOs = @{Windows='windows';Linux='linux';macOS='macos'}[$env:HOST_OS]
+          $hostArch = @{X64='x64';ARM64='arm64'}[$env:HOST_ARCH]
+          if (-not $hostOs -or -not $hostArch) { throw 'Unknown LLVM plugin host' }
+          $hostId = "$hostOs-$hostArch"
+          $policy = Get-Content -LiteralPath (Join-Path $root 'compiler-contracts/release-obfuscation.json') -Raw | ConvertFrom-Json
+          $pins = @($policy.sources.'obfuscator-llvm'.host_plugin_assets | Where-Object { $_.host -eq $hostId })
+          if ($pins.Count -ne 1) { throw "No immutable LLVM obfuscator host plugin for $hostId" }
+          $pin = $pins[0]
+          if ($pin.llvm_version -ne $policy.sources.'llvm-mingw'.llvm_version -or
+              $pin.source_commit -ne $policy.sources.'obfuscator-llvm'.source_commit -or
+              $pin.name -ne [IO.Path]::GetFileName($env:INPUT_PLUGIN_PATH) -or
+              $pin.sha256 -ne (Get-FileHash -LiteralPath $env:INPUT_PLUGIN_PATH -Algorithm SHA256).Hash.ToLowerInvariant()) {
+            throw 'Host LLVM plugin SHA/source/ABI lock mismatch before compiler installation'
+          }
           # Compiler setup alone cannot grant a Release qualification. The
           # following step independently verifies pinned plugin IR and PE.
           $setupMode = 'toolchain-only'
