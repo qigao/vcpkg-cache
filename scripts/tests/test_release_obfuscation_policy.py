@@ -99,6 +99,19 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             with self.assertRaisesRegex(proof.GateError, "MH_DYLIB"):
                 proof.check_host_plugin_image(lib, "macos-arm64")
 
+    def test_plugin_build_failure_preserves_cmake_stdout_and_stderr(self):
+        failure = type("BuildFailure", (), {
+            "returncode": 1,
+            "stdout": "CMake Error at LLVMConfig.cmake: missing dependency",
+            "stderr": "configuration failed",
+        })()
+        with tempfile.TemporaryDirectory() as temp:
+            with mock.patch.object(builder.subprocess, "run", return_value=failure):
+                with self.assertRaisesRegex(
+                        builder.CandidateError, "missing dependency") as err:
+                    builder.command(["cmake", "--version"], pathlib.Path(temp), {})
+                self.assertIn("configuration failed", str(err.exception))
+
     def test_macos_llvm_plugin_does_not_shadow_system_libcxx(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp) / "pinned-llvm"
