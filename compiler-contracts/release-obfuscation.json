@@ -79,9 +79,33 @@
       "repository": "llvm/llvm-project",
       "source_tag": "llvmorg-23.1.4",
       "llvm_version": "23.1.4",
-      "distribution": "not-yet-pinned",
-      "assets": [],
-      "source_commit": null
+      "distribution": "pinned",
+      "assets": [
+        {
+          "host": "linux-x64",
+          "name": "LLVM-23.1.4-Linux-X64.tar.xz",
+          "sha256": "25d814fda50d5fb0084b42be09605d8b1595d49d5e2e03a3345d7e112ff6f9f3",
+          "size": 2017061664
+        },
+        {
+          "host": "linux-arm64",
+          "name": "LLVM-23.1.4-Linux-ARM64.tar.xz",
+          "sha256": "9b27cf263d711aa6ebfd4045ab241d947bd09b3cd19ffa5728f48a80c9eb3a91",
+          "size": 1829686400
+        },
+        {
+          "host": "macos-arm64",
+          "name": "LLVM-23.1.4-macOS-ARM64.tar.xz",
+          "sha256": "5d3179db39adeca5b17a34d82708fe976bc60e055b05fe557878fb3fb64d39ef",
+          "size": 1570051292
+        }
+      ],
+      "source_commit": "7a941dfb2877a0b8cf30323fefa85ad019e0b0f5",
+      "pending_hosts": [
+        "macos-x64"
+      ],
+      "provenance": "llvmorg-23.1.4 official GitHub release asset SHA256 digest verified from release metadata; runtime and plugin unqualified",
+      "license_notes": "LLVM distribution source and runtime licensing must be reviewed before redistributing product installers"
     },
     "obfuscator-llvm": {
       "repository": "eshard/obfuscator-llvm",
