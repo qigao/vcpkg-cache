@@ -75,14 +75,30 @@ runs:
         if (-not $osName -or -not $arch -or $arch -ne $env:TARGET) { throw 'Native Release LLVM target must match Linux/macOS runner CPU' }
         $hostId = "$osName-$arch"
         if ($osName -eq 'macos') {
-          # xcrun locates SDK data only; compilation remains on pinned LLVM.
-          $sdk = (& xcrun --sdk macosx --show-sdk-path | Select-Object -First 1)
-          if ($LASTEXITCODE -ne 0 -or -not $sdk -or
-              -not [IO.Path]::IsPathFullyQualified($sdk) -or
-              -not (Test-Path -LiteralPath $sdk -PathType Container)) {
-            throw 'Pinned LLVM macOS requires an explicit genuine Xcode SDK sysroot'
+          # GitHub macos-15 has multiple Xcode versions and its default
+          # xcode-select/CLT SDK can be missing or inconsistent. Select the
+          # known installed Xcode 16.4 SDK explicitly. Xcode only supplies
+          # macOS SDK/libSystem; the protected compiler stays pinned LLVM.
+          $developer = '/Applications/Xcode_16.4.app/Contents/Developer'
+          if (-not (Test-Path -LiteralPath $developer -PathType Container)) {
+            throw "Required macos-15 Xcode 16.4 SDK provider missing: $developer"
+          }
+          $env:DEVELOPER_DIR = $developer
+          $sdkOutput = @(& /usr/bin/xcrun --sdk macosx --show-sdk-path 2>&1)
+          $sdkExit = $LASTEXITCODE
+          if ($sdkExit -ne 0) {
+            throw "Xcode 16.4 macOS SDK discovery failed ($sdkExit): $($sdkOutput -join '; ')"
+          }
+          $sdk = [string]($sdkOutput | Select-Object -Last 1)
+          $sdk = $sdk.Trim()
+          $systemStub = Join-Path $sdk 'usr/lib/libSystem.tbd'
+          if (-not [IO.Path]::IsPathFullyQualified($sdk) -or
+              -not (Test-Path -LiteralPath $sdk -PathType Container) -or
+              -not (Test-Path -LiteralPath $systemStub -PathType Leaf)) {
+            throw "Pinned LLVM macOS SDK root or libSystem.tbd missing: $sdk"
           }
           $env:SDKROOT = $sdk
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "DEVELOPER_DIR=$developer"
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "SDKROOT=$sdk"
           Write-Host "LLVM_NATIVE_MACOS_SDK_PASS: $sdk"
         }
