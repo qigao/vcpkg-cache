@@ -186,6 +186,14 @@ runs:
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'verified=true'
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "plugin=$env:INPUT_PLUGIN_PATH"
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "compile-flag=-fpass-plugin=$env:INPUT_PLUGIN_PATH"
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "receipt=$out/obfuscation-preflight.json"
-        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution"
+        $receiptPath = Join-Path $out 'obfuscation-preflight.json'
+        $proof = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+        if ($proof.release_qualified -ne $false -or
+            $proof.compiler_family -ne 'llvm-mingw') {
+          throw 'Unverified or incorrectly identified LLVM-MinGW pass receipt'
+        }
+        $passes = $proof.pass_pipeline.LLVM_OBF_SCALAROPTIMIZERLATE_PASSES
+        if (-not $passes) { throw 'Required locked LLVM obfuscation passes missing' }
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "receipt=$receiptPath"
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=$passes"
         Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SEED=$env:INPUT_SEED"
