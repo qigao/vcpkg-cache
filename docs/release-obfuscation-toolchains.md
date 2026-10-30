@@ -201,6 +201,38 @@ comparisons. Keep a single CI concurrency group with cancellation and
 compiler caching, without new installer/consumer fixture projects or
 duplicate CI workflows.
 
+## Exact LLVM host obfuscator plugin source-build candidate
+
+A **single optional Linux x64 native host-plugin candidate** is implemented
+within the existing `validate-compiler-setup-actions.yml` workflow.
+It runs on PR synchronization only while the PR description contains
+`[host-plugin-candidate]`, or on an explicit workflow dispatch, to avoid
+re-downloading the approximately 2 GB official LLVM archive on unrelated
+commits. The job reuses `setup-llvm-native`, CMake/Ninja/ccache and the
+existing preflight, without creating separate installer/consumer projects.
+
+`scripts/ci/build_llvm_obfuscator_candidate.py` obtains exact pinned
+`eshard/obfuscator-llvm` source through a detached Git SHA checkout,
+compiles the real host shared library against the **verified LLVM 23.1.4
+distribution's** `llvm-config --cmakedir`, and records compiler, source,
+plugin and build-tool hashes. The freshly generated candidate manifest
+is accepted by the preflight only in an explicit **candidate-only** mode
+that requires matching host/target native execution and does not modify
+the canonical Release lock. This closes the first-run bootstrap problem:
+the binary cannot have a reviewed SHA256 *before* it has been built.
+It must never be used as a trusted production plugin until its exact
+artifact digest and ABI/host receipt are reviewed and pinned.
+
+Success requires each requested pass to produce nonidentity function IR
+independently, combined transformed IR to compile to native object code,
+a real native ELF executable with matching architecture, and identical
+baseline/protected application outputs. Any compiler/plugin mismatch,
+unmodified IR, unverified CPU, corrupt source or missing native runtime
+fails the candidate CI. The upload is a short-retention GitHub Actions
+artifact, **not** a product distribution or permission to publish.
+Windows x64/ARM64 and macOS host plugins remain independent targets
+that require their own compiler/plugin identity and native acceptance.
+
 ## TinyCC / obfus.h release compilation
 
 `obfus.h` is an invasive **C source header** and must be included **after standard and system headers**, before the source code being protected. Injecting it globally ahead of all SDK headers, or pretending that linker flags alone activate it, is incorrect. An actual protected module may contain:
