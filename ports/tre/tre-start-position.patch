@@ -1,0 +1,146 @@
+diff --git a/include/tre/tre.h b/include/tre/tre.h
+--- a/include/tre/tre.h
++++ b/include/tre/tre.h
+@@ -220,6 +220,17 @@
+ tre_regnexecb(const regex_t *preg, const char *str, size_t len,
+ 	  size_t nmatch, regmatch_t pmatch[], int eflags);
+ 
++/* Exact Tagged NFA search starting at or after min_start, measured in
++ * byte offsets from the ORIGINAL complete string. Earlier bytes remain
++ * available for ^, $, word-boundary and newline assertions.
++ * This additive API rejects approximate and backreference patterns.
++ * len must be <= INT_MAX. REG_NOMATCH when min_start > len.
++ */
++extern int
++tre_regnexecb_from(const regex_t *preg, const char *str, size_t len,
++                   size_t min_start, size_t nmatch,
++                   regmatch_t pmatch[], int eflags);
++
+ #ifdef TRE_WCHAR
+ extern int
+ tre_regwncomp(regex_t *preg, const wchar_t *regex, size_t len, int cflags);
+diff --git a/lib/tre-internal.h b/lib/tre-internal.h
+--- a/lib/tre-internal.h
++++ b/lib/tre-internal.h
+@@ -277,7 +277,14 @@
+ 		      tre_str_type_t type, int *match_tags, int eflags,
+ 		      int *match_end_ofs);
+ 
++/* Original-subject start offset for exact Tagged NFA search only. */
+ reg_errcode_t
++tre_tnfa_run_parallel_from(const tre_tnfa_t *tnfa, const void *string,
++                           ssize_t len, tre_str_type_t type,
++                           int *match_tags, int eflags, int *match_end_ofs,
++                           size_t first_start);
++
++reg_errcode_t
+ tre_tnfa_run_backtrack(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
+ 		       tre_str_type_t type, int *match_tags, int eflags,
+ 		       int *match_end_ofs);
+diff --git a/lib/tre-match-parallel.c b/lib/tre-match-parallel.c
+--- a/lib/tre-match-parallel.c
++++ b/lib/tre-match-parallel.c
+@@ -104,9 +104,10 @@
+ #endif /* TRE_DEBUG */
+ 
+ reg_errcode_t
++tre_tnfa_run_parallel_from(const tre_tnfa_t *tnfa, const void *string,
++                           ssize_t len, tre_str_type_t type,
++                           int *match_tags, int eflags, int *match_end_ofs,
++                           size_t first_start)
+-tre_tnfa_run_parallel(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
+-		      tre_str_type_t type, int *match_tags, int eflags,
+-		      int *match_end_ofs)
+ {
+   /* State variables required by GET_NEXT_WCHAR. */
+   tre_char_t prev_c = 0, next_c = 0;
+@@ -281,7 +282,13 @@
+   while (/*CONSTCOND*/(void)1,1)
+     {
+       /* If no match found yet, add the initial states to `reach_next'. */
+-      if (match_eo < 0)
++      if (match_eo < 0 && (size_t)pos < first_start)
++        {
++          /* Preserve source context without admitting an earlier match. */
++          reach_next_i = reach_next;
++          reach_next_i->state = NULL;
++        }
++      else if (match_eo < 0)
+ 	{
+ 	  DPRINT((" init >"));
+ 	  trans_i = tnfa->initial;
+@@ -508,4 +515,15 @@
+   return ret;
+ }
+ 
++/* Original API retains full-string matching semantics; the new entry
++ * changes only initial-state admission within the SAME TNFA executor. */
++reg_errcode_t
++tre_tnfa_run_parallel(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
++                      tre_str_type_t type, int *match_tags, int eflags,
++                      int *match_end_ofs)
++{
++  return tre_tnfa_run_parallel_from(tnfa, string, len, type, match_tags,
++                                    eflags, match_end_ofs, 0);
++}
++
+ /* EOF */
+diff --git a/lib/regexec.c b/lib/regexec.c
+--- a/lib/regexec.c
++++ b/lib/regexec.c
+@@ -246,7 +246,55 @@
+   return tre_match(tnfa, str, len, STR_BYTE, nmatch, pmatch, eflags);
+ }
+ 
++/* Exact search with a minimum allowed match START on the unmodified full
++ * subject. Unlike suffix rescanning, TNFA assertions retain all prior bytes.
++ * Reject non-exact modes instead of dispatching another matcher. */
++int
++tre_regnexecb_from(const regex_t *preg, const char *str, size_t len,
++                   size_t min_start, size_t nmatch,
++                   regmatch_t pmatch[], int eflags)
++{
++  tre_tnfa_t *tnfa;
++  reg_errcode_t status;
++  int *tags = NULL;
++  int eo;
+ 
++  if (preg == NULL || str == NULL || preg->TRE_REGEX_T_FIELD == NULL)
++    return REG_BADPAT;
++  if (len > INT_MAX)
++    return REG_ESPACE;
++  if (min_start > len)
++    return REG_NOMATCH;
++
++  tnfa = (void *)preg->TRE_REGEX_T_FIELD;
++  if (tnfa->have_backrefs || tnfa->have_approx
++      || (eflags & (REG_BACKTRACKING_MATCHER | REG_APPROX_MATCHER)))
++    return REG_BADPAT;
++
++  if (tnfa->num_tags > 0 && nmatch > 0)
++    {
++#ifdef TRE_USE_ALLOCA
++      tags = alloca(sizeof(*tags) * tnfa->num_tags);
++#else /* !TRE_USE_ALLOCA */
++      tags = xmalloc(sizeof(*tags) * tnfa->num_tags);
++#endif /* !TRE_USE_ALLOCA */
++      if (tags == NULL)
++        return REG_ESPACE;
++    }
++
++  status = tre_tnfa_run_parallel_from(tnfa, str, (ssize_t)len, STR_BYTE,
++                                      tags, eflags, &eo, min_start);
++  if (status == REG_OK)
++    tre_fill_pmatch(nmatch, pmatch, tnfa->cflags, tnfa, tags, eo);
++
++#ifndef TRE_USE_ALLOCA
++  if (tags)
++    xfree(tags);
++#endif /* !TRE_USE_ALLOCA */
++  return status;
++}
++
++
+ #ifdef TRE_WCHAR
+ 
+ int
