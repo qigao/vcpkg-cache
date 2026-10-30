@@ -2,7 +2,7 @@
 
 Canonical tracking: [vcpkg-cache #243](https://github.com/qigao/vcpkg-cache/issues/243).
 
-**Status (2026-10-30): Windows protected Release **selects** llvm-mingw/UCRT + eshard's obfuscator-llvm for x64/ARM64; MSVC is no longer a protected Release compiler, but can remain for Debug/diagnostics. This is a compiler-profile decision and a fail-closed implementation candidate, **not a completed downstream switch or a qualified Release**. The exact host LLVM 23.1.4 plugin binary and native product evidence are still missing, so Release stays blocked. A successful plugin-source build or an earlier LLVM 14 POC cannot stand in for this evidence.
+**Status (2026-10-30): all supported first-party Windows/Linux/macOS protected Release artifacts require upstream LLVM/Clang + eshard/obfuscator-llvm; Windows uses llvm-mingw/UCRT, Linux/macOS use separately pinned native LLVM. GCC is a test-only compiler; MSVC/AppleClang may remain diagnostic compilers but cannot produce protected Release. All profiles remain pending until exact host plugin, compiler archives and native app evidence qualify. No downstream Release has been switched or published.**
 
 ## Scope and ownership
 
@@ -16,10 +16,10 @@ The machine-readable candidate catalog is [compiler-contracts/release-obfuscatio
 
 | Compiler | Obfuscator | Target | Current decision |
 |---|---|---|---|
-| [TinyCC-builder](https://github.com/DosX-dev/TinyCC-builder) | [obfus.h](https://github.com/DosX-dev/obfus.h) | Windows x86/x64, C | Candidate; tests and integration pending |
+| [TinyCC-builder](https://github.com/DosX-dev/TinyCC-builder) | [obfus.h](https://github.com/DosX-dev/obfus.h) | Windows x86/x64, C | Separate experimental profile, not the default protected Release |
 | TinyCC-builder | obfus.h | Windows ARM64 | **Denied**: upstream obfus.h documents x86/x64 only |
-| [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw) | [obfuscator-llvm](https://github.com/eshard/obfuscator-llvm) | Windows x86/x64/ARM64, UCRT | Candidate; per-host/target compiler/plugin/native tests pending |
-| Upstream LLVM/Clang | obfuscator-llvm | Native Linux x64/ARM64, macOS x64/ARM64 | Candidate; pin native distribution and qualify plugin |
+| [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw) | [obfuscator-llvm](https://github.com/eshard/obfuscator-llvm) | Windows x64/ARM64, UCRT | Selected Release compiler; host plugin and native product acceptance pending |
+| Upstream LLVM/Clang | obfuscator-llvm | Native Linux x64/ARM64, macOS x64/ARM64 | Required Release compiler; exact distribution, plugin and native tests pending |
 | SDK-provided Clang | obfuscator-llvm | Android, iOS | **Denied until separately qualified** |
 
 Windows 32-bit LLVM-MinGW remains a viable future target, but is not assumed admitted just because its compiler emits 32-bit COFF. For TinyCC Windows ARM64, changing the **whole product's chosen compiler** to an independently qualified llvm-mingw ARM64 profile is allowed; silent substitution of a TinyCC object/library or compiler in the same build is forbidden.
@@ -70,7 +70,7 @@ This command alone is **not** sufficient for a release. Acceptance must show the
 
 For Windows, `VCPKG_CHAINLOAD_TOOLCHAIN_FILE` / exact triplets must configure the **same actual llvm-mingw** when producing vcpkg libraries and compiling the consumer. Cache ABI must include target architecture, CRT/UCRT, compiler identity, features, and relevant flags. Never reuse the MSVC v145 `qigao-x64-windows-v145` binary cache as if it were LLVM-MinGW.
 
-For Linux/macOS native builds, use a separately pinned upstream LLVM/Clang distribution. macOS AppleClang is not assumed binary-compatible with upstream LLVM pass plugins. For Android NDK and iOS/Xcode, match the actual SDK/NDK Clang first, then qualify host plugin loading, device/app execution, platform signing/hardening and artifact provenance. If the platform tooling forbids or lacks this support, the protected Release lane remains blocked until it has a validated implementation.
+For Linux/macOS native Release builds, use the selected, immutable upstream LLVM/Clang distribution. macOS AppleClang is not assumed binary-compatible with upstream LLVM pass plugins. For Android NDK and iOS/Xcode, match the actual SDK/NDK Clang first, then qualify host plugin loading, device/app execution, platform signing/hardening and artifact provenance. If the platform tooling forbids or lacks this support, the protected Release lane remains blocked until it has a validated implementation.
 
 ## Windows protected Release: llvm-mingw replaces MSVC
 
@@ -137,6 +137,67 @@ Windows ARM64. Native ABI, exceptions, CFG and application workflow remain
 independent. Cross compilation alone is not ARM64 Release acceptance.
 Compiler setup and the compiler-plugin preflight are never a substitute
 for a complete product Release gate.
+
+## Linux and macOS protected Release: native LLVM only
+
+The machine-readable `native_protected_release` policy selects **upstream
+LLVM/Clang 23.1.4 + obfuscator-llvm** for the four native targets
+`linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`.
+GCC/G++ are retained strictly as **test, diagnostic and differential**
+compilers, never as the Release compiler for protected first-party targets.
+AppleClang likewise cannot silently replace the upstream LLVM plugin host.
+Android/iOS toolchains remain separate until genuine NDK/Xcode plugin and
+device acceptance is available; ARM64 support alone does not qualify them.
+
+A *single* existing installer owner,
+`scripts/setup-compiler-toolchain.py`, now accepts `llvm-native` and
+performs SHA256-verified source archive extraction, immutable version
+verification, native Clang and Clang++ selection, a generated Linux/Darwin
+CMake toolchain file, real ELF64/Mach-O64 CPU checks, and **native runtime
+execution**. Its `compiler-contracts/release-obfuscation.json` source lock
+is currently `distribution=not-yet-pinned`, `assets=[]`. The first
+required step is to review and lock an actual LLVM 23.1.4 Linux/macOS host
+archive for each CPU (source commit, archive SHA256 and runtime/SDK ABI).
+**Do not substitute the installed distro clang or AppleClang.**
+
+`.github/actions/setup-llvm-native/action.yml` is the reusable native
+equivalent of the Windows llvm-mingw action. On protected Release it requires
+both an **exact SHA256-locked native compiler archive** and an **exact
+SHA256-locked host obfuscator**. It fails **before downloading** an unpinned
+compiler. After successful setup, the existing single LLVM obfuscation
+preflight compiles the protected C11 function, requires real individual
+`flattening` and `substitution` IR changes, validates ELF or Mach-O
+machine and checks **native baseline/protected runtime parity**. No release
+eligibility is granted by action setup or this small compiler preflight.
+
+Illustrative downstream usage **after the exact native archives and host
+plugins have been qualified**:
+
+```yaml
+- id: llvm
+  uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@EXACT_REVIEWED_COMMIT
+  with:
+    target: arm64
+    build-type: Release
+    plugin-path: ${{ steps.verified_plugin.outputs.absolute_path }}
+```
+
+The plugin step in the example is a prerequisite supplied by the product
+workflow, not an existing generic plugin downloader. The product selects the
+same compiler's CMake toolchain for its Release targets, applies the action
+`obfuscator-compile-flag` only to explicitly protected first-party
+sources, and runs complete target-native SDK/app/ABI tests before publish.
+Third-party dependencies must not silently switch compiler, CRT or C++ ABI.
+On Linux qualify glibc/musl and libc++/libstdc++ separately; on macOS the
+Apple SDK, linker, deployment target and signing/notarization remain
+required even though **AppleClang is not the Release compiler**.
+
+**Gate:** `Release`, `MinSizeRel` and `RelWithDebInfo` select pinned
+LLVM + obfuscator-llvm and fail closed when absent. GCC and AppleClang
+can still participate in Debug, sanitizers, source parity and performance
+comparisons. Keep a single CI concurrency group with cancellation and
+compiler caching, without new installer/consumer fixture projects or
+duplicate CI workflows.
 
 ## TinyCC / obfus.h release compilation
 
