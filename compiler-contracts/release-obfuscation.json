@@ -90,7 +90,9 @@
       "load_flag": "-fpass-plugin",
       "required_passes": {
         "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES": "flattening,substitution"
-      }
+      },
+      "host_plugin_assets": [],
+      "host_plugin_status": "pending-exact-llvm-23.1.4-host-dll"
     }
   },
   "profiles": [
@@ -228,7 +230,25 @@
       "ir-verified",
       "semantic-parity",
       "native-runtime",
-      "abi-ownership"
+      "abi-ownership",
+      "windows-pe-coff-machine",
+      "target-native-runtime",
+      "release-provenance"
     ]
+  },
+  "windows_protected_release": {
+    "compiler": "llvm-mingw",
+    "obfuscator": "obfuscator-llvm",
+    "targets": [
+      "windows-x64",
+      "windows-arm64"
+    ],
+    "crt": "ucrt",
+    "msvc_release": "forbidden",
+    "msvc_debug": "allowed",
+    "tinycc_release": "independent-unqualified-profile",
+    "native_target_execution": "required",
+    "absent_plugin": "fail",
+    "third_party_vcpkg": "baseline-not-automatically-obfuscated"
   }
 }
