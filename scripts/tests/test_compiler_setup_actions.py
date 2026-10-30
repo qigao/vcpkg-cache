@@ -139,6 +139,9 @@ class CompilerActionTests(unittest.TestCase):
         self.assertEqual(result["smoke"], "mocked-cross")
 
     def test_native_llvm_unpinned_distribution_fails_before_network(self):
+        self.contract["sources"]["llvm-native"]["distribution"] = "not-yet-pinned"
+        self.contract["sources"]["llvm-native"]["source_commit"] = None
+        self.contract["sources"]["llvm-native"]["assets"] = []
         for host_os, host_arch, target in (
                 ("Linux", "X64", "x64"),
                 ("Linux", "ARM64", "arm64"),
