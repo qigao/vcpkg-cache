@@ -121,6 +121,28 @@ def binary_machine(path: Path) -> tuple[str, int]:
     raise GateError("not an expected PE, ELF64 or thin Mach-O64 native executable")
 
 
+def check_host_plugin_image(plugin: Path, host: str) -> None:
+    """The pass is a HOST shared library, never the target application's DLL."""
+    require(host in MACHINES, "unknown LLVM plugin host architecture")
+    require(binary_machine(plugin) == MACHINES[host],
+            "host plugin machine format/architecture does not match Clang host")
+    with plugin.open("rb") as fp:
+        header = fp.read(64)
+    if host.startswith("linux-"):
+        require(struct.unpack_from("<H", header, 16)[0] == 3,
+                "Linux LLVM plugin must be an ELF ET_DYN shared library")
+    elif host.startswith("macos-"):
+        require(struct.unpack_from("<I", header, 12)[0] == 6,
+                "macOS LLVM plugin must be a Mach-O MH_DYLIB image")
+    else:
+        nt = struct.unpack_from("<I", header, 0x3c)[0]
+        with plugin.open("rb") as fp:
+            fp.seek(nt + 22)
+            chars = fp.read(2)
+        require(len(chars) == 2 and (struct.unpack("<H", chars)[0] & 0x2000),
+                "Windows LLVM plugin must be a PE DLL rather than an executable")
+
+
 def function_body(ir: str) -> str:
     match = re.search(r"(?ms)^define\b[^\n]*@obf_probe\([^)]*\)[^\n]*\{\n(.*?)^\}", ir)
     require(match is not None, "compiler eliminated or renamed protected function")
@@ -145,6 +167,7 @@ def check_pin(contract: dict, host: str, plugin: Path) -> dict:
             "plugin binary is not for the host OS")
     require(bool(SHA256.fullmatch(str(pin["sha256"]))) and sha(plugin) == pin["sha256"],
             "host obfuscator plugin SHA256 mismatch (no substitution)")
+    check_host_plugin_image(plugin, host)
     return pin
 
 
