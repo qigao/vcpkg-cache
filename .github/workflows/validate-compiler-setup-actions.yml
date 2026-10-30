@@ -117,6 +117,71 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  native-llvm-obfuscator-linux-arm64:
+    # Opt-in only: ~2GB official LLVM archive, plus extraction and CMake.
+    # Keep it inside the SAME compiler workflow; no extra probe workflow or
+    # consumer/installer project. PR body marker enables once; dispatch reruns.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.body, '[host-plugin-linux-arm64]')
+    name: Real pinned LLVM host plugin / Linux ARM64 IR and native parity
+    needs: offline-contract
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 75
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache/llvm23-obf-plugin-arm64
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_COMPRESS: "true"
+      CCACHE_MAXSIZE: 1G
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install and pin build cache tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ccache ninja-build cmake
+          ccache --version
+          cmake --version
+          ninja --version
+      - name: Restore compiler pass build cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache/llvm23-obf-plugin
+          key: llvm23-obf-plugin-linux-arm64-v1-${{ github.sha }}
+          restore-keys: |
+            llvm23-obf-plugin-linux-arm64-v1-
+      - id: llvm
+        uses: ./.github/actions/setup-llvm-native
+        with:
+          version: llvmorg-23.1.4
+          target: arm64
+          build-type: toolchain-only
+      - name: Compile actual source SHA plugin and check every pass on native LLVM 23.1.4
+        shell: bash
+        env:
+          NATIVE_LLVM_ROOT: ${{ steps.llvm.outputs.root }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test -x "$NATIVE_LLVM_ROOT/bin/clang"
+          python3 scripts/ci/build_llvm_obfuscator_candidate.py \
+            --host linux-arm64 --target linux-arm64 \
+            --llvm-root "$NATIVE_LLVM_ROOT" \
+            --output "$RUNNER_TEMP/qigao-llvm23-host-plugin-arm64"
+          test -s "$RUNNER_TEMP/qigao-llvm23-host-plugin-arm64/artifact/candidate.json"
+          test -s "$RUNNER_TEMP/qigao-llvm23-host-plugin-arm64/artifact/preflight/obfuscation-preflight.json"
+          ccache -s
+      - name: Retain exact host plugin candidate and full IR/native receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm23-obfuscator-linux-arm64-source-candidate
+          path: |
+            ${{ runner.temp }}/qigao-llvm23-host-plugin-arm64/artifact/
+          if-no-files-found: error
+          retention-days: 7
+
   llvm-mingw:
     name: LLVM-MinGW / ${{ matrix.host }} -> Windows ${{ matrix.target }}
     needs: offline-contract
