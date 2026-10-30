@@ -99,6 +99,8 @@ def validate_contract(data: dict[str, Any]) -> None:
     require(isinstance(pipeline, dict) and
             bool(pipeline.get("LLVM_OBF_SCALAROPTIMIZERLATE_PASSES")),
             "LLVM obfuscator requires a nonempty, recorded real pass pipeline")
+    require(bool(SHA256.fullmatch(str(sources["obfus-h"].get("sha256", "")))),
+            "obfus.h exact header SHA256 is mandatory for compiler Actions")
     require(sources["obfus-h"].get("supported_targets") ==
             ["windows-x86", "windows-x64"],
             "upstream obfus.h is only admitted for Windows x86/x64")

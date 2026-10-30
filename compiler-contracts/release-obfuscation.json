@@ -38,7 +38,8 @@
         "OBFH_DISABLE_ANTIDEBUG": 1,
         "OBFH_FAKE_SIGNATURES": 0,
         "OBFH_DISABLE_ANY_OBFUSCATION": 0
-      }
+      },
+      "sha256": "fcb3a591f95413ea1fe41d11f0fe1ccf0927b492e42697680c3b058c09c199da"
     },
     "llvm-mingw": {
       "repository": "mstorsjo/llvm-mingw",

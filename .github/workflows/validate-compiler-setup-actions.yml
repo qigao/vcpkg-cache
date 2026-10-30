@@ -1,0 +1,192 @@
+name: Qualify pinned compiler setup composite actions
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/setup-llvm-mingw/**'
+      - '.github/actions/setup-tinycc-builder/**'
+      - '.github/workflows/validate-compiler-setup-actions.yml'
+      - 'compiler-contracts/release-obfuscation.json'
+      - 'scripts/setup-compiler-toolchain.py'
+      - 'scripts/tests/test_compiler_setup_actions.py'
+      - 'tests/compiler-consumers/**'
+      - 'docs/setup-compiler-actions.md'
+  push:
+    branches: [master]
+    paths:
+      - '.github/actions/setup-llvm-mingw/**'
+      - '.github/actions/setup-tinycc-builder/**'
+      - '.github/workflows/validate-compiler-setup-actions.yml'
+      - 'compiler-contracts/release-obfuscation.json'
+      - 'scripts/setup-compiler-toolchain.py'
+      - 'scripts/tests/test_compiler_setup_actions.py'
+      - 'tests/compiler-consumers/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compiler-setup-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-contract:
+    name: Unit / archive safety and fail-closed
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s scripts/tests -p 'test_compiler_setup_actions.py' -v
+      - run: python3 -m unittest discover -s scripts/tests -p 'test_release_obfuscation_policy.py' -v
+      - run: python3 scripts/ci/validate_release_obfuscation.py --validate-only
+
+  llvm-mingw:
+    name: LLVM-MinGW / ${{ matrix.host }} -> Windows ${{ matrix.target }}
+    needs: offline-contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {host: ubuntu-24.04, target: arm64, native: false}
+          - {host: macos-15, target: x64, native: false}
+          - {host: windows-2025, target: x64, native: true}
+    runs-on: ${{ matrix.host }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: llvm
+        uses: ./.github/actions/setup-llvm-mingw
+        with:
+          version: "20261020"
+          target: ${{ matrix.target }}
+          build-type: toolchain-only
+          verify-smoke: "true"
+      - name: Assert installed compiler and true smoke level
+        shell: pwsh
+        env:
+          CC_PATH: ${{ steps.llvm.outputs.cc }}
+          CXX_PATH: ${{ steps.llvm.outputs.cxx }}
+          TOOLCHAIN_FILE: ${{ steps.llvm.outputs.toolchain-file }}
+          COMPILER_ROOT: ${{ steps.llvm.outputs.root }}
+          SMOKE: ${{ steps.llvm.outputs.smoke }}
+          EXPECT_NATIVE: ${{ matrix.native }}
+          RELEASE_QUALIFIED: ${{ steps.llvm.outputs.release-qualified }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @($env:CC_PATH,$env:CXX_PATH,$env:TOOLCHAIN_FILE)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing output file: $path" }
+          }
+          if ($env:RELEASE_QUALIFIED -ne 'false') { throw 'Compiler-only setup may not qualify Release' }
+          if ($env:EXPECT_NATIVE -eq 'true' -and $env:SMOKE -ne 'native-execution') {
+            throw 'Native Windows executable was not run'
+          }
+          if ($env:EXPECT_NATIVE -eq 'false' -and $env:SMOKE -ne 'cross-compile-pe-machine') {
+            throw 'Cross-compiled Windows PE machine was not validated'
+          }
+          $toolchain = Get-Content -LiteralPath $env:TOOLCHAIN_FILE -Raw
+          if (-not $toolchain.Contains($env:COMPILER_ROOT.Replace('\','/'))) {
+            throw 'Generated CMake toolchain contains stale staging paths'
+          }
+          if ($toolchain.Contains('.qigao-compiler-')) {
+            throw 'Staging location leaked into downstream CMake toolchain'
+          }
+      - name: Compile real downstream C and C++ CMake consumers
+        shell: pwsh
+        env:
+          TOOLCHAIN_FILE: ${{ steps.llvm.outputs.toolchain-file }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'qigao-llvm-consumer-build'
+          cmake -S tests/compiler-consumers/llvm -B $out -G Ninja `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:TOOLCHAIN_FILE" "-DCMAKE_BUILD_TYPE=Debug"
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM-MinGW C/C++ CMake configure failed' }
+          cmake --build $out --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM-MinGW C/C++ CMake build failed' }
+
+  tinycc-builder:
+    name: TinyCC-builder / Windows x64 -> ${{ matrix.target }}
+    needs: offline-contract
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        target: [x86, x64, arm64]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: tcc
+        uses: ./.github/actions/setup-tinycc-builder
+        with:
+          version: "2026-10-29"
+          target: ${{ matrix.target }}
+          build-type: toolchain-only
+          verify-smoke: "true"
+      - name: Verify source header digest, target-specific compiler and smoke result
+        shell: pwsh
+        env:
+          TCC: ${{ steps.tcc.outputs.cc }}
+          HEADER: ${{ steps.tcc.outputs.obfus-header }}
+          INCLUDE_DIR: ${{ steps.tcc.outputs.obfus-include }}
+          SMOKE: ${{ steps.tcc.outputs.smoke }}
+          TARGET: ${{ matrix.target }}
+          RELEASE_QUALIFIED: ${{ steps.tcc.outputs.release-qualified }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path -LiteralPath $env:TCC -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $env:HEADER -PathType Leaf)) {
+            throw 'Pinned TinyCC or obfus.h is missing'
+          }
+          $hash = (Get-FileHash -LiteralPath $env:HEADER -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'fcb3a591f95413ea1fe41d11f0fe1ccf0927b492e42697680c3b058c09c199da') {
+            throw 'Incorrect pinned obfus.h header'
+          }
+          if ($env:RELEASE_QUALIFIED -ne 'false') { throw 'Unqualified release was advertised' }
+          if ($env:TARGET -eq 'arm64') {
+            if ($env:SMOKE -ne 'cross-compile-pe-machine') { throw 'ARM64 is cross-only' }
+          } elseif ($env:SMOKE -ne 'native-execution') {
+            throw 'Native x86/x64 Windows runtime was not exercised'
+          }
+      - name: Test TinyCC C-only CMake consumer
+        if: matrix.target != 'arm64'
+        shell: pwsh
+        env:
+          TOOLCHAIN_FILE: ${{ steps.tcc.outputs.toolchain-file }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'qigao-tcc-consumer-build'
+          cmake -S tests/compiler-consumers/tinycc -B $out -G Ninja `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:TOOLCHAIN_FILE"
+          if ($LASTEXITCODE -ne 0) { throw 'TinyCC CMake C-only configure failed' }
+          cmake --build $out
+          if ($LASTEXITCODE -ne 0) { throw 'TinyCC CMake C-only build failed' }
+      - name: Check actual pinned obfus.h two-seed semantic parity
+        if: matrix.target != 'arm64'
+        shell: pwsh
+        env:
+          TCC: ${{ steps.tcc.outputs.cc }}
+          INCLUDE_DIR: ${{ steps.tcc.outputs.obfus-include }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = @()
+          foreach ($seed in @('0u', '123456789u')) {
+            $exe = Join-Path $env:RUNNER_TEMP "qigao-protected-$seed.exe"
+            & $env:TCC "-I$env:INCLUDE_DIR" "-DOBFH_TEST_SEED=$seed" `
+              tests/compiler-consumers/tinycc/protected.c -o $exe
+            if ($LASTEXITCODE -ne 0) { throw "Protected TinyCC source compilation failed: $seed" }
+            $result = & $exe
+            if ($LASTEXITCODE -ne 0) { throw "Protected TinyCC executable failed: $seed" }
+            $results += ($result | Out-String).Trim()
+          }
+          if ($results.Count -ne 2 -or $results[0] -ne $results[1]) {
+            throw 'Two TinyCC protection seeds changed application behavior'
+          }
+          Write-Host ('Native obfus.h two-seed semantic parity: ' + $results[0])
