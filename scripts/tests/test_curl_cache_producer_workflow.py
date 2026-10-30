@@ -113,9 +113,9 @@ class CoreArm64ReadOnlyWorkflowPolicy(unittest.TestCase):
                 self.assertIn(f'test ! -e "$proof/{root}"', self.producer)
                 self.assertIn(f'"--x-install-root=$proof/{root}"', self.producer)
         for section in (self.producer, self.reader):
-            self.assertIn("ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54", section)
-            self.assertIn("--version 4.6.4", section)
-            self.assertIn("--sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269", section)
+            self.assertIn("ref: 1d8efe881a7ddb65f2ecc512530ef15a9814b034", section)
+            self.assertIn("--version 4.6.5", section)
+            self.assertIn("--sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed", section)
             self.assertIn("--triplet=arm64-linux --host-triplet=arm64-linux", section)
             for feature in ("simd", "usb", "playback", "capture", "zstd"):
                 self.assertIn("--x-feature=" + feature, section)
