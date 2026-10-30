@@ -239,10 +239,6 @@ def select_profile(data: dict[str, Any], build_type: str, compiler: str,
     require(build_type in allowed, f"unknown build configuration {build_type}")
     if build_type in data["baseline_configs"]:
         return None
-    if target in data["windows_protected_release"]["targets"]:
-        require(compiler == "llvm-mingw",
-                "protected Windows x64/ARM64 Release requires llvm-mingw; "
-                "MSVC/TinyCC/LLVM substitution is forbidden")
     require(compiler in BACKENDS, f"Release requires an admitted compiler, got {compiler}")
     require(host in HOSTS and target in TARGETS,
             f"unrecognized Release host/target {host} -> {target}")
@@ -252,6 +248,10 @@ def select_profile(data: dict[str, Any], build_type: str, compiler: str,
     }
     reason = forbidden.get((compiler, target))
     require(reason is None, f"Release denied: {reason}")
+    if target in data["windows_protected_release"]["targets"]:
+        require(compiler == "llvm-mingw",
+                "protected Windows x64/ARM64 Release requires llvm-mingw; "
+                "MSVC/TinyCC/LLVM substitution is forbidden")
     matches = [
         p for p in data["profiles"]
         if (p["compiler"], p["host"], p["target"]) == (compiler, host, target)
