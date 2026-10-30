@@ -64,20 +64,20 @@ jobs:
             --output "$RUNNER_TEMP/core-arm64-proof/initial-availability"
       - name: Prepare the original Core SDK system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libpipewire-0.3-dev libx11-dev libxext-dev
-      - name: Restore the exact historical ARM64 host re2c package
+      - name: Restore the exact current ARM64 host re2c package
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python scripts/github-packages.py re2c "$RUNNER_TEMP/core-arm64-re2c" \
-            --version 4.6.4 \
-            --sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
+            --version 4.6.5 \
+            --sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
       - name: Isolate the exact Core consumer ABI infrastructure
         uses: actions/checkout@v4
         with:
           repository: qigao/vcpkg-cache
-          ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54
+          ref: 1d8efe881a7ddb65f2ecc512530ef15a9814b034
           path: _abi_infrastructure
           persist-credentials: false
       - name: Bootstrap the fixed ABI tool without restoring native packages
@@ -164,19 +164,19 @@ jobs:
           persist-credentials: false
       - name: Prepare the original Core SDK system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libpipewire-0.3-dev libx11-dev libxext-dev
-      - name: Restore the same exact ARM64 host re2c package
+      - name: Restore the same exact current ARM64 host re2c package
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python scripts/github-packages.py re2c "$RUNNER_TEMP/core-arm64-re2c" \
-            --version 4.6.4 \
-            --sha256 9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269
+            --version 4.6.5 \
+            --sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
       - uses: actions/checkout@v4
         with:
           repository: qigao/vcpkg-cache
-          ref: 7bb5b556a001bc82d2922a04a718e986a7f47f54
+          ref: 1d8efe881a7ddb65f2ecc512530ef15a9814b034
           path: _abi_infrastructure
           persist-credentials: false
       - name: Bootstrap into a fresh reader cache
