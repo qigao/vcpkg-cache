@@ -138,6 +138,82 @@ class CompilerActionTests(unittest.TestCase):
         self.assertNotIn(".qigao-compiler-", cmake)
         self.assertEqual(result["smoke"], "mocked-cross")
 
+    def test_native_llvm_unpinned_distribution_fails_before_network(self):
+        for host_os, host_arch, target in (
+                ("Linux", "X64", "x64"),
+                ("Linux", "ARM64", "arm64"),
+                ("macOS", "X64", "x64"),
+                ("macOS", "ARM64", "arm64")):
+            with self.subTest(os=host_os, arch=host_arch):
+                args = self.args(compiler="llvm-native", os=host_os,
+                                 arch=host_arch, target=target)
+                with mock.patch.object(module, "verified_download") as dl:
+                    with self.assertRaisesRegex(
+                            module.AdmissionError, "distribution not SHA256-pinned"):
+                        module.install(args)
+                    dl.assert_not_called()
+
+    def test_native_llvm_cross_arch_is_denied(self):
+        args = self.args(compiler="llvm-native", os="Linux",
+                         arch="ARM64", target="x64")
+        with mock.patch.object(module, "verified_download") as dl:
+            with self.assertRaisesRegex(
+                    module.AdmissionError, "must exactly match"):
+                module.install(args)
+            dl.assert_not_called()
+
+    def test_native_machine_audit_is_strict(self):
+        payloads = (
+            (b"\\x7fELF" + bytes((2, 1)) + bytes(12) +
+             struct.pack("<H", 183) + bytes(44), ("ELF", 183)),
+            (bytes.fromhex("cffaedfe") + struct.pack("<I", 0x0100000c) +
+             bytes(56), ("Mach-O", 0x0100000c)),
+        )
+        for i, (blob, expected) in enumerate(payloads):
+            file = self.temp / f"native-{i}"
+            file.write_bytes(blob)
+            self.assertEqual(module.native_machine(file), expected)
+        invalid = self.temp / "unknown"
+        invalid.write_bytes(bytes(64))
+        with self.assertRaisesRegex(module.AdmissionError, "not ELF64"):
+            module.native_machine(invalid)
+
+    def test_native_llvm_installer_reuses_existing_safe_archive_and_cmake(self):
+        archive = self.temp / "native-llvm.tar.xz"
+        with tarfile.open(archive, "w:xz") as output:
+            for tool in ("clang", "clang++", "llvm-ar", "llvm-ranlib"):
+                data = b"pinned fixture executable"
+                info = tarfile.TarInfo(name=f"kit/bin/{tool}")
+                info.size, info.mode = len(data), 0o755
+                output.addfile(info, io.BytesIO(data))
+        native = self.contract["sources"]["llvm-native"]
+        native["distribution"] = "pinned"
+        native["source_commit"] = "a" * 40
+        native["assets"] = [{
+            "host": "linux-arm64", "name": "native-llvm.tar.xz",
+            "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        }]
+
+        def fake_download(url, destination, digest, limit):
+            self.assertIn("llvmorg-23.1.4", url)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(archive.read_bytes())
+
+        with mock.patch.object(module, "verified_download",
+                               side_effect=fake_download), mock.patch.object(
+                module, "smoke_compiler", return_value="native-execution"):
+            result = module.install(self.args(
+                compiler="llvm-native", os="Linux", arch="ARM64",
+                target="arm64"))
+        self.assertTrue(Path(result["cc"]).is_file())
+        self.assertTrue(Path(result["cxx"]).is_file())
+        self.assertEqual(result["release-qualified"], "false")
+        cmake = Path(result["toolchain-file"]).read_text(encoding="utf-8")
+        self.assertIn("set(CMAKE_SYSTEM_NAME Linux)", cmake)
+        self.assertIn("set(CMAKE_SYSTEM_PROCESSOR aarch64)", cmake)
+        self.assertIn(result["cc"].replace("\\", "/"), cmake)
+        self.assertNotIn(".qigao-compiler-", cmake)
+
     def test_unqualified_release_fails_before_any_network(self):
         with mock.patch.object(module, "verified_download") as download:
             with self.assertRaisesRegex(module.AdmissionError, "unqualified"):
