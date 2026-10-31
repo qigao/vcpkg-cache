@@ -223,16 +223,25 @@ jobs:
       - name: Restore compiler pass build cache
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/.ccache/llvm23-obf-plugin-macos-arm64
-          key: llvm23-obf-plugin-macos-arm64-v1-${{ github.sha }}
+          path: ${{ github.workspace }}/.ccache/llvm18-obf-plugin-macos-arm64
+          key: llvm18-obf-plugin-macos-arm64-v1-${{ github.sha }}
           restore-keys: |
-            llvm23-obf-plugin-macos-arm64-v1-
+            llvm18-obf-plugin-macos-arm64-v1-
       - name: Select preinstalled independent Homebrew LLVM 18.1.8 (candidate only)
         id: llvm
         shell: bash
         run: |
           set -euo pipefail
           test "$(uname -m)" = arm64
+          # The runner's preinstalled independent LLVM still needs the
+          # explicitly selected Xcode SDK for system headers and libSystem.
+          developer='/Applications/Xcode_16.4.app/Contents/Developer'
+          test -d "$developer"
+          sdk="$(DEVELOPER_DIR="$developer" /usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          test -d "$sdk"
+          test -f "$sdk/usr/lib/libSystem.tbd"
+          echo "DEVELOPER_DIR=$developer" >> "$GITHUB_ENV"
+          echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
           root="$(brew --prefix llvm@18)"
           test -x "$root/bin/clang"
           test -x "$root/bin/clang++"
@@ -258,15 +267,15 @@ jobs:
             --runner-llvm18-candidate \
             --llvm-root "$NATIVE_LLVM_ROOT" \
             --output "$RUNNER_TEMP/qigao-llvm18-host-plugin-arm64"
-          test -s "$RUNNER_TEMP/qigao-llvm23-host-plugin-arm64/artifact/candidate.json"
-          test -s "$RUNNER_TEMP/qigao-llvm23-host-plugin-arm64/artifact/preflight/obfuscation-preflight.json"
+          test -s "$RUNNER_TEMP/qigao-llvm18-host-plugin-arm64/artifact/candidate.json"
+          test -s "$RUNNER_TEMP/qigao-llvm18-host-plugin-arm64/artifact/preflight/obfuscation-preflight.json"
           ccache -s
       - name: Retain exact host plugin candidate and full IR/native receipt
         uses: actions/upload-artifact@v4
         with:
           name: llvm18-obfuscator-macos-arm64-runner-candidate
           path: |
-            ${{ runner.temp }}/qigao-llvm23-host-plugin-arm64/artifact/
+            ${{ runner.temp }}/qigao-llvm18-host-plugin-arm64/artifact/
           if-no-files-found: error
           retention-days: 7
 
