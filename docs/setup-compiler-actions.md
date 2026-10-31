@@ -46,9 +46,12 @@ The `host-dependency-toolchain-file` /
 `LLVM_MINGW_HOST_DEPENDENCY_TOOLCHAIN_FILE` select the **Windows host**
 compiler. The x64 host triplet uses the latter, even when building ARM64
 target packages on an x64 runner; the ARM64 triplet uses the former.
-Neither vcpkg triplet loads a product obfuscation launcher. Do not use the
-product entry point as a vcpkg port chainload toolchain. When pinning
-these shared triplets, pin the compiler action to the same revision.
+Both triplets explicitly pass the target/host toolchain path variables into
+vcpkg's filtered compiler-detection and port-build environments. Temporary
+runner paths are untracked; vcpkg's real compiler/toolchain ABI tracking
+must remain enabled. Neither triplet loads a product obfuscation launcher.
+Do not use the product entry point as a vcpkg port chainload toolchain.
+When pinning these shared triplets, pin the compiler action to the same revision.
 
 The llvm-mingw `cxx` output targets the requested product CPU; `host-cxx`
 targets the compiler process CPU and builds the pass plugin. Thus an x64
