@@ -14,7 +14,11 @@ identity. The generic vcpkg cache revision must not change solely because an
 unrelated compiler candidate or product-specific seed changes. Any dependency built with these compilers needs a separate compiler-specific
 vcpkg triplet/ABI. Windows uses `qigao-x64-windows-llvm-mingw` or
 `qigao-arm64-windows-llvm-mingw`; historic MSVC v145 binaries cannot be reused.
-Ordinary third-party dependencies are not implicitly obfuscated.
+Ordinary third-party dependencies are not implicitly obfuscated. Products
+explicitly classify their own sensitive and ordinary source targets using
+[`cmake/QigaoFirstPartyObfuscation.cmake`](cmake/QigaoFirstPartyObfuscation.cmake)
+so protected Release compile flags apply at the code-owning target, not at
+final link time. No Clang version check or dedicated probe CI is added.
 
 ## Ownership boundary
 

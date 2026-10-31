@@ -22,3 +22,48 @@ bootstrap into a local write-only ABI files cache. The optional producer
 preserves the resulting ZIPs as short-retention workflow artifacts; it does
 **not** invoke Mono/nuget.exe or automatically publish immutable packages.
 Any remote upload must go through a separately approved curl-native publisher.
+
+## First-party target classification is the release protection boundary
+
+The **product** must review and explicitly classify every first-party compiled
+C/C++ target as either `SENSITIVE_TARGETS` or `ORDINARY_TARGETS`, once in
+its own `cmake/ProtectionTargets.cmake`. The shared single owner is
+`cmake/QigaoFirstPartyObfuscation.cmake` in this repository. Both compiler
+setup Actions expose its absolute path as `obfuscation-policy-cmake` and
+`QIGAO_OBFUSCATION_POLICY_CMAKE`. The user does not need a new repository,
+installer/consumer project, source scanner or a compiler probe CI.
+
+```cmake
+# Called AFTER add_library/add_executable definitions in the downstream
+# product's ordinary CMake graph, using the action-provided shared module.
+include("$ENV{QIGAO_OBFUSCATION_POLICY_CMAKE}")
+qigao_apply_obfuscation_policy(
+  SENSITIVE_TARGETS product_ai product_license
+  ORDINARY_TARGETS product_shell product_logging
+)
+```
+
+`SENSITIVE_TARGETS` get **PRIVATE** `-fpass-plugin=<provided plugin>`
+only while compiling C/C++ source in `Release`, `MinSizeRel` or
+`RelWithDebInfo`. Every ordinary first-party target and all third-party
+vcpkg dependencies remain unmodified. Debug is never obfuscated. A missing
+target, duplicated classification, invalid noncompiled target or an imported
+sensitive library is an error. A missing plugin for single-config Release
+fails CMake configuration; multi-config Release fails in the actual compiler
+invocation, without a silent unprotected fallback. The Actions forward the
+product-supplied `plugin-path` to `QIGAO_OBFUSCATOR_PLUGIN_PATH` and keep
+the existing `flattening,substitution` pass environment.
+
+A third-party precompiled `.a/.lib/.so/.dll` remains unprotected even if
+a linked executable uses a pass plugin; sensitive upstream first-party
+libraries must be declared and compiled as protected **in their own owning
+repo/target**. Imported sensitive binaries cannot claim protection. Header-only
+sensitive source is compiled in its consuming first-party target, so that
+compiled target must be classified sensitive. Classification is a product
+review responsibility, not something vcpkg-cache can infer by scanning.
+
+The shared module **does not check** Clang versions, LLVM ABI, plugin file
+contents, function IR changes, executable runtime, product signing or the
+number of compiled protected functions. The normal product compilation is
+the only build failure mechanism; the module's target property is a policy
+declaration, **not proof** that a binary is resistant to reverse engineering.

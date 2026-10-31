@@ -32,6 +32,8 @@ outputs:
     value: ${{ steps.local.outputs.toolchain-file }}
   obfuscator-compile-flag:
     value: ${{ steps.local.outputs.obfuscator-compile-flag }}
+  obfuscation-policy-cmake:
+    value: ${{ steps.local.outputs.obfuscation-policy-cmake }}
 runs:
   using: composite
   steps:
@@ -79,6 +81,10 @@ runs:
         echo "ar=$ar" >> "$GITHUB_OUTPUT"
         echo "ranlib=$ranlib" >> "$GITHUB_OUTPUT"
         echo "toolchain-file=$tc" >> "$GITHUB_OUTPUT"
+        policy_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
+        policy="$policy_root/cmake/QigaoFirstPartyObfuscation.cmake"
+        echo "obfuscation-policy-cmake=$policy" >> "$GITHUB_OUTPUT"
+        echo "QIGAO_OBFUSCATION_POLICY_CMAKE=$policy" >> "$GITHUB_ENV"
         {
           echo "LLVM_NATIVE_ROOT=$root"
           echo "LLVM_NATIVE_CC=$cc"
@@ -93,6 +99,7 @@ runs:
         fi
         if [[ -n "$PLUGIN_PATH" ]]; then
           echo "obfuscator-compile-flag=-fpass-plugin=$PLUGIN_PATH" >> "$GITHUB_OUTPUT"
+          echo "QIGAO_OBFUSCATOR_PLUGIN_PATH=$PLUGIN_PATH" >> "$GITHUB_ENV"
           echo 'LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution' >> "$GITHUB_ENV"
           echo "LLVM_OBF_SEED=$SEED" >> "$GITHUB_ENV"
         fi

@@ -29,3 +29,29 @@ bootstrap into a local write-only ABI files cache. The optional producer
 preserves the resulting ZIPs as short-retention workflow artifacts; it does
 **not** invoke Mono/nuget.exe or automatically publish immutable packages.
 Any remote upload must go through a separately approved curl-native publisher.
+
+## Enforce protection in the owning CMake targets
+
+Both `setup-llvm-native` and `setup-llvm-mingw` export
+`QIGAO_OBFUSCATION_POLICY_CMAKE` (also output
+`obfuscation-policy-cmake`) and forward a supplied `plugin-path` as
+`QIGAO_OBFUSCATOR_PLUGIN_PATH`. After the ordinary product targets are
+defined, the product must include the shared module and classify its
+**entire first-party compiled target inventory**:
+
+```cmake
+include("$ENV{QIGAO_OBFUSCATION_POLICY_CMAKE}")
+qigao_apply_obfuscation_policy(
+  SENSITIVE_TARGETS proprietary_engine license_core
+  ORDINARY_TARGETS ui_shell logging
+)
+```
+
+For protected Release configurations the sensitive targets receive a
+**PRIVATE** `-fpass-plugin` compile option, not a link flag.
+Imported or precompiled sensitive dependencies cannot be declared as
+protected targets; protect them at their original source-owning target.
+Ordinary first-party and third-party dependency code remains unmodified,
+even if linked into the final App. A Debug compilation adds no pass.
+Missing plugin/targets fail without Clang/LLVM version probes, smoke
+programs, compiler verification CI or a second obfuscator runtime.

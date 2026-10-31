@@ -48,6 +48,8 @@ outputs:
     value: ${{ steps.install.outputs.obfuscator-compile-flag }}
   vcpkg-triplet:
     value: ${{ steps.install.outputs.vcpkg-triplet }}
+  obfuscation-policy-cmake:
+    value: ${{ steps.install.outputs.obfuscation-policy-cmake }}
 runs:
   using: composite
   steps:
@@ -92,6 +94,9 @@ runs:
                   '--github-path', $env:GITHUB_PATH)
         & python $installer @argv
         if ($LASTEXITCODE -ne 0) { throw 'Windows llvm-mingw package install failed' }
+        $policy = Join-Path $repo 'cmake/QigaoFirstPartyObfuscation.cmake'
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "obfuscation-policy-cmake=$policy"
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "QIGAO_OBFUSCATION_POLICY_CMAKE=$policy"
         if ($env:INPUT_TARGET -in @('x64','arm64')) {
           $triplet = "qigao-$env:INPUT_TARGET-windows-llvm-mingw"
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "vcpkg-triplet=$triplet"
@@ -99,6 +104,7 @@ runs:
         }
         if ($env:INPUT_PLUGIN_PATH) {
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "obfuscator-compile-flag=-fpass-plugin=$env:INPUT_PLUGIN_PATH"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "QIGAO_OBFUSCATOR_PLUGIN_PATH=$env:INPUT_PLUGIN_PATH"
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution"
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SEED=$env:INPUT_OBF_SEED"
         }

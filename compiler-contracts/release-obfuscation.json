@@ -85,5 +85,26 @@
       "llvm_version": "unrestricted",
       "note": "Build with the selected compiler; no compiler compatibility checks are run by vcpkg-cache."
     }
+  },
+  "first_party_obfuscation": {
+    "policy_module": "cmake/QigaoFirstPartyObfuscation.cmake",
+    "classification_owner": "downstream product source CMake",
+    "declarations": [
+      "SENSITIVE_TARGETS",
+      "ORDINARY_TARGETS"
+    ],
+    "sensitive_rule": "source-compiled C/C++ targets only; PRIVATE -fpass-plugin in Release, MinSizeRel, RelWithDebInfo",
+    "ordinary_rule": "no obfuscator; ordinary third-party vcpkg libraries unmodified",
+    "imported_sensitive_rule": "reject imported/precompiled targets; downstream link cannot retroactively obfuscate code",
+    "missing_plugin_rule": "single-config protected Release configure fails; multi-config Release compiler fails, Debug remains possible",
+    "native_llvm_version": "unrestricted; no compiler version or ABI probes",
+    "release_compiler_owners": {
+      "linux": "runner-native Clang",
+      "macos": "runner-native independent LLVM/Clang",
+      "windows": "fixed llvm-mingw UCRT"
+    },
+    "no_fallback": true,
+    "explicit_product_inventory_required": true,
+    "compiler_validation_ci": "forbidden"
   }
 }
