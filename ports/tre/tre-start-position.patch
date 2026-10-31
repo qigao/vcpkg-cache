@@ -1,7 +1,7 @@
 diff --git a/include/tre/tre.h b/include/tre/tre.h
 --- a/include/tre/tre.h
 +++ b/include/tre/tre.h
-@@ -220,6 +220,17 @@
+@@ -220,6 +220,19 @@
  tre_regnexecb(const regex_t *preg, const char *str, size_t len,
  	  size_t nmatch, regmatch_t pmatch[], int eflags);
  
@@ -10,6 +10,8 @@ diff --git a/include/tre/tre.h b/include/tre/tre.h
 + * available for ^, $, word-boundary and newline assertions.
 + * This additive API rejects approximate and backreference patterns.
 + * len must be <= INT_MAX. REG_NOMATCH when min_start > len.
++ * Exact search uses at most 8 MiB execution workspace including tag storage;
++ * an excessive workspace returns REG_ESPACE. Compile/CPU limits are separate.
 + */
 +extern int
 +tre_regnexecb_from(const regex_t *preg, const char *str, size_t len,
@@ -31,7 +33,7 @@ diff --git a/lib/tre-internal.h b/lib/tre-internal.h
 +tre_tnfa_run_parallel_from(const tre_tnfa_t *tnfa, const void *string,
 +                           ssize_t len, tre_str_type_t type,
 +                           int *match_tags, int eflags, int *match_end_ofs,
-+                           size_t first_start);
++                           size_t first_start, size_t max_workspace_bytes);
 +
 +reg_errcode_t
  tre_tnfa_run_backtrack(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
@@ -40,21 +42,78 @@ diff --git a/lib/tre-internal.h b/lib/tre-internal.h
 diff --git a/lib/tre-match-parallel.c b/lib/tre-match-parallel.c
 --- a/lib/tre-match-parallel.c
 +++ b/lib/tre-match-parallel.c
-@@ -104,9 +104,10 @@
+@@ -103,10 +103,29 @@
+ }
  #endif /* TRE_DEBUG */
  
++static int
++tre_size_mul_checked(size_t a, size_t b, size_t *out)
++{
++  if (b && a > ((size_t)-1) / b)
++    return 0;
++  *out = a * b;
++  return 1;
++}
++
++static int
++tre_size_add_checked(size_t a, size_t b, size_t *out)
++{
++  if (a > ((size_t)-1) - b)
++    return 0;
++  *out = a + b;
++  return 1;
++}
++
  reg_errcode_t
-+tre_tnfa_run_parallel_from(const tre_tnfa_t *tnfa, const void *string,
-+                           ssize_t len, tre_str_type_t type,
-+                           int *match_tags, int eflags, int *match_end_ofs,
-+                           size_t first_start)
 -tre_tnfa_run_parallel(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
 -		      tre_str_type_t type, int *match_tags, int eflags,
 -		      int *match_end_ofs)
++tre_tnfa_run_parallel_from(const tre_tnfa_t *tnfa, const void *string,
++                           ssize_t len, tre_str_type_t type,
++                           int *match_tags, int eflags, int *match_end_ofs,
++                           size_t first_start, size_t max_workspace_bytes)
  {
    /* State variables required by GET_NEXT_WCHAR. */
    tre_char_t prev_c = 0, next_c = 0;
-@@ -281,7 +282,13 @@
+@@ -163,15 +182,29 @@
+      or with malloc() if alloca is unavailable. */
+   {
+     size_t tbytes, rbytes, pbytes, xbytes, total_bytes;
++    size_t states, tags, state_tag_bytes, per_set_bytes;
++    const size_t alignment_budget = (sizeof(long) - 1) * 4;
+     char *tmp_buf;
+-    /* Compute the length of the block we need. */
+-    tbytes = sizeof(*tmp_tags) * num_tags;
+-    rbytes = sizeof(*reach_next) * (tnfa->num_states + 1);
+-    pbytes = sizeof(*reach_pos) * tnfa->num_states;
+-    xbytes = sizeof(int) * num_tags;
+-    total_bytes =
+-      (sizeof(long) - 1) * 4 /* for alignment paddings */
+-      + (rbytes + xbytes * tnfa->num_states) * 2 + tbytes + pbytes;
++    /* Bound the single TNFA executor before allocating. In upstream TRE
++     * intermediate products and sums could wrap size_t. Reserve four
++     * maximum alignment paddings as in the original layout. */
++    if (tnfa->num_states < 0 || num_tags < 0)
++      return REG_ESPACE;
++    states = (size_t)tnfa->num_states;
++    tags = (size_t)num_tags;
++    if (!tre_size_mul_checked(sizeof(*tmp_tags), tags, &tbytes)
++        || !tre_size_mul_checked(sizeof(*reach_next), states + 1, &rbytes)
++        || !tre_size_mul_checked(sizeof(*reach_pos), states, &pbytes)
++        || !tre_size_mul_checked(sizeof(int), tags, &xbytes)
++        || !tre_size_mul_checked(xbytes, states, &state_tag_bytes)
++        || !tre_size_add_checked(rbytes, state_tag_bytes, &per_set_bytes)
++        || !tre_size_mul_checked(per_set_bytes, 2u, &total_bytes)
++        || !tre_size_add_checked(total_bytes, tbytes, &total_bytes)
++        || !tre_size_add_checked(total_bytes, pbytes, &total_bytes)
++        || !tre_size_add_checked(total_bytes, alignment_budget,
++                                 &total_bytes)
++        || total_bytes > max_workspace_bytes)
++      return REG_ESPACE;
+ 
+     /* Allocate the memory. */
+ #ifdef TRE_USE_ALLOCA
+@@ -281,7 +314,13 @@
    while (/*CONSTCOND*/(void)1,1)
      {
        /* If no match found yet, add the initial states to `reach_next'. */
@@ -69,7 +128,7 @@ diff --git a/lib/tre-match-parallel.c b/lib/tre-match-parallel.c
  	{
  	  DPRINT((" init >"));
  	  trans_i = tnfa->initial;
-@@ -508,4 +515,15 @@
+@@ -508,4 +547,15 @@
    return ret;
  }
  
@@ -81,16 +140,19 @@ diff --git a/lib/tre-match-parallel.c b/lib/tre-match-parallel.c
 +                      int *match_end_ofs)
 +{
 +  return tre_tnfa_run_parallel_from(tnfa, string, len, type, match_tags,
-+                                    eflags, match_end_ofs, 0);
++                                    eflags, match_end_ofs, 0, (size_t)-1);
 +}
 +
  /* EOF */
 diff --git a/lib/regexec.c b/lib/regexec.c
 --- a/lib/regexec.c
 +++ b/lib/regexec.c
-@@ -246,7 +246,55 @@
+@@ -246,7 +246,67 @@
    return tre_match(tnfa, str, len, STR_BYTE, nmatch, pmatch, eflags);
  }
+ 
++/* Combined per-call matching workspace limit for the new exact API. */
++#define TRE_EXACT_MATCH_WORKSPACE_MAX ((size_t)8u * 1024u * 1024u)
  
 +/* Exact search with a minimum allowed match START on the unmodified full
 + * subject. Unlike suffix rescanning, TNFA assertions retain all prior bytes.
@@ -103,9 +165,11 @@ diff --git a/lib/regexec.c b/lib/regexec.c
 +  tre_tnfa_t *tnfa;
 +  reg_errcode_t status;
 +  int *tags = NULL;
++  size_t tag_bytes = 0;
 +  int eo;
- 
-+  if (preg == NULL || str == NULL || preg->TRE_REGEX_T_FIELD == NULL)
++
++  if (preg == NULL || str == NULL || preg->TRE_REGEX_T_FIELD == NULL
++      || (nmatch != 0 && pmatch == NULL))
 +    return REG_BADPAT;
 +  if (len > INT_MAX)
 +    return REG_ESPACE;
@@ -113,23 +177,30 @@ diff --git a/lib/regexec.c b/lib/regexec.c
 +    return REG_NOMATCH;
 +
 +  tnfa = (void *)preg->TRE_REGEX_T_FIELD;
++  if (tnfa->num_tags < 0)
++    return REG_BADPAT;
 +  if (tnfa->have_backrefs || tnfa->have_approx
 +      || (eflags & (REG_BACKTRACKING_MATCHER | REG_APPROX_MATCHER)))
 +    return REG_BADPAT;
 +
 +  if (tnfa->num_tags > 0 && nmatch > 0)
 +    {
++      if ((size_t)tnfa->num_tags >
++          TRE_EXACT_MATCH_WORKSPACE_MAX / sizeof(*tags))
++        return REG_ESPACE;
++      tag_bytes = sizeof(*tags) * (size_t)tnfa->num_tags;
 +#ifdef TRE_USE_ALLOCA
-+      tags = alloca(sizeof(*tags) * tnfa->num_tags);
++      tags = alloca(tag_bytes);
 +#else /* !TRE_USE_ALLOCA */
-+      tags = xmalloc(sizeof(*tags) * tnfa->num_tags);
++      tags = xmalloc(tag_bytes);
 +#endif /* !TRE_USE_ALLOCA */
 +      if (tags == NULL)
 +        return REG_ESPACE;
 +    }
 +
 +  status = tre_tnfa_run_parallel_from(tnfa, str, (ssize_t)len, STR_BYTE,
-+                                      tags, eflags, &eo, min_start);
++                                      tags, eflags, &eo, min_start,
++                                      TRE_EXACT_MATCH_WORKSPACE_MAX - tag_bytes);
 +  if (status == REG_OK)
 +    tre_fill_pmatch(nmatch, pmatch, tnfa->cflags, tnfa, tags, eo);
 +
