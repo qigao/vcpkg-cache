@@ -33,6 +33,9 @@ jobs:
   linux:
     name: Linux x64
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
@@ -96,6 +99,9 @@ jobs:
     name: Linux x64 cache-only restore
     needs: linux
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     permissions:
       contents: read
       packages: read
@@ -129,6 +135,9 @@ jobs:
   linux-arm64-sdk-deps:
     name: Linux arm64 SDK deps
     runs-on: ubuntu-24.04-arm
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - name: Prepare host dependencies
@@ -202,6 +211,9 @@ jobs:
     name: Linux arm64 SDK deps clean L2
     needs: linux-arm64-sdk-deps
     runs-on: ubuntu-24.04-arm
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
@@ -291,112 +303,6 @@ jobs:
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
           echo "Linux arm64 SDK dependency clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
 
-  windows:
-    name: Windows x64 / ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-2022
-            triplet: x64-windows
-    runs-on: ${{ matrix.runner }}
-    env:
-      VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
-      - name: Prepare host dependencies
-        shell: pwsh
-        run: choco install nasm ninja strawberryperl -y --no-progress
-      - name: Warm generic x64-windows cache
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET --host-triplet $env:VCPKG_WARM_TRIPLET
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
-      - name: Warm unversioned Windows MIR JIT cache
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned"
-          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned-install"
-          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
-          @{
-            name = "qigao-mir-jit-unversioned-cache"
-            "version-string" = "1"
-            dependencies = @("mir-jit")
-          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET"
-          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT warm failed" }
-
-  windows-cache-contract:
-    name: Windows x64 cache-only restore / ${{ matrix.runner }}
-    needs: windows
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-2022
-            triplet: x64-windows
-    runs-on: ${{ matrix.runner }}
-    env:
-      VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use empty L1 cache
-        shell: pwsh
-        run: |
-          $cache = Join-Path $env:RUNNER_TEMP "empty-vcpkg-l1"
-          if (Test-Path -LiteralPath $cache) { Remove-Item -LiteralPath $cache -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path $cache | Out-Null
-          "VCPKG_BINARY_CACHE=$cache" >> $env:GITHUB_ENV
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: read
-      - name: Prepare host dependencies
-        shell: pwsh
-        run: choco install nasm ninja strawberryperl -y --no-progress
-      - name: Verify generic cache-only restore
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $installRoot = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows"
-          $log = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows.log"
-          if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
-          & "$env:VCPKG_ROOT\vcpkg.exe" install             "--x-manifest-root=$env:GITHUB_WORKSPACE"             "--x-install-root=$installRoot"             "--triplet=$env:VCPKG_WARM_TRIPLET"             "--host-triplet=$env:VCPKG_WARM_TRIPLET"             --only-binarycaching 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg cache-only restore failed" }
-          $text = Get-Content -LiteralPath $log -Raw
-          if ($text -match ("(?m)^Building [^:]+:" + [regex]::Escape($env:VCPKG_WARM_TRIPLET))) {
-            throw "generic Windows shared-cache miss detected"
-          }
-          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
-            throw "generic Windows restore did not use NuGet"
-          }
-      - name: Verify unversioned Windows MIR JIT cache-only restore
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract"
-          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract-install"
-          $log = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract.log"
-          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
-          @{
-            name = "qigao-mir-jit-cache-contract"
-            "version-string" = "1"
-            dependencies = @("mir-jit")
-          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET" --only-binarycaching 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT cache-only restore failed" }
-          $text = Get-Content -LiteralPath $log -Raw
-          if ($text -match "(?m)^Building mir-jit:") {
-            throw "MIR JIT source build detected during cache-only qualification"
-          }
-          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
-            throw "Windows MIR JIT restore did not use NuGet"
-          }
-
   windows-llvm-mingw:
     name: Windows x64 llvm-mingw local ABI producer / curl-only transport
     if: github.event_name == 'workflow_dispatch' && inputs.warm_llvm_mingw == true
@@ -447,6 +353,15 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Select preinstalled independent LLVM/Clang for macOS dependency builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          llvm="$(brew --prefix llvm@18)"
+          echo "CC=$llvm/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=$llvm/bin/clang++" >> "$GITHUB_ENV"
+          echo "AR=$llvm/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB=$llvm/bin/llvm-ranlib" >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
@@ -726,6 +641,9 @@ jobs:
     name: WABT tools clean L2 / x64-linux
     needs: [linux]
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
@@ -791,6 +709,9 @@ jobs:
   android:
     name: Android arm64
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache

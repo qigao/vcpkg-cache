@@ -55,3 +55,15 @@ Ordinary first-party and third-party dependency code remains unmodified,
 even if linked into the final App. A Debug compilation adds no pass.
 Missing plugin/targets fail without Clang/LLVM version probes, smoke
 programs, compiler verification CI or a second obfuscator runtime.
+
+## General cache producer CI compiler retirement
+
+The existing `warm-cache.yml` no longer creates `x64-windows` MSVC
+producer/readback jobs. Its only new Windows source-producer lane is the
+independent llvm-mingw/UCRT ABI producer, which is manually opt-in until
+real packages are available. Generic Linux producer jobs set
+`CC=clang`, `CXX=clang++` (no GCC compiler selection); the normal
+macOS host package producer selects the preinstalled independent Homebrew
+LLVM compiler. Cache restores respect vcpkg's own compiler ABI and must
+not reuse previous GCC/MSVC binaries under a new LLVM ABI. No Clang
+version/smoke/dedicated verifier jobs have been introduced.

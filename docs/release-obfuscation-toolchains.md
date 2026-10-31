@@ -67,3 +67,9 @@ contents, function IR changes, executable runtime, product signing or the
 number of compiled protected functions. The normal product compilation is
 the only build failure mechanism; the module's target property is a policy
 declaration, **not proof** that a binary is resistant to reverse engineering.
+
+Legacy `windows-2022 / x64-windows` MSVC producer and read-back jobs
+have been deleted from the shared warm-cache workflow. Normal Linux
+cache production now selects runner Clang; macOS native dependencies
+select Homebrew LLVM/Clang. Historic package artifacts remain immutable,
+but are not newly produced as a release-compatible LLVM ABI.
