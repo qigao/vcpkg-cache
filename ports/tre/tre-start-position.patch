@@ -80,7 +80,7 @@ diff --git a/lib/tre-match-parallel.c b/lib/tre-match-parallel.c
    {
      size_t tbytes, rbytes, pbytes, xbytes, total_bytes;
 +    size_t states, tags, state_tag_bytes, per_set_bytes;
-+    const size_t alignment_budget = (sizeof(long) - 1) * 4;
++    const size_t alignment_budget = (sizeof(void *) - 1) * 4;
      char *tmp_buf;
 -    /* Compute the length of the block we need. */
 -    tbytes = sizeof(*tmp_tags) * num_tags;
@@ -113,6 +113,27 @@ diff --git a/lib/tre-match-parallel.c b/lib/tre-match-parallel.c
  
      /* Allocate the memory. */
  #ifdef TRE_USE_ALLOCA
+@@ -186,16 +219,16 @@
+     /* Get the various pointers within tmp_buf (properly aligned). */
+     tmp_tags = (void *)buf;
+     tmp_buf = buf + tbytes;
+-    tmp_buf += ALIGN(tmp_buf, long);
++    tmp_buf += ALIGN(tmp_buf, void *);
+     reach_next = (void *)tmp_buf;
+     tmp_buf += rbytes;
+-    tmp_buf += ALIGN(tmp_buf, long);
++    tmp_buf += ALIGN(tmp_buf, void *);
+     reach = (void *)tmp_buf;
+     tmp_buf += rbytes;
+-    tmp_buf += ALIGN(tmp_buf, long);
++    tmp_buf += ALIGN(tmp_buf, void *);
+     reach_pos = (void *)tmp_buf;
+     tmp_buf += pbytes;
+-    tmp_buf += ALIGN(tmp_buf, long);
++    tmp_buf += ALIGN(tmp_buf, void *);
+     for (i = 0; i < tnfa->num_states; i++)
+       {
+ 	reach[i].tags = (void *)tmp_buf;
 @@ -281,7 +314,13 @@
    while (/*CONSTCOND*/(void)1,1)
      {
