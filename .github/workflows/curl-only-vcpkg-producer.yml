@@ -10,14 +10,20 @@ on:
         description: Bounded, audited native vcpkg package set to compile and publish
         required: true
         type: choice
-        options: [simde, wabt]
+        options: [simde, wabt, tre]
+      target_triplet:
+        description: Explicit native target; simde and wabt remain x64-linux only
+        required: true
+        type: choice
+        default: x64-linux
+        options: [x64-linux, arm64-linux, arm64-android, arm64-osx, arm64-ios, arm64-ios-simulator]
       publish:
         description: Actually upload new immutable NuGet V3 versions (false = dry-run)
         required: true
         type: boolean
         default: false
       expected_master_sha:
-        description: Exact 40-hex master commit; wrong HEAD fails closed
+        description: Exact 40-hex selected source commit; publishing requires master HEAD
         required: true
         type: string
       expected_native_id:
@@ -41,17 +47,24 @@ permissions:
   packages: read
 
 concurrency:
-  group: curl-vcpkg-producer-${{ inputs.package_set }}
+  group: curl-vcpkg-producer-${{ inputs.package_set }}-${{ inputs.target_triplet }}
   cancel-in-progress: false
 
 jobs:
   native-producer:
-    name: Native Linux x64 ABI source build and read-only admission
+    name: Native explicit Linux/Android target ABI source build and read-only admission
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/master' &&
-      github.repository == 'qigao/vcpkg-cache'
-    runs-on: ubuntu-24.04
+      github.repository == 'qigao/vcpkg-cache' &&
+      (
+        github.ref == 'refs/heads/master' ||
+        (
+          inputs.publish == false &&
+          inputs.package_set == 'tre' &&
+          github.ref == 'refs/heads/codex/tre-ios-sdk-cache-warm'
+        )
+      )
+    runs-on: ${{ (inputs.target_triplet == 'arm64-osx' || inputs.target_triplet == 'arm64-ios' || inputs.target_triplet == 'arm64-ios-simulator') && 'macos-15' || inputs.target_triplet == 'arm64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 90
     env:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/curl-native-producer/cache
@@ -66,21 +79,66 @@ jobs:
         shell: bash
         env:
           EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
+          PACKAGE_SET: ${{ inputs.package_set }}
+          TARGET_TRIPLET: ${{ inputs.target_triplet }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
-          test "$GITHUB_REF" = refs/heads/master
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          if [[ "$PACKAGE_SET" != tre && "$TARGET_TRIPLET" != x64-linux ]]; then
+            echo 'Only TRE has approved cross-triplet native sets' >&2; exit 1
+          fi
+          case "$TARGET_TRIPLET" in
+            x64-linux)
+              test "$RUNNER_OS" = Linux
+              test "$RUNNER_ARCH" = X64
+              ;;
+            arm64-linux)
+              test "$RUNNER_OS" = Linux
+              test "$RUNNER_ARCH" = ARM64
+              ;;
+            arm64-android)
+              test "$RUNNER_OS" = Linux
+              test "$RUNNER_ARCH" = X64
+              test -d "${ANDROID_NDK_HOME:?Android NDK is required}"
+              ;;
+            arm64-osx|arm64-ios|arm64-ios-simulator)
+              test "$RUNNER_OS" = macOS
+              test "$RUNNER_ARCH" = ARM64
+              test "$(uname -m)" = arm64
+              ;;
+            *) echo 'Unsupported native producer triplet' >&2; exit 1 ;;
+          esac
+          # A pinned development branch may *only* produce read-only
+          # evidence for the single TRE port. It cannot enter the protected
+          # publish job, and no arbitrary PR branch is admitted here.
+          case "$GITHUB_REF" in
+            refs/heads/master) ;;
+            refs/heads/codex/tre-ios-sdk-cache-warm)
+              test "$PUBLISH_REQUESTED" = "false"
+              test "$PACKAGE_SET" = tre
+              ;;
+            *) echo 'Unqualified native producer source ref' >&2; exit 1 ;;
+          esac
           test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
           test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
       - name: Prepare native compiler and source build tools
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
-            autoconf automake libtool curl
+          case "$RUNNER_OS" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
+                autoconf automake libtool curl
+              ;;
+            macOS)
+              brew install ninja nasm autoconf automake autoconf-archive libtool
+              ;;
+            *) echo 'Unsupported native producer runner' >&2; exit 1 ;;
+          esac
           command -v cc
           command -v c++
           command -v ninja
@@ -96,16 +154,27 @@ jobs:
         shell: bash
         env:
           PACKAGE_SET: ${{ inputs.package_set }}
+          TARGET_TRIPLET: ${{ inputs.target_triplet }}
         run: |
           set -euo pipefail
           case "$PACKAGE_SET" in
             simde) manifest="$GITHUB_WORKSPACE/cache-contracts/header-only" ;;
             wabt) manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer" ;;
+            tre) manifest="$GITHUB_WORKSPACE/cache-contracts/tre-producer" ;;
             *) echo "Unqualified producer package set" >&2; exit 1 ;;
           esac
           test -f "$manifest/vcpkg.json"
-          echo "ABI_MANIFEST=$manifest" >> "$GITHUB_ENV"
-          echo "Producer manifest: $manifest"
+          host="$TARGET_TRIPLET"
+          case "$TARGET_TRIPLET" in
+            arm64-android) host=x64-linux ;;
+            arm64-ios|arm64-ios-simulator) host=arm64-osx ;;
+          esac
+          {
+            echo "ABI_MANIFEST=$manifest"
+            echo "PRODUCER_TARGET_TRIPLET=$TARGET_TRIPLET"
+            echo "PRODUCER_HOST_TRIPLET=$host"
+          } >> "$GITHUB_ENV"
+          echo "Producer manifest: $manifest; target=$TARGET_TRIPLET; host=$host"
       - name: Build native artifacts from the pinned source graph into local L1
         shell: bash
         run: |
@@ -119,7 +188,7 @@ jobs:
           "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$ABI_MANIFEST" \
             "--x-install-root=$RUNNER_TEMP/native-producer-install" \
-            --triplet=x64-linux --host-triplet=x64-linux
+            --triplet="$PRODUCER_TARGET_TRIPLET" --host-triplet="$PRODUCER_HOST_TRIPLET"
           test "$(find "$VCPKG_BINARY_CACHE" -type f -name '*.zip' | wc -l)" -gt 0
           echo "Local native ABI build completed"
       - name: Derive exact ABI and check existing remote versions (read only)
@@ -143,7 +212,7 @@ jobs:
           "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$ABI_MANIFEST" \
             "--x-install-root=$probe" \
-            --triplet=x64-linux --host-triplet=x64-linux \
+            --triplet="$PRODUCER_TARGET_TRIPLET" --host-triplet="$PRODUCER_HOST_TRIPLET" \
             --dry-run "--x-write-nuget-packages-config=$plan"
           test -s "$plan"
           test "$VCPKG_BINARY_SOURCES" = "clear;files,$VCPKG_BINARY_CACHE,write"
@@ -152,6 +221,7 @@ jobs:
           if [[ "$DO_PUBLISH" == "true" || -n "$EXPECTED_NATIVE_ID" || -n "$EXPECTED_NATIVE_VERSION" ]]; then
             python3 scripts/ci/verify-native-publish-target.py \
               --plan "$plan" --package-set "$PACKAGE_SET" \
+              --triplet "$PRODUCER_TARGET_TRIPLET" \
               --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION"
           fi
           python3 scripts/publish-vcpkg-curl-cache.py \
@@ -162,8 +232,9 @@ jobs:
             echo 'Read-only native ABI producer unexpectedly reported remote upload' >&2
             exit 1
           fi
-          printf 'source_sha=%s\npackage_set=%s\nexpected_id=%s\nexpected_version=%s\n' \
-            "$GITHUB_SHA" "$PACKAGE_SET" "$EXPECTED_NATIVE_ID" "$EXPECTED_NATIVE_VERSION" \
+          printf 'source_sha=%s\npackage_set=%s\ntarget_triplet=%s\nhost_triplet=%s\nexpected_id=%s\nexpected_version=%s\n' \
+            "$GITHUB_SHA" "$PACKAGE_SET" "$PRODUCER_TARGET_TRIPLET" "$PRODUCER_HOST_TRIPLET" \
+            "$EXPECTED_NATIVE_ID" "$EXPECTED_NATIVE_VERSION" \
             > "$stage/source-proof.txt"
           (
             cd "$stage"
@@ -225,6 +296,7 @@ jobs:
           PACKAGE_SET: ${{ inputs.package_set }}
           EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
           EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
+          TARGET_TRIPLET: ${{ inputs.target_triplet }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -242,6 +314,13 @@ jobs:
           cd build/curl-native-producer
           grep -Fx "source_sha=$EXPECTED_MASTER_SHA" source-proof.txt
           grep -Fx 'package_set=${{ inputs.package_set }}' source-proof.txt
+          grep -Fx "target_triplet=$TARGET_TRIPLET" source-proof.txt
+          expected_host="$TARGET_TRIPLET"
+          case "$TARGET_TRIPLET" in
+            arm64-android) expected_host=x64-linux ;;
+            arm64-ios|arm64-ios-simulator) expected_host=arm64-osx ;;
+          esac
+          grep -Fx "host_triplet=$expected_host" source-proof.txt
           grep -Fx "expected_id=$EXPECTED_NATIVE_ID" source-proof.txt
           grep -Fx "expected_version=$EXPECTED_NATIVE_VERSION" source-proof.txt
           sha256sum --check --status SHA256SUMS
@@ -250,18 +329,23 @@ jobs:
           # from the downloaded, SHA-attested source ABI plan.
           python3 "$GITHUB_WORKSPACE/scripts/ci/verify-native-publish-target.py" \
             --plan packages.config --package-set "$PACKAGE_SET" \
+            --triplet "$TARGET_TRIPLET" \
             --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION"
       - name: Upload exact immutable ABI through canonical native curl producer
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REQUIRE_NEW_UPLOAD: ${{ inputs.require_new_upload }}
+          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
+          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
         run: |
           set -euo pipefail
           stage="$GITHUB_WORKSPACE/build/curl-native-producer"
           python3 scripts/publish-vcpkg-curl-cache.py \
             --packages-config "$stage/packages.config" \
             --cache "$stage/cache" --publish \
+            --approved-id "$EXPECTED_NATIVE_ID" \
+            --approved-version "$EXPECTED_NATIVE_VERSION" \
             | tee "$RUNNER_TEMP/approved-native-publish-proof.txt"
           grep -E 'publish_summary total=[1-9][0-9]*' \
             "$RUNNER_TEMP/approved-native-publish-proof.txt"
@@ -285,7 +369,7 @@ jobs:
     name: "Fresh runner: exact binary-only GitHub Packages read-back"
     if: ${{ inputs.publish }}
     needs: native-publish
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (inputs.target_triplet == 'arm64-osx' || inputs.target_triplet == 'arm64-ios' || inputs.target_triplet == 'arm64-ios-simulator') && 'macos-15' || inputs.target_triplet == 'arm64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -296,34 +380,80 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config curl
+          case "$RUNNER_OS" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends ninja-build pkg-config curl
+              ;;
+            macOS)
+              brew install ninja nasm autoconf automake autoconf-archive libtool
+              ;;
+            *) echo 'Unsupported native read-back runner' >&2; exit 1 ;;
+          esac
       - name: Read exact immutable ABI from NuGet V3 with curl
         uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
-          triplet: x64-linux
-          host-triplet: x64-linux
-          manifest-root: cache-contracts/${{ inputs.package_set == 'simde' && 'header-only' || 'wabt-producer' }}
+          triplet: ${{ inputs.target_triplet }}
+          host-triplet: ${{ inputs.target_triplet == 'arm64-android' && 'x64-linux' || (inputs.target_triplet == 'arm64-ios' || inputs.target_triplet == 'arm64-ios-simulator') && 'arm64-osx' || inputs.target_triplet }}
+          manifest-root: cache-contracts/${{ inputs.package_set == 'simde' && 'header-only' || inputs.package_set == 'wabt' && 'wabt-producer' || 'tre-producer' }}
+      - name: Require exact approved native ABI from the curl restoration plan
+        shell: bash
+        env:
+          PACKAGE_SET: ${{ inputs.package_set }}
+          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
+          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
+          TARGET_TRIPLET: ${{ inputs.target_triplet }}
+        run: |
+          set -euo pipefail
+          # setup-vcpkg-curl-cache produced the actual vcpkg dry-run plan and
+          # fetched those exact ZIPs. Do not rerun a second resolver or
+          # infer an ABI from the package name / successful restore count.
+          plan="$RUNNER_TEMP/qigao-curl-vcpkg-abi/packages.config"
+          test -s "$plan"
+          python3 scripts/ci/verify-native-publish-target.py \
+            --plan "$plan" --package-set "$PACKAGE_SET" \
+            --triplet "$TARGET_TRIPLET" \
+            --expected-id "$EXPECTED_NATIVE_ID" \
+            --expected-version "$EXPECTED_NATIVE_VERSION"
+
       - name: Require binary-only native install from fresh L1 without Mono
         shell: bash
         env:
           PACKAGE_SET: ${{ inputs.package_set }}
+          TARGET_TRIPLET: ${{ inputs.target_triplet }}
         run: |
           set -euo pipefail
           test "$VCPKG_BINARY_SOURCES" = "clear;files,$VCPKG_BINARY_CACHE,readwrite"
-          manifest="$GITHUB_WORKSPACE/cache-contracts/header-only"
-          if [[ "$PACKAGE_SET" == "wabt" ]]; then
-            manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer"
-          fi
+          case "$PACKAGE_SET" in
+            simde) manifest="$GITHUB_WORKSPACE/cache-contracts/header-only" ;;
+            wabt) manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer" ;;
+            tre) manifest="$GITHUB_WORKSPACE/cache-contracts/tre-producer" ;;
+            *) echo "Unqualified native read-back package set" >&2; exit 1 ;;
+          esac
+          host="$TARGET_TRIPLET"
+          case "$TARGET_TRIPLET" in
+            arm64-android) host=x64-linux ;;
+            arm64-ios|arm64-ios-simulator) host=arm64-osx ;;
+          esac
           "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$manifest" \
             "--x-install-root=$RUNNER_TEMP/verified-native-abi" \
-            --triplet=x64-linux --host-triplet=x64-linux --only-binarycaching \
+            --triplet="$TARGET_TRIPLET" --host-triplet="$host" --only-binarycaching \
             2>&1 | tee "$RUNNER_TEMP/fresh-binary-verify.log"
           grep -Eq 'Restored [1-9][0-9]* package\(s\)' "$RUNNER_TEMP/fresh-binary-verify.log"
-          if [[ "$PACKAGE_SET" == "simde" ]]; then
-            test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/include/simde/x86/sse.h"
-          else
-            test -x "$RUNNER_TEMP/verified-native-abi/x64-linux/tools/wabt/wast2json"
-          fi
+          case "$PACKAGE_SET" in
+            simde)
+              test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/include/simde/x86/sse.h"
+              ;;
+            wabt)
+              test -x "$RUNNER_TEMP/verified-native-abi/x64-linux/tools/wabt/wast2json"
+              ;;
+            tre)
+              grep -Fq "tre:${TARGET_TRIPLET}@0.9.0#1" "$RUNNER_TEMP/fresh-binary-verify.log"
+              test -f "$RUNNER_TEMP/verified-native-abi/${TARGET_TRIPLET}/include/tre/tre.h"
+              test -f "$RUNNER_TEMP/verified-native-abi/${TARGET_TRIPLET}/lib/libtre.a"
+              test -f "$RUNNER_TEMP/verified-native-abi/${TARGET_TRIPLET}/share/unofficial-tre/unofficial-tre-config.cmake"
+              ;;
+            *) echo "Unqualified native read-back package set" >&2; exit 1 ;;
+          esac

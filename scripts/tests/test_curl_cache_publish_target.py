@@ -27,9 +27,10 @@ def plan(path, pairs):
 
 class ManualNativePublisherTargetTests(unittest.TestCase):
     def verify(self, file, expected_version=VERSION,
-               package_set="wabt", expected_id="wabt_x64-linux"):
+               package_set="wabt", expected_id="wabt_x64-linux",
+               triplet="x64-linux"):
         return contract.verify(
-            file, package_set=package_set,
+            file, package_set=package_set, triplet=triplet,
             expected_id=expected_id, expected_version=expected_version,
         )
 
@@ -60,6 +61,54 @@ class ManualNativePublisherTargetTests(unittest.TestCase):
                 self.verify(file, package_set="simde")
             with self.assertRaisesRegex(ValueError, "unapproved"):
                 self.verify(file, package_set="other")
+
+    def test_tre_requires_the_exact_selected_native_abi_and_no_alias(self):
+        tre_version = "0.9.0-vcpkg" + ABI
+        with tempfile.TemporaryDirectory() as directory:
+            file = plan(Path(directory) / "config", [("tre_x64-linux", tre_version)])
+            self.assertEqual(
+                self.verify(file, package_set="tre",
+                            expected_id="tre_x64-linux",
+                            expected_version=tre_version),
+                [("tre_x64-linux", tre_version)])
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                self.verify(file, package_set="tre",
+                            expected_id="wabt_x64-linux",
+                            expected_version=tre_version)
+            with self.assertRaisesRegex(ValueError, "pinned 0.9.0"):
+                self.verify(file, package_set="tre",
+                            expected_id="tre_x64-linux",
+                            expected_version=VERSION)
+            with self.assertRaisesRegex(ValueError, "target mismatch"):
+                self.verify(file, package_set="tre",
+                            expected_id="tre_x64-linux",
+                            expected_version="0.9.0-vcpkg" + "b" * 64)
+
+    def test_tre_approves_only_linux_and_android_triplets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.xml"
+            for triplet in ("arm64-linux", "arm64-android", "arm64-osx", "arm64-ios", "arm64-ios-simulator"):
+                identity = "tre_" + triplet
+                version = "0.9.0-vcpkg" + ABI
+                plan(path, [(identity, version)])
+                self.assertEqual(
+                    self.verify(path, package_set="tre",
+                                expected_id=identity,
+                                expected_version=version, triplet=triplet),
+                    [(identity, version)])
+                with self.assertRaisesRegex(ValueError, "does not match"):
+                    self.verify(path, package_set="tre",
+                                expected_id=identity,
+                                expected_version=version, triplet="x64-linux")
+            with self.assertRaisesRegex(ValueError, "unapproved"):
+                self.verify(path, package_set="tre",
+                            expected_id="tre_x64-windows",
+                            expected_version="0.9.0-vcpkg" + ABI,
+                            triplet="x64-windows")
+            with self.assertRaisesRegex(ValueError, "unapproved"):
+                self.verify(path, package_set="simde",
+                            expected_id="simde_arm64-linux",
+                            expected_version=VERSION, triplet="arm64-linux")
 
     def test_duplicate_missing_or_unsafe_plan_fails(self):
         with tempfile.TemporaryDirectory() as directory:

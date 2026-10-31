@@ -46,6 +46,21 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("environment:", self.producer)
         self.assertNotIn("--publish", self.producer)
 
+    def test_tre_manual_dry_run_is_one_pinned_branch_without_upload_rights(self):
+        self.assertIn("inputs.publish == false", self.producer)
+        self.assertIn("inputs.package_set == 'tre'", self.producer)
+        self.assertIn("refs/heads/codex/tre-ios-sdk-cache-warm", self.producer)
+        self.assertIn('test "$PUBLISH_REQUESTED" = "false"', self.producer)
+        self.assertIn('test "$PACKAGE_SET" = tre', self.producer)
+        self.assertIn('test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"', self.producer)
+        self.assertNotIn("packages: write", self.producer)
+        self.assertNotIn("environment:", self.producer)
+        self.assertNotIn("--publish", self.producer)
+        # Actual publication remains master-only and requires protected review.
+        self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
+        self.assertIn("environment: native-cache-publish", self.publisher)
+        self.assertIn("secrets.NATIVE_CACHE_PUBLISH_ARM", self.publisher)
+
     def test_only_protected_job_can_upload_an_immutable_native_package(self):
         self.assertEqual(self.source.count("packages: write"), 1)
         self.assertIn("needs: native-producer", self.publisher)
@@ -60,6 +75,8 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("git ls-remote --exit-code", self.publisher)
         self.assertIn('test "$remote_master" = "$EXPECTED_MASTER_SHA"', self.publisher)
         self.assertIn("--publish", self.publisher)
+        self.assertIn("--approved-id", self.publisher)
+        self.assertIn("--approved-version", self.publisher)
         self.assertIn("REQUIRE_NEW_UPLOAD", self.publisher)
         self.assertIn("existing-only verification cannot qualify", self.publisher)
 
@@ -69,6 +86,69 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("packages: read", self.reader)
         self.assertNotIn("packages: write", self.reader)
         self.assertNotIn("setup-vcpkg-cache", self.source)
+
+    def test_tre_is_explicit_master_gated_and_has_fresh_binary_read_back(self):
+        self.assertIn("options: [simde, wabt, tre]", self.header)
+        self.assertIn('tre) manifest="$GITHUB_WORKSPACE/cache-contracts/tre-producer" ;;',
+                      self.producer)
+        self.assertIn("github.ref == 'refs/heads/master'", self.producer)
+        self.assertIn("native-cache-publish", self.publisher)
+        self.assertIn("needs: native-publish", self.reader)
+        self.assertIn('tre:${TARGET_TRIPLET}@0.9.0#1', self.reader)
+        self.assertIn("${TARGET_TRIPLET}/include/tre/tre.h", self.reader)
+        self.assertIn("${TARGET_TRIPLET}/lib/libtre.a", self.reader)
+        self.assertIn("${TARGET_TRIPLET}/share/unofficial-tre/unofficial-tre-config.cmake",
+                      self.reader)
+        self.assertIn("cache-contracts/tre-producer", self.source)
+        self.assertTrue((WORKFLOW.parents[2] / "cache-contracts/tre-producer/vcpkg.json").is_file())
+
+    def test_fresh_reader_rechecks_operator_approved_abi_not_only_version(self):
+        self.assertIn("needs: native-publish", self.reader)
+        self.assertIn("qigao-curl-vcpkg-abi/packages.config", self.reader)
+        self.assertIn("scripts/ci/verify-native-publish-target.py", self.reader)
+        self.assertIn('--expected-id "$EXPECTED_NATIVE_ID"', self.reader)
+        self.assertIn('--expected-version "$EXPECTED_NATIVE_VERSION"', self.reader)
+        self.assertIn("test -s \"$plan\"", self.reader)
+        self.assertIn("--only-binarycaching", self.reader)
+        self.assertNotIn("packages: write", self.reader)
+
+    def test_tre_target_selection_is_explicit_and_provenance_bound(self):
+        self.assertIn("options: [x64-linux, arm64-linux, arm64-android, arm64-osx, arm64-ios, arm64-ios-simulator]", self.header)
+        self.assertIn("inputs.target_triplet == 'arm64-linux'", self.producer)
+        self.assertIn("inputs.target_triplet == 'arm64-linux'", self.reader)
+        self.assertIn('test "$RUNNER_ARCH" = ARM64', self.producer)
+        self.assertIn("ANDROID_NDK_HOME", self.producer)
+        self.assertIn("Only TRE has approved cross-triplet native sets", self.producer)
+        self.assertIn('PRODUCER_TARGET_TRIPLET=$TARGET_TRIPLET', self.producer)
+        self.assertIn('PRODUCER_HOST_TRIPLET=$host', self.producer)
+        self.assertIn('target_triplet=%s', self.producer)
+        self.assertIn('grep -Fx "target_triplet=$TARGET_TRIPLET"', self.publisher)
+        self.assertIn('grep -Fx "host_triplet=$expected_host"', self.publisher)
+        self.assertIn('--triplet "$TARGET_TRIPLET"', self.publisher)
+        self.assertIn('--triplet "$TARGET_TRIPLET"', self.reader)
+        self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
+
+    def test_apple_tre_targets_pin_macos_runner_and_ios_host(self):
+        for triplet in ("arm64-osx", "arm64-ios", "arm64-ios-simulator"):
+            with self.subTest(triplet=triplet):
+                self.assertIn(triplet, self.header)
+                self.assertIn(triplet, self.producer)
+                self.assertIn(triplet, self.reader)
+        self.assertIn("'macos-15'", self.producer)
+        self.assertIn("'macos-15'", self.reader)
+        self.assertIn('test "$RUNNER_OS" = macOS', self.producer)
+        self.assertIn('test "$RUNNER_ARCH" = ARM64', self.producer)
+        self.assertIn('test "$(uname -m)" = arm64', self.producer)
+        self.assertIn('brew install ninja nasm', self.producer)
+        self.assertIn('brew install ninja nasm', self.reader)
+        self.assertIn('arm64-ios|arm64-ios-simulator) host=arm64-osx', self.producer)
+        self.assertIn('arm64-ios|arm64-ios-simulator) host=arm64-osx', self.reader)
+        self.assertIn('arm64-ios|arm64-ios-simulator) expected_host=arm64-osx',
+                      self.publisher)
+        self.assertIn('host_triplet=$expected_host', self.publisher)
+        self.assertIn("environment: native-cache-publish", self.publisher)
+        self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
+        self.assertNotIn("packages: write", self.producer)
 
     def test_single_canonical_transport_and_no_old_native_provider(self):
         self.assertIn("scripts/publish-vcpkg-curl-cache.py", self.source)
