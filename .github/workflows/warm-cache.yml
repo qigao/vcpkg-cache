@@ -566,7 +566,14 @@ jobs:
             exit 1
           fi
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          echo "iOS SDK same-runner clean-L2 restore passed: ${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
+          # The focused SDK manifest includes TRE. Assert the exact patched
+          # port was installed from the remote-only binary path, rather than
+          # allowing unrelated NuGet packages to satisfy the summary check.
+          grep -Fq "tre:${{ matrix.triplet }}@0.9.0#1" "$log"
+          test -f "$install_root/${{ matrix.triplet }}/include/tre/tre.h"
+          test -f "$install_root/${{ matrix.triplet }}/lib/libtre.a"
+          test -f "$install_root/${{ matrix.triplet }}/share/unofficial-tre/unofficial-tre-config.cmake"
+          echo "iOS SDK TRE 0.9.0#1 clean-L2 restore passed: ${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
 
   mir-jit-macos-warm:
     name: macOS MIR JIT warm
