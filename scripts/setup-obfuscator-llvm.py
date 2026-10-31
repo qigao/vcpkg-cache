@@ -75,8 +75,10 @@ def windows_llvm_development(lock: dict, kit: Path, cxx: Path,
         raise SetupError("Selected MinGW kit must provide one host LLVM runtime DLL")
     cc = cxx.with_name(cxx.name.replace("clang++", "clang"))
     source_dir, build_dir = root / "llvm-source", root / "llvm-development"
+    # LLVM's Support/TableGen headers also consume libc common utilities.
+    # Checking out that directory does not build a libc runtime.
     checkout_source(source["llvm_repository"], source["llvm_source_commit"],
-                    source_dir, ("llvm", "cmake", "third-party"))
+                    source_dir, ("llvm", "cmake", "third-party", "libc"))
     run([
         "cmake", "-S", str(source_dir / "llvm"), "-B", str(build_dir), "-G", "Ninja",
         "-DCMAKE_C_COMPILER=" + str(cc), "-DCMAKE_CXX_COMPILER=" + str(cxx),
