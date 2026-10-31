@@ -164,7 +164,7 @@ def build_plugin(repo: Path, cxx: Path, root: Path,
     # LLVM 23 BasicBlock iterator overload here. No version detection.
     for filename in (
         "default-phi-alloca-insertion.patch",
-        "fcmp-basicblock-reference.patch",
+        "fcmp-explicit-insertion.patch",
         "windows-host-import-library.patch",
     ):
         patch = repo / "patches/obfuscator-llvm" / filename
