@@ -175,7 +175,10 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl"
+              "gmssl",
+              "libjpeg-turbo",
+              "libyuv",
+              "libusb"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -200,6 +203,10 @@ jobs:
           set -euo pipefail
           install_root="$RUNNER_TEMP/linux-arm64-sdk-deps-install"
           rm -rf "$install_root"
+          # Keep the tool choice used by the exact Core ABI proof. Having both
+          # FORCE_SYSTEM and FORCE_DOWNLOADED set made vcpkg record a cached
+          # CMake version as 0 on a subsequent invocation, changing package ABI.
+          unset VCPKG_FORCE_SYSTEM_BINARIES
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
             --x-install-root="$install_root" \
@@ -258,7 +265,10 @@ jobs:
               "c-ares",
               "libuv",
               "kcp",
-              "gmssl"
+              "gmssl",
+              "libjpeg-turbo",
+              "libyuv",
+              "libusb"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -285,6 +295,7 @@ jobs:
           log="$RUNNER_TEMP/linux-arm64-sdk-deps.log"
           rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
           mkdir -p "$VCPKG_BINARY_CACHE"
+          unset VCPKG_FORCE_SYSTEM_BINARIES
           set +e
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$LINUX_ARM64_SDK_MANIFEST" \
@@ -392,8 +403,6 @@ jobs:
         include:
           - {name: device arm64, triplet: arm64-ios}
           - {name: simulator arm64, triplet: arm64-ios-simulator}
-    env:
-      X_VCPKG_NUGET_ID_PREFIX: vcpkg-cache
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
@@ -420,17 +429,11 @@ jobs:
             "dependencies": [
               {"name":"pkgconf","host":true},
               "simde",
-              "zstd",
-              "aklomp-base64",
               "c-ares",
-              "libuv",
               "kcp",
-              "gmssl",
               "miniaudio",
-              "libyuv",
-              "llhttp",
-              "tree-sitter",
-              "tree-sitter-c"
+              "libusb",
+              "zstd"
             ],
             "builtin-baseline": "$baseline"
           }
@@ -445,83 +448,26 @@ jobs:
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$IOS_SDK_MANIFEST" \
             --x-install-root="$install_root" \
-            --triplet "${{ matrix.triplet }}"
-
-  ios-sdk-deps-cache-contract:
-    name: iOS SDK deps clean L2 / ${{ matrix.name }}
-    needs: ios-sdk-deps
-    runs-on: macos-15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {name: device arm64, triplet: arm64-ios}
-          - {name: simulator arm64, triplet: arm64-ios-simulator}
-    env:
-      X_VCPKG_NUGET_ID_PREFIX: vcpkg-cache
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use empty L1 cache
+            --triplet "${{ matrix.triplet }}" \
+            --host-triplet arm64-osx
+      - name: Verify clean iOS SDK dependency restore from remote L2
         shell: bash
         run: |
           set -euo pipefail
-          cache="$RUNNER_TEMP/empty-ios-sdk-l1"
-          rm -rf "$cache"
-          mkdir -p "$cache"
-          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: read
-      - name: Prepare iOS build tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(uname -m)" = "arm64"
-          brew install ninja nasm autoconf automake autoconf-archive libtool
-      - name: Create focused native SDK dependency manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$RUNNER_TEMP/ios-sdk-deps-contract-manifest"
-          rm -rf "$manifest"
-          mkdir -p "$manifest"
-          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
-          cat > "$manifest/vcpkg.json" <<EOF
-          {
-            "name": "qigao-ios-sdk-deps-contract",
-            "version-string": "1",
-            "dependencies": [
-              {"name":"pkgconf","host":true},
-              "simde",
-              "zstd",
-              "aklomp-base64",
-              "c-ares",
-              "libuv",
-              "kcp",
-              "gmssl",
-              "miniaudio",
-              "libyuv",
-              "llhttp",
-              "tree-sitter",
-              "tree-sitter-c"
-            ],
-            "builtin-baseline": "$baseline"
-          }
-          EOF
-          echo "IOS_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
-      - name: Verify clean iOS SDK dependency restore
-        shell: bash
-        run: |
-          set -euo pipefail
+          empty="$RUNNER_TEMP/empty-ios-sdk-l1-${{ matrix.triplet }}"
           install_root="$RUNNER_TEMP/ios-sdk-deps-clean-${{ matrix.triplet }}"
-          log="$RUNNER_TEMP/ios-sdk-deps-${{ matrix.triplet }}.log"
-          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
-          mkdir -p "$VCPKG_BINARY_CACHE"
+          log="$RUNNER_TEMP/ios-sdk-deps-clean-${{ matrix.triplet }}.log"
+          config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
+          rm -rf "$empty" "$install_root"
+          mkdir -p "$empty"
+          export VCPKG_BINARY_CACHE="$empty"
+          export VCPKG_BINARY_SOURCES="clear;files,$empty,read;nugettimeout,1800;nugetconfig,$config,read"
           set +e
           "$VCPKG_ROOT/vcpkg" install \
             --x-manifest-root="$IOS_SDK_MANIFEST" \
             --x-install-root="$install_root" \
             --triplet "${{ matrix.triplet }}" \
+            --host-triplet arm64-osx \
             --only-binarycaching 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
           set -e
@@ -531,7 +477,7 @@ jobs:
             exit 1
           fi
           grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
-          echo "iOS SDK clean-L2 restore passed: ${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "iOS SDK same-runner clean-L2 restore passed: ${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
 
   mir-jit-macos-warm:
     name: macOS MIR JIT warm
@@ -567,16 +513,44 @@ jobs:
             --x-install-root="$install_root" \
             --triplet arm64-osx
           test -f "$install_root/arm64-osx/share/MIR/MIRConfig.cmake"
+      - name: Verify macOS MIR JIT clean restore from remote L2
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mir-jit-unversioned"
+          install_root="$RUNNER_TEMP/mir-jit-unversioned-clean"
+          empty="$RUNNER_TEMP/empty-mir-jit-macos-l1"
+          log="$RUNNER_TEMP/mir-jit-arm64-osx.log"
+          config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
+          rm -rf "$install_root" "$empty"
+          mkdir -p "$empty"
+          export VCPKG_BINARY_CACHE="$empty"
+          export VCPKG_BINARY_SOURCES="clear;files,$empty,read;nugettimeout,1800;nugetconfig,$config,read"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-osx \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          if grep -Eq '^Building mir-jit:' "$log"; then
+            echo "mir-jit source build detected during same-runner clean-L2 qualification" >&2
+            exit 1
+          fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          test -f "$install_root/arm64-osx/share/MIR/MIRConfig.cmake"
+          echo "macOS MIR JIT same-runner clean-L2 restore passed" >> "$GITHUB_STEP_SUMMARY"
 
   mir-jit-cache-contract:
     name: MIR JIT clean L2 / ${{ matrix.triplet }}
-    needs: [linux, mir-jit-macos-warm]
+    needs: linux
     strategy:
       fail-fast: false
       matrix:
         include:
           - {runner: ubuntu-24.04, triplet: x64-linux}
-          - {runner: macos-15, triplet: arm64-osx}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
