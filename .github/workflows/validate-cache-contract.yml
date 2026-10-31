@@ -371,7 +371,7 @@ jobs:
           foreach ($required in @(
             'set(VCPKG_TARGET_ARCHITECTURE x64)',
             'set(VCPKG_CMAKE_SYSTEM_NAME MinGW)',
-            'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "$ENV{LLVM_MINGW_TOOLCHAIN_FILE}")'
+            'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "$ENV{LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE}")'
           )) {
             if (-not $tripletText.Contains($required)) { throw "MinGW triplet declaration missing: $required" }
           }
@@ -404,3 +404,4 @@ jobs:
           test "$LINUX_REVISION" = "$MACOS_REVISION"
           test "$LINUX_REVISION" = "$WINDOWS_REVISION"
           printf 'contract=%s\nrevision=%s\n' "$LINUX_CONTRACT" "$LINUX_REVISION"
+

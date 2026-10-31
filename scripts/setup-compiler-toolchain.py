@@ -214,6 +214,21 @@ def cmake_toolchain(root: Path, target: str, paths: dict[str, str]) -> Path:
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return output
 
+
+def product_toolchain(root: Path, dependency: Path) -> Path:
+    # vcpkg ports chainload the plain compiler file. Only the product entry
+    # point installs the launcher, even when both share this process env.
+    output = root / "qigao-product-toolchain.cmake"
+    output.write_text(
+        '# Product compiler entry point; dependencies use the plain toolchain.\n'
+        f'include("${{CMAKE_CURRENT_LIST_DIR}}/{dependency.name}")\n'
+        'if("$ENV{QIGAO_OBFUSCATOR_ENABLED}" STREQUAL "true")\n'
+        '  include("$ENV{QIGAO_COMPILER_OBFUSCATION_CMAKE}")\n'
+        'elseif(QIGAO_COMPILER_OBFUSCATION_ENABLED)\n'
+        '  message(FATAL_ERROR "Protected product cache reused without obfuscator setup")\n'
+        'endif()\n', encoding="utf-8")
+    return output
+
 def append_github(path: str | None, entries: dict[str, str] | list[str]) -> None:
     if not path:
         return
@@ -281,16 +296,29 @@ def install(args: argparse.Namespace) -> dict[str, str]:
         cmake.write_text(
             cmake.read_text(encoding="utf-8").replace(
                 root.as_posix(), dest.as_posix()), encoding="utf-8")
+        product = (product_toolchain(root, cmake)
+                   if args.compiler == "llvm-mingw" else cmake)
         (root / "qigao-toolchain-source.json").write_text(json.dumps({
             "compiler": args.compiler, "host": host, "target": args.target,
             "tag": tag, "archive_sha256": item["sha256"],
         }, indent=2) + "\n", encoding="utf-8")
         root.rename(dest)
     installed = tool_paths(dest, args.compiler, args.target, host)
+    # The pass is loaded into the compiler process, whose CPU is the runner's
+    # CPU, independently of the product target (e.g. x64 host -> ARM64 app).
+    host_cxx = ""
+    if args.compiler == "llvm-mingw":
+        if args.runner_os == "Windows":
+            host_cxx = tool_paths(dest, args.compiler,
+                                  HOST_ARCH[args.runner_arch], host)["cxx"]
+        else:
+            host_cxx = shutil.which("clang++") or ""
     outputs = {
         "root": str(dest), "cc": installed["cc"], "cxx": installed.get("cxx", ""),
+        "host-cxx": host_cxx,
         "ar": installed.get("ar", ""), "rc": installed.get("rc", ""),
-        "toolchain-file": str(dest / "qigao-toolchain.cmake"),
+        "toolchain-file": str(dest / product.name),
+        "dependency-toolchain-file": str(dest / cmake.name),
         "target-triple": TARGETS[args.target][0],
         "version": tag, "archive-sha256": item["sha256"],
         "obfus-header": header,
@@ -302,6 +330,8 @@ def install(args: argparse.Namespace) -> dict[str, str]:
         env_name + "_ROOT": str(dest),
         env_name + "_CC": installed["cc"],
         env_name + "_TOOLCHAIN_FILE": outputs["toolchain-file"],
+        **({"LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE": outputs["dependency-toolchain-file"]}
+           if args.compiler == "llvm-mingw" else {}),
         "QIGAO_COMPILER_TOOLCHAIN_FILE": outputs["toolchain-file"],
         **({env_name + "_CXX": installed["cxx"]} if "cxx" in installed
            else {"TINYCC_OBFUS_INCLUDE": outputs["obfus-include"]}),
@@ -333,3 +363,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

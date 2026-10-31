@@ -31,13 +31,26 @@ for Clang. Its `obfuscator-enabled`, `plugin-path`,
 `obfuscator-compile-flag` and `compiler-obfuscation-cmake` outputs
 remain available for build provenance.
 
-Use the action-provided native `toolchain-file` or the existing
+Use either compiler action's `toolchain-file` or the existing
 `QigaoVcpkgToolchain.cmake` **product CMake wrapper**. These include
 `cmake/QigaoCompilerObfuscation.cmake` during product CMake configuration.
 It installs C and C++ compiler launchers for every CMake source compilation
 in Release/MinSizeRel/RelWithDebInfo; it does not add a link flag or
 change Debug. There are **no target lists** and no downstream
 `include()`/`qigao_apply_obfuscation_policy()` calls.
+
+For llvm-mingw, `toolchain-file` and `LLVM_MINGW_TOOLCHAIN_FILE` select
+`qigao-product-toolchain.cmake`. The independent `dependency-toolchain-file`
+and `LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE` select the plain compiler file;
+both vcpkg triplets chainload only that file. Do not use the product entry
+point as a vcpkg port chainload toolchain. When pinning these shared
+triplets, pin the compiler action to the same revision.
+
+The llvm-mingw `cxx` output targets the requested product CPU; `host-cxx`
+targets the compiler process CPU and builds the pass plugin. Thus an x64
+Windows runner building an ARM64 product still builds an x64 host plugin.
+Cross builds on Linux/macOS source-build the host plugin with the runner's
+native Clang and LLVM development files.
 
 The product launcher never runs in third-party vcpkg port build CMake
 processes, which use independent triplets and cache ABIs. Already
@@ -56,3 +69,4 @@ Windows dependencies use distinct `qigao-x64-windows-llvm-mingw` and
 `qigao-arm64-windows-llvm-mingw` triplets with independent UCRT ABI.
 Historic MSVC/GCC cached packages cannot be aliased to the new ABIs.
 Publishing immutable packages remains separately opt-in.
+

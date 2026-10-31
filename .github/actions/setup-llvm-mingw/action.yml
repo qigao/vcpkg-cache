@@ -36,12 +36,16 @@ outputs:
     value: ${{ steps.install.outputs.cc }}
   cxx:
     value: ${{ steps.install.outputs.cxx }}
+  host-cxx:
+    value: ${{ steps.install.outputs.host-cxx }}
   ar:
     value: ${{ steps.install.outputs.ar }}
   rc:
     value: ${{ steps.install.outputs.rc }}
   toolchain-file:
     value: ${{ steps.install.outputs.toolchain-file }}
+  dependency-toolchain-file:
+    value: ${{ steps.install.outputs.dependency-toolchain-file }}
   target-triple:
     value: ${{ steps.install.outputs.target-triple }}
   version:
@@ -119,7 +123,7 @@ runs:
       if: inputs.obfuscator == 'true'
       shell: pwsh
       env:
-        COMPILER_CXX: ${{ steps.install.outputs.cxx }}
+        COMPILER_CXX: ${{ steps.install.outputs.host-cxx }}
         PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
         OBF_SEED: ${{ inputs.obfuscation-seed }}
       run: |
@@ -136,3 +140,4 @@ runs:
         if ($LASTEXITCODE -ne 0) {
           throw 'Required obfuscator-llvm plugin installation failed, no unprotected fallback'
         }
+
