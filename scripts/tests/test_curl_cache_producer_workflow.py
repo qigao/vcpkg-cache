@@ -87,6 +87,16 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("cache-contracts/tre-producer", self.source)
         self.assertTrue((WORKFLOW.parents[2] / "cache-contracts/tre-producer/vcpkg.json").is_file())
 
+    def test_fresh_reader_rechecks_operator_approved_abi_not_only_version(self):
+        self.assertIn("needs: native-publish", self.reader)
+        self.assertIn("qigao-curl-vcpkg-abi/packages.config", self.reader)
+        self.assertIn("scripts/ci/verify-native-publish-target.py", self.reader)
+        self.assertIn('--expected-id "$EXPECTED_NATIVE_ID"', self.reader)
+        self.assertIn('--expected-version "$EXPECTED_NATIVE_VERSION"', self.reader)
+        self.assertIn("test -s \"$plan\"", self.reader)
+        self.assertIn("--only-binarycaching", self.reader)
+        self.assertNotIn("packages: write", self.reader)
+
     def test_single_canonical_transport_and_no_old_native_provider(self):
         self.assertIn("scripts/publish-vcpkg-curl-cache.py", self.source)
         self.assertNotIn("scripts/publish-vcpkg-curl.py", self.source)

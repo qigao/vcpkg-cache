@@ -310,6 +310,24 @@ jobs:
           triplet: x64-linux
           host-triplet: x64-linux
           manifest-root: cache-contracts/${{ inputs.package_set == 'simde' && 'header-only' || inputs.package_set == 'wabt' && 'wabt-producer' || 'tre-producer' }}
+      - name: Require exact approved native ABI from the curl restoration plan
+        shell: bash
+        env:
+          PACKAGE_SET: ${{ inputs.package_set }}
+          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
+          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
+        run: |
+          set -euo pipefail
+          # setup-vcpkg-curl-cache produced the actual vcpkg dry-run plan and
+          # fetched those exact ZIPs. Do not rerun a second resolver or
+          # infer an ABI from the package name / successful restore count.
+          plan="$RUNNER_TEMP/qigao-curl-vcpkg-abi/packages.config"
+          test -s "$plan"
+          python3 scripts/ci/verify-native-publish-target.py \
+            --plan "$plan" --package-set "$PACKAGE_SET" \
+            --expected-id "$EXPECTED_NATIVE_ID" \
+            --expected-version "$EXPECTED_NATIVE_VERSION"
+
       - name: Require binary-only native install from fresh L1 without Mono
         shell: bash
         env:
