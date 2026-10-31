@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 import xml.etree.ElementTree as ET
 
 
@@ -124,6 +125,78 @@ class ExactArchive404Classification(unittest.TestCase):
         self.assertEqual(feed.calls, [
             ("archive", "first_x64-windows", "0.0.0-vcpkg" + ABI, True),
             ("metadata", "first_x64-windows"),
+        ])
+
+
+    def test_successful_exact_archives_restore_without_metadata_lookup(self):
+        """Normal cache hits must remain read-only, exact-ABI and metadata-free."""
+
+        class PresentFeed(self.Feed):
+            def package(self, identity, version, destination, allow_not_found=False):
+                self.calls.append(("archive", identity, version, allow_not_found))
+                name, architecture = identity.split("_", 1)
+                abi = version.split("-vcpkg", 1)[1]
+                with zipfile.ZipFile(destination, "w") as archive:
+                    archive.writestr(
+                        f"{name}.nuspec",
+                        f"<package><metadata><id>{identity}</id>"
+                        f"<version>{version}</version></metadata></package>")
+                    archive.writestr(
+                        "CONTROL",
+                        f"Package: {name}\nArchitecture: {architecture}\nAbi: {abi}\n")
+                    archive.writestr("BUILD_INFO", "test: synthetic native package\n")
+                    archive.writestr(f"include/{name}.h", name)
+                return True
+
+        feed = PresentFeed(inaccessible=True)
+        packages = [
+            ("simde_x64-windows", "a" * 64),
+            ("fmt_x64-windows", "b" * 64),
+        ]
+        with tempfile.TemporaryDirectory() as work:
+            config = Path(work) / "packages.config"
+            cache = Path(work) / "cache"
+            root = ET.Element("packages")
+            for identity, abi in packages:
+                ET.SubElement(root, "package", id=identity,
+                              version="0.0.0-vcpkg" + abi)
+            ET.ElementTree(root).write(config, encoding="utf-8")
+            self.assertEqual(github_packages.restore_cache(feed, config, cache), (2, 0))
+            for identity, abi in packages:
+                archive_path = cache / abi[:2] / f"{abi}.zip"
+                self.assertTrue(archive_path.is_file())
+                with zipfile.ZipFile(archive_path) as restored:
+                    self.assertEqual(
+                        restored.read(f"include/{identity.split('_', 1)[0]}.h"),
+                        identity.split("_", 1)[0].encode())
+                    self.assertIn("CONTROL", restored.namelist())
+                    self.assertIn("BUILD_INFO", restored.namelist())
+                    self.assertFalse(any(name.endswith(".nuspec")
+                                         for name in restored.namelist()))
+        self.assertEqual(feed.calls, [
+            ("archive", identity, "0.0.0-vcpkg" + abi, True)
+            for identity, abi in packages
+        ])
+
+    def test_non_404_download_error_does_not_query_metadata(self):
+        """Only an actual archive 404 can trigger the diagnostic version probe."""
+
+        class TransportErrorFeed(self.Feed):
+            def package(self, identity, version, destination, allow_not_found=False):
+                self.calls.append(("archive", identity, version, allow_not_found))
+                raise OSError("simulated HTTP 403")
+
+        feed = TransportErrorFeed(inaccessible=True)
+        with tempfile.TemporaryDirectory() as work:
+            config = Path(work) / "packages.config"
+            root = ET.Element("packages")
+            ET.SubElement(root, "package", id="simde_x64-windows",
+                          version="0.0.0-vcpkg" + ABI)
+            ET.ElementTree(root).write(config, encoding="utf-8")
+            with self.assertRaisesRegex(OSError, "simulated HTTP 403"):
+                github_packages.restore_cache(feed, config, Path(work) / "cache")
+        self.assertEqual(feed.calls, [
+            ("archive", "simde_x64-windows", "0.0.0-vcpkg" + ABI, True),
         ])
 
 
