@@ -307,13 +307,19 @@ jobs:
       contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select real LLVM-MinGW UCRT compiler and dependency chainload
+        id: llvm
+        uses: ./.github/actions/setup-llvm-mingw
+        with:
+          target: x64
+          build-type: toolchain-only
       - id: cache
         uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
           manifest-root: cache-contracts/optional-feature
-          triplet: x64-windows
-          host-triplet: x64-windows
+          triplet: qigao-x64-windows-llvm-mingw
+          host-triplet: qigao-x64-windows-llvm-mingw
       - name: Verify canonical contract identity
         shell: pwsh
         env:
