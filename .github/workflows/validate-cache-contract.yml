@@ -377,9 +377,30 @@ jobs:
           foreach ($required in @(
             'set(VCPKG_TARGET_ARCHITECTURE x64)',
             'set(VCPKG_CMAKE_SYSTEM_NAME MinGW)',
+            'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "$ENV{LLVM_MINGW_HOST_DEPENDENCY_TOOLCHAIN_FILE}")'
+          )) {
+            if (-not $tripletText.Contains($required)) { throw "MinGW host triplet declaration missing: $required" }
+          }
+          # A Windows x64 runner may build ARM64 libraries. The independent
+          # x64 host compiler must be available for all native build tools.
+          foreach ($file in @($env:LLVM_MINGW_HOST_DEPENDENCY_TOOLCHAIN_FILE,
+                              $env:LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE)) {
+            if ([string]::IsNullOrWhiteSpace($file) -or
+                -not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw 'LLVM-MinGW host/target dependency toolchain is missing'
+            }
+          }
+          $armTriplet = Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "triplets\qigao-arm64-windows-llvm-mingw.cmake"
+          if (-not (Test-Path -LiteralPath $armTriplet -PathType Leaf)) {
+            throw 'Canonical Windows ARM64 MinGW triplet is missing'
+          }
+          $armText = Get-Content -LiteralPath $armTriplet -Raw
+          foreach ($required in @(
+            'set(VCPKG_TARGET_ARCHITECTURE arm64)',
+            'set(VCPKG_CMAKE_SYSTEM_NAME MinGW)',
             'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "$ENV{LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE}")'
           )) {
-            if (-not $tripletText.Contains($required)) { throw "MinGW triplet declaration missing: $required" }
+            if (-not $armText.Contains($required)) { throw "MinGW target triplet declaration missing: $required" }
           }
           if (Test-Path (Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "triplets\qigao-x64-windows-v145.cmake")) {
             throw 'retired v145 triplet must not be copied'
