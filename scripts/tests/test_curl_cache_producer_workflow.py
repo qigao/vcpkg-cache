@@ -94,10 +94,10 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/master'", self.producer)
         self.assertIn("native-cache-publish", self.publisher)
         self.assertIn("needs: native-publish", self.reader)
-        self.assertIn('tre:x64-linux@0.9.0#1', self.reader)
-        self.assertIn("x64-linux/include/tre/tre.h", self.reader)
-        self.assertIn("x64-linux/lib/libtre.a", self.reader)
-        self.assertIn("x64-linux/share/unofficial-tre/unofficial-tre-config.cmake",
+        self.assertIn('tre:${TARGET_TRIPLET}@0.9.0#1', self.reader)
+        self.assertIn("${TARGET_TRIPLET}/include/tre/tre.h", self.reader)
+        self.assertIn("${TARGET_TRIPLET}/lib/libtre.a", self.reader)
+        self.assertIn("${TARGET_TRIPLET}/share/unofficial-tre/unofficial-tre-config.cmake",
                       self.reader)
         self.assertIn("cache-contracts/tre-producer", self.source)
         self.assertTrue((WORKFLOW.parents[2] / "cache-contracts/tre-producer/vcpkg.json").is_file())
@@ -111,6 +111,22 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("test -s \"$plan\"", self.reader)
         self.assertIn("--only-binarycaching", self.reader)
         self.assertNotIn("packages: write", self.reader)
+
+    def test_tre_target_selection_is_explicit_and_provenance_bound(self):
+        self.assertIn("options: [x64-linux, arm64-linux, arm64-android]", self.header)
+        self.assertIn("inputs.target_triplet == 'arm64-linux'", self.producer)
+        self.assertIn("inputs.target_triplet == 'arm64-linux'", self.reader)
+        self.assertIn('test "$RUNNER_ARCH" = ARM64', self.producer)
+        self.assertIn("ANDROID_NDK_HOME", self.producer)
+        self.assertIn("Only TRE has approved cross-triplet native sets", self.producer)
+        self.assertIn('PRODUCER_TARGET_TRIPLET=$TARGET_TRIPLET', self.producer)
+        self.assertIn('PRODUCER_HOST_TRIPLET=$host', self.producer)
+        self.assertIn('target_triplet=%s', self.producer)
+        self.assertIn('grep -Fx "target_triplet=$TARGET_TRIPLET"', self.publisher)
+        self.assertIn('grep -Fx "host_triplet=$TARGET_TRIPLET"', self.publisher)
+        self.assertIn('--triplet "$TARGET_TRIPLET"', self.publisher)
+        self.assertIn('--triplet "$TARGET_TRIPLET"', self.reader)
+        self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
 
     def test_single_canonical_transport_and_no_old_native_provider(self):
         self.assertIn("scripts/publish-vcpkg-curl-cache.py", self.source)
