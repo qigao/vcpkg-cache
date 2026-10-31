@@ -71,6 +71,30 @@ def validate_inputs(args: argparse.Namespace) -> tuple[dict, dict, Path, dict]:
             "obfuscator-llvm source must be immutable Git commit")
     require(args.host in {"linux-x64", "linux-arm64", "macos-arm64"},
             "no approved native host/plugin build profile for this CPU")
+    runner18 = getattr(args, "runner_llvm18_candidate", False)
+    if runner18:
+        entry = llvm.get("runner_candidates", {}).get("macos-arm64", {})
+        require(args.host == args.target == "macos-arm64" and
+                entry.get("distribution") == "homebrew-preinstalled-candidate-only" and
+                entry.get("formula") == "llvm@18" and
+                entry.get("llvm_version") == "18.1.8" and
+                entry.get("release_qualified") is False,
+                "runner LLVM 18 is only a macOS ARM64 non-Release candidate")
+        require(args.llvm_root.is_absolute() and args.llvm_root.is_dir(),
+                "runner LLVM 18 candidate requires existing absolute Homebrew root")
+        root = args.llvm_root.resolve()
+        installed_prefix = Path(command(["brew", "--prefix", "llvm@18"],
+                                        ROOT, os.environ.copy())).resolve()
+        require(installed_prefix == root,
+                "runner LLVM root is not the installed llvm@18 Homebrew prefix")
+        for name in ("clang", "clang++", "llvm-config", "llvm-ar"):
+            require((root / "bin" / name).is_file(),
+                    "runner llvm@18 is missing required upstream LLVM tool " + name)
+        require(args.output.is_absolute() and not args.output.exists(),
+                "candidate build output must be a fresh absolute path")
+        return source, {"llvm_version": "18.1.8",
+                        "source_commit": None,
+                        "runner_candidate_only": True}, root, {"sha256": None}
     assets = [a for a in llvm["assets"] if a["host"] == args.host]
     require(llvm["distribution"] == "pinned" and len(assets) == 1 and
             llvm["llvm_version"] == "23.1.4" and
@@ -127,10 +151,12 @@ def build(args: argparse.Namespace) -> dict:
     config = root / "bin" / "llvm-config"
     llvm_version = command([str(config), "--version"], root, build_env)
     require(llvm_version == llvm["llvm_version"],
-            "llvm-config from installed immutable distribution is not LLVM 23.1.4")
+            "llvm-config does not match the explicitly selected LLVM host version")
     clang_version = command([str(clang), "--version"], root, build_env)
-    require(re.search(r"\bclang version 23\.1\.4\b", clang_version) is not None,
-            "clang compiler does not match plugin LLVM ABI")
+    require(re.search(r"\bclang version " + re.escape(llvm["llvm_version"]) + r"\b",
+                      clang_version) is not None and
+            "Apple clang" not in clang_version,
+            "actual upstream Clang does not match the selected LLVM plugin ABI")
     cmake_dir = Path(command([str(config), "--cmakedir"], root, build_env))
     require(cmake_dir.is_absolute() and clean_within(cmake_dir, root) and
             (cmake_dir / "LLVMConfig.cmake").is_file(),
@@ -164,6 +190,12 @@ def build(args: argparse.Namespace) -> dict:
         require(bool(sdk) and Path(sdk).is_absolute() and Path(sdk).is_dir(),
                 "real macOS LLVM plugin requires SDKROOT from xcrun")
         cmake_args.append("-DCMAKE_OSX_SYSROOT=" + str(Path(sdk).resolve()))
+        if getattr(args, "runner_llvm18_candidate", False):
+            # A Clang-loaded pass plugin on Mach-O resolves LLVM symbols
+            # from its host. The real -fpass-plugin execution is mandatory:
+            # linker permissiveness alone cannot qualify this candidate.
+            cmake_args.append(
+                "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-undefined,dynamic_lookup")
     command(cmake_args, args.output, build_env)
     command(["cmake", "--build", str(builddir), "--target", "LLVMObfuscator",
              "--parallel", "2"], args.output, build_env, timeout=2400)
@@ -190,6 +222,11 @@ def build(args: argparse.Namespace) -> dict:
         "llvm_version": llvm["llvm_version"],
         "llvm_source_commit": llvm["source_commit"],
         "compiler_archive_sha256": asset["sha256"],
+        "compiler_source": ("runner-homebrew-llvm18-candidate-only"
+                            if getattr(args, "runner_llvm18_candidate", False)
+                            else "pinned-official-LLVM23-archive"),
+        "runner_candidate_only": bool(getattr(args, "runner_llvm18_candidate", False)),
+        "llvm_root": str(root),
         "compiler_sha256": checksum(clang),
         "clangxx_sha256": checksum(clangxx),
         "llvm_config_sha256": checksum(config),
@@ -203,13 +240,16 @@ def build(args: argparse.Namespace) -> dict:
     gate = ROOT / "scripts" / "ci" / "verify_llvm_mingw_obfuscation.py"
     require(gate.is_file(), "single LLVM IR proof owner was not found")
     proofdir = artifactdir / "preflight"
-    command([sys.executable, str(gate),
-             "--compiler-family", "llvm-native",
-             "--compiler", str(clang), "--plugin", str(dest),
-             "--candidate-plugin-manifest", str(receipt),
-             "--host", args.host, "--target", args.target,
-             "--build-type", "Release", "--require-native",
-             "--output", str(proofdir)], args.output, build_env, timeout=900)
+    gate_argv = [sys.executable, str(gate),
+                 "--compiler-family", "llvm-native",
+                 "--compiler", str(clang), "--plugin", str(dest),
+                 "--candidate-plugin-manifest", str(receipt),
+                 "--host", args.host, "--target", args.target,
+                 "--build-type", "Release", "--require-native",
+                 "--output", str(proofdir)]
+    if getattr(args, "runner_llvm18_candidate", False):
+        gate_argv.append("--runner-llvm18-candidate")
+    command(gate_argv, args.output, build_env, timeout=900)
     proof = json.loads((proofdir / "obfuscation-preflight.json").read_text())
     require(proof["status"] == "source-built-candidate-preflight-only"
             and proof["candidate_only"] is True
@@ -236,6 +276,8 @@ def main() -> int:
     parser.add_argument("--host", required=True)
     parser.add_argument("--target", required=True)
     parser.add_argument("--llvm-root", required=True, type=Path)
+    parser.add_argument("--runner-llvm18-candidate", action="store_true",
+                        help="Homebrew runner LLVM 18, native diagnostic only; no Release")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:

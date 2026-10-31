@@ -149,14 +149,16 @@ def function_body(ir: str) -> str:
     return match.group(1)
 
 
-def check_pin(contract: dict, host: str, plugin: Path) -> dict:
+def check_pin(contract: dict, host: str, plugin: Path,
+              expected_version: str | None = None) -> dict:
     source = contract["sources"]["obfuscator-llvm"]
     matches = [p for p in source["host_plugin_assets"] if p["host"] == host]
     require(len(matches) == 1,
             f"Release blocked: no unique pinned obfuscator-llvm binary for {host}")
     pin = matches[0]
     require(pin["source_commit"] == source["source_commit"] and
-            pin["llvm_version"] == contract["sources"]["llvm-mingw"]["llvm_version"],
+            pin["llvm_version"] == (expected_version or
+                                     contract["sources"]["llvm-mingw"]["llvm_version"]),
             "host LLVM plugin source/ABI identity does not match locked compiler")
     require(plugin.is_absolute() and plugin.is_file(),
             "plugin must be an existing absolute host binary path")
@@ -178,6 +180,19 @@ def verify(args: argparse.Namespace) -> dict:
     # and still returns release_qualified=False. Product actions never set it.
     # The candidate is NOT persisted to the canonical Release lock.
     candidate = getattr(args, "candidate_plugin_manifest", None)
+    runner18 = bool(getattr(args, "runner_llvm18_candidate", False))
+    if runner18:
+        require(candidate is not None and args.compiler_family == "llvm-native" and
+                args.host == args.target == "macos-arm64" and args.require_native,
+                "runner LLVM 18 is forbidden outside native candidate-only proof")
+    runner_profile = contract["sources"]["llvm-native"].get(
+        "runner_candidates", {}).get("macos-arm64", {})
+    if runner18:
+        require(runner_profile.get("distribution") ==
+                    "homebrew-preinstalled-candidate-only" and
+                runner_profile.get("llvm_version") == "18.1.8" and
+                runner_profile.get("release_qualified") is False,
+                "runner LLVM 18 candidate policy missing")
     if candidate is not None:
         require(args.compiler_family == "llvm-native" and
                 args.host == args.target and args.require_native,
@@ -188,11 +203,19 @@ def verify(args: argparse.Namespace) -> dict:
                 manifest.get("host") == args.host and
                 manifest.get("source_commit") == source_pin["source_commit"] and
                 manifest.get("llvm_version") ==
-                    contract["sources"]["llvm-native"]["llvm_version"] and
+                    (runner_profile["llvm_version"] if runner18 else
+                     contract["sources"]["llvm-native"]["llvm_version"]) and
+                manifest.get("runner_candidate_only") is runner18 and
                 manifest.get("plugin_sha256") and
                 manifest.get("plugin_sha256") == sha(args.plugin) and
                 manifest.get("compiler_sha256") == sha(args.compiler),
                 "candidate LLVM plugin source/compiler/host/digest mismatch")
+        if runner18:
+            expected_root = Path(manifest.get("llvm_root", "/not-a-prefix")).resolve()
+            require(manifest.get("compiler_source") ==
+                        "runner-homebrew-llvm18-candidate-only" and
+                    args.compiler.resolve() == (expected_root / "bin" / "clang").resolve(),
+                    "runner LLVM 18 candidate compiler origin mismatch")
         extension = (".dll" if args.host.startswith("windows-") else
                      ".dylib" if args.host.startswith("macos-") else ".so")
         require(args.plugin.name == manifest.get("plugin_name") and
@@ -226,8 +249,9 @@ def verify(args: argparse.Namespace) -> dict:
         require(args.host == args.target,
                 "native LLVM Release must compile and run on the requested host architecture")
         native = contract["sources"]["llvm-native"]
-        require(native["distribution"] == "pinned" and any(
-                item["host"] == args.host for item in native["assets"]),
+        require(runner18 or
+                (native["distribution"] == "pinned" and any(
+                 item["host"] == args.host for item in native["assets"])),
                 "native LLVM distribution not SHA256-pinned for actual Release host")
 
     require(args.host in ("windows-x64", "windows-arm64", "linux-x64",
@@ -237,10 +261,12 @@ def verify(args: argparse.Namespace) -> dict:
             "compiler must be the installed absolute llvm-mingw clang")
     require(SEED.fullmatch(args.seed) is not None, "LLVM obfuscator seed must be 16 bytes hex")
     require(not args.output.exists(), "proof output directory must be fresh")
-    pin = check_pin(contract, args.host, args.plugin)
+    pin = check_pin(contract, args.host, args.plugin,
+                    runner_profile["llvm_version"] if runner18 else None)
     clang_version = run([str(args.compiler), "--version"],
                         cwd=LOCK.parent, env=os.environ.copy())
-    required_version = contract["sources"][args.compiler_family]["llvm_version"]
+    required_version = (runner_profile["llvm_version"] if runner18 else
+                        contract["sources"][args.compiler_family]["llvm_version"])
     require(re.search(r"\bclang version " + re.escape(required_version) + r"\b",
                       clang_version) is not None,
             "actual llvm-mingw clang version differs from pinned plugin ABI")
@@ -342,6 +368,9 @@ def verify(args: argparse.Namespace) -> dict:
                    else "compiler-plugin-preflight-only"),
         "release_qualified": False,
         "candidate_only": candidate is not None,
+        "runner_llvm18_candidate": runner18,
+        "compiler_source": ("runner-homebrew-llvm18-candidate-only" if runner18
+                            else "pinned-official-LLVM23-archive"),
         "target_native_execution": native,
         "host": args.host, "target": args.target,
         "compiler_family": args.compiler_family,
@@ -350,10 +379,10 @@ def verify(args: argparse.Namespace) -> dict:
         "build_type": args.build_type,
         "clang_version": required_version,
         "compiler_sha256": sha(args.compiler),
-        "compiler_archive_sha256": next(
+        "compiler_archive_sha256": (None if runner18 else next(
             (a["sha256"] for a in contract["sources"][args.compiler_family]["assets"]
              if a["host"] == args.host or
-             (a["host"] == "macos-universal" and args.host.startswith("macos-"))), None),
+             (a["host"] == "macos-universal" and args.host.startswith("macos-"))), None)),
         "obfuscator_source_commit": source["source_commit"],
         "host_plugin_sha256": pin["sha256"], "host_plugin_name": pin["name"],
         "pass_pipeline": pipeline, "verified_named_passes": pass_digests,
@@ -381,6 +410,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plugin", type=Path, required=True)
     parser.add_argument("--candidate-plugin-manifest", type=Path,
                         help="CI-only source-built plugin receipt; never qualifies Release")
+    parser.add_argument("--runner-llvm18-candidate", action="store_true",
+                        help="macOS runner Homebrew LLVM18, diagnostic candidate only")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--host", required=True)
     parser.add_argument("--target", choices=tuple(MACHINES), required=True)

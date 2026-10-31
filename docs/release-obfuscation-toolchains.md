@@ -296,3 +296,27 @@ The digest is recorded **candidate-only** in the central lock; the short-retenti
 The **existing** compiler setup workflow now supports an explicitly opted-in `macos-15` Apple Silicon (ARM64) source-build job, with immutable official `LLVM-23.1.4-macOS-ARM64.tar.xz`, host-specific CMake/Ninja/ccache, exact source SHA plugin, LLVM pass IR differential checks and actual Mach-O ARM64 runtime parity. Enable only the `[host-plugin-macos-arm64]` marker in the Draft PR body while the job is needed, then disable it after verified candidate proof. This is **not** an AppleClang Release compiler, not a newly created workflow, and not an automatic Release approval. macOS x64 remains independently blocked by missing native LLVM distribution.
 
 **macOS SDK boundary:** The official LLVM 23.1.4 Clang is **not** AppleClang and requires an explicit sysroot to resolve `libSystem` on GitHub ARM64. `setup-llvm-native` invokes `xcrun --sdk macosx --show-sdk-path` only to locate Xcode SDK data, exports validated `SDKROOT`, uses `-isysroot` on the pinned Clang smoke and LLVM IR preflight, and `CMAKE_OSX_SYSROOT` on CMake plugin builds. Missing SDK fails before the large archive download. No compiler or linker fallback is allowed.
+
+### Fast macOS runner LLVM 18 compatibility candidate (not a Release compiler)
+
+The stock GitHub `macos-15` Apple Silicon runner lists **Homebrew `llvm@18`
+18.1.8**, independent of its AppleClang/Xcode 17 toolchain. For rapid
+obfuscator plugin compatibility iteration, the **existing macOS candidate job**
+may now use `$(brew --prefix llvm@18)/bin/{clang,clang++,llvm-config}`
+without downloading/decompressing the ~1.57 GB LLVM 23.1.4 archive.
+It pins the expected version, uses the actual Xcode SDK for headers/libSystem,
+records Clang/LLVM-config/plugin SHA256 in the candidate manifest, and
+requires real `-fpass-plugin` load, individual `flattening`/`substitution`
+IR modifications, Mach-O ARM64 native execution and parity.
+The candidate explicitly records `runner_candidate_only=true`,
+`compiler_source=runner-homebrew-llvm18-candidate-only` and
+`release_qualified=false`. It **cannot** satisfy the separately pinned LLVM
+23.1.4 native Release profile or be silently substituted into downstream builds.
+GitHub runner image updates can change the Homebrew package: mismatched
+versions fail immediately, rather than falling back to AppleClang.
+
+This runner compiler experiment is an explicit choice to reduce CI feedback
+time, *not* evidence that LLVM 18/23 share plugin ABI or proof that the
+upstream source builds on macOS. After the native LLVM 18 plugin actually
+passes, decide whether to independently qualify an immutable LLVM18
+production archive/plugin or return to the original LLVM23 locked compiler.

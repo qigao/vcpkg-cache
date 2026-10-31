@@ -105,7 +105,18 @@
         "macos-x64"
       ],
       "provenance": "llvmorg-23.1.4 official GitHub release asset SHA256 digest verified from release metadata; runtime and plugin unqualified",
-      "license_notes": "LLVM distribution source and runtime licensing must be reviewed before redistributing product installers"
+      "license_notes": "LLVM distribution source and runtime licensing must be reviewed before redistributing product installers",
+      "runner_candidates": {
+        "macos-arm64": {
+          "distribution": "homebrew-preinstalled-candidate-only",
+          "formula": "llvm@18",
+          "llvm_version": "18.1.8",
+          "host": "macos-arm64",
+          "release_qualified": false,
+          "no_release_fallback": true,
+          "reason": "short feedback loop; not the pinned LLVM 23.1.4 Release compiler"
+        }
+      }
     },
     "obfuscator-llvm": {
       "repository": "eshard/obfuscator-llvm",

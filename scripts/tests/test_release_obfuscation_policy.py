@@ -130,6 +130,35 @@ class ReleaseObfuscationPolicyTests(unittest.TestCase):
             with self.assertRaisesRegex(builder.CandidateError, "no supported"):
                 builder.pinned_host_build_environment("windows-x64", root)
 
+    def test_runner_homebrew_llvm18_is_candidate_only(self):
+        candidate = self.data()["sources"]["llvm-native"]["runner_candidates"]["macos-arm64"]
+        self.assertEqual(candidate["llvm_version"], "18.1.8")
+        self.assertEqual(candidate["formula"], "llvm@18")
+        self.assertIs(candidate["release_qualified"], False)
+        with tempfile.TemporaryDirectory() as scratch:
+            base = pathlib.Path(scratch)
+            args = argparse.Namespace(
+                compiler_family="llvm-native", host="macos-arm64",
+                target="macos-arm64", require_native=True,
+                runner_llvm18_candidate=True,
+                candidate_plugin_manifest=None)
+            with self.assertRaisesRegex(proof.GateError,
+                                        "forbidden outside native candidate-only"):
+                proof.verify(args)
+            args.host = "linux-x64"
+            args.target = "linux-x64"
+            args.candidate_plugin_manifest = base / "not-a-manifest.json"
+            with self.assertRaisesRegex(proof.GateError,
+                                        "forbidden outside native candidate-only"):
+                proof.verify(args)
+
+    def test_runner_llvm18_cannot_override_llvm23_release_lock(self):
+        data = self.data()
+        data["sources"]["llvm-native"]["llvm_version"] = "18.1.8"
+        with self.assertRaisesRegex(module.PolicyError,
+                                    "native Release LLVM source tag must match"):
+            module.validate_contract(data)
+
     def test_source_plugin_builder_has_exact_scope_and_no_release_fallback(self):
         with tempfile.TemporaryDirectory() as scratch:
             candidate = argparse.Namespace(

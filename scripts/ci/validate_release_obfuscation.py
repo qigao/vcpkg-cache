@@ -124,6 +124,21 @@ def validate_contract(data: dict[str, Any]) -> None:
     require(sources["llvm-mingw"].get("llvm_version") == "23.1.4",
             "LLVM release compiler version changed; review plugin ABI")
     native_source = sources["llvm-native"]
+    # Separate non-Release CI lane: existing Homebrew llvm@18 may be used
+    # for quick macOS plugin experiments, never as a substitute for LLVM 23.
+    runner = native_source.get("runner_candidates", {})
+    require(isinstance(runner, dict) and
+            set(runner) == {"macos-arm64"} and
+            runner["macos-arm64"] == {
+                "distribution": "homebrew-preinstalled-candidate-only",
+                "formula": "llvm@18",
+                "llvm_version": "18.1.8",
+                "host": "macos-arm64",
+                "release_qualified": False,
+                "no_release_fallback": True,
+                "reason": "short feedback loop; not the pinned LLVM 23.1.4 Release compiler",
+            },
+            "runner LLVM 18 must remain a separate macOS candidate-only compiler")
     require(native_source.get("repository") == "llvm/llvm-project" and
             native_source.get("source_tag") == "llvmorg-23.1.4" and
             native_source.get("llvm_version") ==
