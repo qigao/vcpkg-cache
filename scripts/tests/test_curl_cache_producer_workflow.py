@@ -60,6 +60,8 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("git ls-remote --exit-code", self.publisher)
         self.assertIn('test "$remote_master" = "$EXPECTED_MASTER_SHA"', self.publisher)
         self.assertIn("--publish", self.publisher)
+        self.assertIn("--approved-id", self.publisher)
+        self.assertIn("--approved-version", self.publisher)
         self.assertIn("REQUIRE_NEW_UPLOAD", self.publisher)
         self.assertIn("existing-only verification cannot qualify", self.publisher)
 

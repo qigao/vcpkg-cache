@@ -259,6 +259,52 @@ class CurlCachePublisherTests(unittest.TestCase):
             with mock.patch.object(publisher.subprocess, "run", side_effect=fake_run):
                 publisher.upload(Client(), "https://nuget.pkg.github.com/qigao/api/v2/package", source)
 
+    def test_protected_publish_uploads_only_one_explicitly_approved_native_abi(self):
+        import os
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cache = root / "cache"
+            approved_abi = "b" * 64
+            approved_version = "0.9.0-vcpkg" + approved_abi
+            for name, version, abi in (
+                ("pkgconf_x64-linux", VERSION, ABI),
+                ("tre_x64-linux", approved_version, approved_abi),
+            ):
+                path = cache / abi[:2] / f"{abi}.zip"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                binary_package(path, package=name.split("_", 1)[0], abi=abi)
+            config = root / "packages.config"
+            plan = ET.Element("packages")
+            ET.SubElement(plan, "package", id="pkgconf_x64-linux", version=VERSION)
+            ET.SubElement(plan, "package", id="tre_x64-linux", version=approved_version)
+            ET.ElementTree(plan).write(config)
+            authorized = {"GITHUB_REPOSITORY": "qigao/vcpkg-cache",
+                          "GITHUB_EVENT_NAME": "workflow_dispatch",
+                          "GITHUB_REF": "refs/heads/master"}
+            cmd = ["publish", "--packages-config", str(config),
+                   "--cache", str(cache), "--publish",
+                   "--approved-id", "tre_x64-linux",
+                   "--approved-version", approved_version]
+            with mock.patch.dict(os.environ, authorized), \
+                 mock.patch("sys.argv", cmd), \
+                 mock.patch.object(publisher.packages, "Curl"), \
+                 mock.patch.object(publisher.packages, "NugetFeed", return_value="feed"), \
+                 mock.patch.object(publisher, "publish", return_value="published") as publish_call:
+                publisher.main()
+                self.assertEqual(publish_call.call_count, 1)
+                args = publish_call.call_args.args
+                self.assertEqual(args[1:3], ("tre_x64-linux", approved_version))
+                self.assertTrue(args[4])
+            with mock.patch.dict(os.environ, authorized), \
+                 mock.patch("sys.argv", cmd[:-2]):
+                with self.assertRaisesRegex(ValueError, "approved exact"):
+                    publisher.main()
+            wrong = cmd[:-1] + ["0.9.0-vcpkg" + "c" * 64]
+            with mock.patch.dict(os.environ, authorized), \
+                 mock.patch("sys.argv", wrong):
+                with self.assertRaisesRegex(ValueError, "absent from exact"):
+                    publisher.main()
+
     def test_zero_publisher_plan_is_rejected_and_duplicate_ids_fail(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

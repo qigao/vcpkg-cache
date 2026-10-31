@@ -257,12 +257,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUIRE_NEW_UPLOAD: ${{ inputs.require_new_upload }}
+          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
+          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
         run: |
           set -euo pipefail
           stage="$GITHUB_WORKSPACE/build/curl-native-producer"
           python3 scripts/publish-vcpkg-curl-cache.py \
             --packages-config "$stage/packages.config" \
             --cache "$stage/cache" --publish \
+            --approved-id "$EXPECTED_NATIVE_ID" \
+            --approved-version "$EXPECTED_NATIVE_VERSION" \
             | tee "$RUNNER_TEMP/approved-native-publish-proof.txt"
           grep -E 'publish_summary total=[1-9][0-9]*' \
             "$RUNNER_TEMP/approved-native-publish-proof.txt"

@@ -310,12 +310,21 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--publish", action="store_true",
                         help="explicitly authorize upload; otherwise verify/dry-run")
+    parser.add_argument("--approved-id", default="",
+                        help="one exact target NuGet ID authorized for upload")
+    parser.add_argument("--approved-version", default="",
+                        help="one exact immutable NuGet ABI version authorized for upload")
     args = parser.parse_args()
     if args.publish:
         if (os.environ.get("GITHUB_REPOSITORY") != "qigao/vcpkg-cache"
                 or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
                 or os.environ.get("GITHUB_REF") != "refs/heads/master"):
             raise ValueError("curl-only native publish requires trusted manual master workflow")
+        if (not IDENTITY.fullmatch(args.approved_id)
+                or not ABI_VERSION.fullmatch(args.approved_version)):
+            raise ValueError("approved exact native package ID and ABI required for upload")
+    elif args.approved_id or args.approved_version:
+        raise ValueError("approved native upload target is only valid with --publish")
     root = ET.parse(args.packages_config).getroot()
     if root.tag != "packages":
         raise ValueError("expected native vcpkg-generated packages.config")
@@ -340,6 +349,15 @@ def main() -> None:
         todo.append((name, version, archive))
     if not todo:
         raise ValueError("publisher requires a nonempty exact ABI package plan")
+    if args.publish:
+        # Validate every local ZIP above but only upload the *one* exact
+        # operator-approved package; dependencies must be published through
+        # their own authorized admissions, not as a hidden side effect.
+        todo = [entry for entry in todo
+                if entry[0] == args.approved_id and
+                   entry[1] == args.approved_version]
+        if len(todo) != 1:
+            raise ValueError("approved native upload target absent from exact vcpkg plan")
     feed = packages.NugetFeed(packages.Curl())
     counters = {"verified-existing": 0, "dry-run": 0, "published": 0}
     for name, version, archive in todo:
