@@ -75,10 +75,14 @@ def build_plugin(repo: Path, cxx: Path, root: Path) -> Path:
     # One exact source-compatibility fix: both LLVM 18 and LLVM 23 provide
     # a default alloca insertion point, but LLVM 18 does not accept the
     # LLVM 23 BasicBlock iterator overload here. No version detection.
-    patch = repo / "patches/obfuscator-llvm/default-phi-alloca-insertion.patch"
-    if not patch.is_file():
-        raise SetupError("Pinned obfuscator source compatibility patch is missing")
-    run(["git", "-C", str(source_dir), "apply", "--whitespace=error", str(patch)])
+    for filename in (
+        "default-phi-alloca-insertion.patch",
+        "fcmp-basicblock-reference.patch",
+    ):
+        patch = repo / "patches/obfuscator-llvm" / filename
+        if not patch.is_file():
+            raise SetupError("Pinned obfuscator source patch is missing: " + filename)
+        run(["git", "-C", str(source_dir), "apply", "--whitespace=error", str(patch)])
     command = [
         "cmake", "-S", str(source_dir), "-B", str(build_dir), "-G", "Ninja",
         "-DLLVM_DIR=" + str(llvm_dir), "-DCMAKE_BUILD_TYPE=Release",
