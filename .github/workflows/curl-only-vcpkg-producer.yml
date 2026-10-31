@@ -146,9 +146,11 @@ jobs:
           test -f "$manifest/vcpkg.json"
           host="$TARGET_TRIPLET"
           if [[ "$TARGET_TRIPLET" == arm64-android ]]; then host=x64-linux; fi
-          echo "ABI_MANIFEST=$manifest" >> "$GITHUB_ENV"
-          echo "PRODUCER_TARGET_TRIPLET=$TARGET_TRIPLET" >> "$GITHUB_ENV"
-          echo "PRODUCER_HOST_TRIPLET=$host" >> "$GITHUB_ENV"
+          {
+            echo "ABI_MANIFEST=$manifest"
+            echo "PRODUCER_TARGET_TRIPLET=$TARGET_TRIPLET"
+            echo "PRODUCER_HOST_TRIPLET=$host"
+          } >> "$GITHUB_ENV"
           echo "Producer manifest: $manifest; target=$TARGET_TRIPLET; host=$host"
       - name: Build native artifacts from the pinned source graph into local L1
         shell: bash
