@@ -14,9 +14,9 @@ import xml.etree.ElementTree as ET
 
 
 PRODUCTS = {
-    "simde": "simde_x64-linux",
-    "wabt": "wabt_x64-linux",
-    "tre": "tre_x64-linux",
+    "simde": ("x64-linux",),
+    "wabt": ("x64-linux",),
+    "tre": ("x64-linux", "arm64-linux", "arm64-android"),
 }
 IDENTITY = re.compile(r"[A-Za-z0-9_.+-]+\Z")
 EXACT_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}\Z")
@@ -26,10 +26,14 @@ MAX_PLAN_SIZE = 1_048_576
 def verify(
     plan: Path, *, package_set: str,
     expected_id: str, expected_version: str,
+    triplet: str = "x64-linux",
 ) -> list[tuple[str, str]]:
-    canonical_id = PRODUCTS.get(package_set)
-    if not canonical_id:
+    allowed = PRODUCTS.get(package_set)
+    if allowed is None:
         raise ValueError("unapproved native source package set")
+    if triplet not in allowed:
+        raise ValueError("unapproved native source target triplet")
+    canonical_id = f"{package_set}_{triplet}"
     if expected_id != canonical_id or not IDENTITY.fullmatch(expected_id):
         raise ValueError("expected NuGet package ID does not match selected product set")
     if not EXACT_VERSION.fullmatch(expected_version):
@@ -72,6 +76,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--package-set", required=True)
+    parser.add_argument("--triplet", default="x64-linux")
     parser.add_argument("--expected-id", required=True)
     parser.add_argument("--expected-version", required=True)
     args = parser.parse_args()
@@ -79,6 +84,7 @@ def main() -> int:
         args.plan, package_set=args.package_set,
         expected_id=args.expected_id,
         expected_version=args.expected_version,
+        triplet=args.triplet,
     )
     print(f"exact_publish_target={args.expected_id}/{args.expected_version}", flush=True)
     print(f"exact_plan_package_count={len(result)}", flush=True)
