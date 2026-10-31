@@ -340,22 +340,435 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & python scripts/setup-vcpkg-curl-cache.py "$env:GITHUB_WORKSPACE"
           if ($LASTEXITCODE -ne 0) { throw 'curl-only vcpkg bootstrap failed' }
-      - name: Compile actual x64 llvm-mingw dependencies into local write-only ABI cache
+      - name: Build exact SaltsCore Windows LLVM-MinGW package closure (local-only)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # The product manifest, not the cache infrastructure manifest, owns
+          # the source/feature graph. Do not use a floating release branch.
+          $coreSha = 'c5141ef4ba766a854c6befc112e722c4f260f4c9'
+          $source = Join-Path $env:RUNNER_TEMP 'saltscore-exact-llvm-mingw-manifest'
+          if (Test-Path -LiteralPath $source) { throw 'Expected a fresh pinned source checkout' }
+          New-Item -ItemType Directory -Path $source | Out-Null
+          & git -C $source init --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore checkout init failed' }
+          & git -C $source remote add origin https://github.com/qigao/salts-core.git
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore checkout remote failed' }
+          & git -C $source fetch --no-tags --depth=1 origin $coreSha
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore source SHA unavailable' }
+          & git -C $source checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore source checkout failed' }
+          if ((& git -C $source rev-parse HEAD).Trim() -ne $coreSha) {
+            throw 'Exact SaltsCore source identity mismatch'
+          }
+
           $triplet = 'qigao-x64-windows-llvm-mingw'
+          $features = @('--x-feature=simd','--x-feature=usb','--x-feature=playback',
+                        '--x-feature=capture','--x-feature=zstd')
+          $provenance = Join-Path $env:GITHUB_WORKSPACE 'build/llvm-mingw-x64-provenance'
+          New-Item -ItemType Directory -Force -Path $provenance | Out-Null
+          $config = Join-Path $provenance 'packages.config'
           $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,write"
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$env:GITHUB_WORKSPACE" "--triplet=$triplet" "--host-triplet=$triplet"
-          if ($LASTEXITCODE -ne 0) { throw 'llvm-mingw native dependency compilation failed; no MSVC fallback' }
+
+          # Real vcpkg owns the exact package IDs/ABI hashes, including host tools.
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$triplet" @features --dry-run "--x-write-nuget-packages-config=$config"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $config)) {
+            throw 'Exact LLVM-MinGW ABI manifest resolution failed'
+          }
+          [xml]$resolved = Get-Content -LiteralPath $config -Raw
+          $required = @($resolved.packages.package)
+          if ($required.Count -lt 1) { throw 'No exact LLVM-MinGW ABI dependencies resolved' }
+          foreach ($entry in $required) {
+            $id = [string]$entry.id
+            $version = [string]$entry.version
+            if (-not $id.EndsWith("_$triplet", [StringComparison]::OrdinalIgnoreCase) -or
+                $version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}
+
+  macos:
+    name: macOS host
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select preinstalled independent LLVM/Clang for macOS dependency builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          llvm="$(brew --prefix llvm@18)"
+          echo "CC=$llvm/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=$llvm/bin/clang++" >> "$GITHUB_ENV"
+          echo "AR=$llvm/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB=$llvm/bin/llvm-ranlib" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install ninja nasm autoconf automake autoconf-archive libtool
+          case "$RUNNER_ARCH" in
+            X64) echo "VCPKG_WARM_TRIPLET=x64-osx" >> "$GITHUB_ENV" ;;
+            ARM64) echo "VCPKG_WARM_TRIPLET=arm64-osx" >> "$GITHUB_ENV" ;;
+            *) echo "unsupported macOS arch: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+      - name: Warm generic macOS cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet "$VCPKG_WARM_TRIPLET"
+
+
+
+  ios-sdk-deps:
+    name: iOS SDK deps / ${{ matrix.name }}
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: device arm64, triplet: arm64-ios}
+          - {name: simulator arm64, triplet: arm64-ios-simulator}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare iOS build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          brew install ninja nasm autoconf automake autoconf-archive libtool
+      - name: Create focused native SDK dependency manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/ios-sdk-deps-manifest"
+          rm -rf "$manifest"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-ios-sdk-deps",
+            "version-string": "1",
+            "dependencies": [
+              {"name":"pkgconf","host":true},
+              "simde",
+              "c-ares",
+              "kcp",
+              "miniaudio",
+              "libusb",
+              "zstd"
+            ],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          echo "IOS_SDK_MANIFEST=$manifest" >> "$GITHUB_ENV"
+      - name: Produce iOS SDK dependency cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/ios-sdk-deps-${{ matrix.triplet }}"
+          rm -rf "$install_root"
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$IOS_SDK_MANIFEST" \
+            --x-install-root="$install_root" \
+            --triplet "${{ matrix.triplet }}" \
+            --host-triplet arm64-osx
+      - name: Verify clean iOS SDK dependency restore from remote L2
+        shell: bash
+        run: |
+          set -euo pipefail
+          empty="$RUNNER_TEMP/empty-ios-sdk-l1-${{ matrix.triplet }}"
+          install_root="$RUNNER_TEMP/ios-sdk-deps-clean-${{ matrix.triplet }}"
+          log="$RUNNER_TEMP/ios-sdk-deps-clean-${{ matrix.triplet }}.log"
+          config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
+          rm -rf "$empty" "$install_root"
+          mkdir -p "$empty"
+          export VCPKG_BINARY_CACHE="$empty"
+          export VCPKG_BINARY_SOURCES="clear;files,$empty,read;nugettimeout,1800;nugetconfig,$config,read"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$IOS_SDK_MANIFEST" \
+            --x-install-root="$install_root" \
+            --triplet "${{ matrix.triplet }}" \
+            --host-triplet arm64-osx \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          if grep -Eq '^Building [^:]+' "$log"; then
+            echo "source build detected during iOS SDK clean-L2 qualification" >&2
+            exit 1
+          fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          echo "iOS SDK same-runner clean-L2 restore passed: ${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
+
+  mir-jit-macos-warm:
+    name: macOS MIR JIT warm
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install ninja
+          test "$(uname -m)" = "arm64"
+      - name: Warm unversioned MIR JIT cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mir-jit-unversioned"
+          install_root="$RUNNER_TEMP/mir-jit-unversioned-install"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-mir-jit-unversioned-cache",
+            "version-string": "1",
+            "dependencies": ["mir-jit"]
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-osx
+          test -f "$install_root/arm64-osx/share/MIR/MIRConfig.cmake"
+      - name: Verify macOS MIR JIT clean restore from remote L2
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mir-jit-unversioned"
+          install_root="$RUNNER_TEMP/mir-jit-unversioned-clean"
+          empty="$RUNNER_TEMP/empty-mir-jit-macos-l1"
+          log="$RUNNER_TEMP/mir-jit-arm64-osx.log"
+          config="$RUNNER_TEMP/qigao-vcpkg-nuget.config"
+          rm -rf "$install_root" "$empty"
+          mkdir -p "$empty"
+          export VCPKG_BINARY_CACHE="$empty"
+          export VCPKG_BINARY_SOURCES="clear;files,$empty,read;nugettimeout,1800;nugetconfig,$config,read"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-osx \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          if grep -Eq '^Building mir-jit:' "$log"; then
+            echo "mir-jit source build detected during same-runner clean-L2 qualification" >&2
+            exit 1
+          fi
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          test -f "$install_root/arm64-osx/share/MIR/MIRConfig.cmake"
+          echo "macOS MIR JIT same-runner clean-L2 restore passed" >> "$GITHUB_STEP_SUMMARY"
+
+  mir-jit-cache-contract:
+    name: MIR JIT clean L2 / ${{ matrix.triplet }}
+    needs: linux
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, triplet: x64-linux}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-mir-jit-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Create focused MIR JIT manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/mir-jit-manifest"
+          rm -rf "$manifest"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-mir-jit-cache-contract",
+            "version-string": "1",
+            "dependencies": ["mir-jit"]
+          }
+          EOF
+          echo "MIR_JIT_MANIFEST_ROOT=$manifest" >> "$GITHUB_ENV"
+      - name: Verify MIR JIT cache-only restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.triplet }}" == "arm64-osx" ]]; then
+            test "$(uname -m)" = "arm64"
+          fi
+          install_root="$RUNNER_TEMP/mir-jit-install-${{ matrix.triplet }}"
+          log="$RUNNER_TEMP/mir-jit-${{ matrix.triplet }}.log"
+          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$MIR_JIT_MANIFEST_ROOT" \
+            --x-install-root="$install_root" \
+            --triplet "${{ matrix.triplet }}" \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            echo "mir-jit shared-cache restore failed for ${{ matrix.triplet }}" >&2
+            exit "$status"
+          fi
+          if grep -Eq '^Building mir-jit:' "$log"; then
+            echo "mir-jit source build detected during cache-only qualification" >&2
+            exit 1
+          fi
+          grep -Fq 'mir-jit' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          printf 'mir-jit clean-L2 restore passed: %s\n' "${{ matrix.triplet }}" >> "$GITHUB_STEP_SUMMARY"
+
+  wabt-tools-cache-contract:
+    name: WABT tools clean L2 / x64-linux
+    needs: [linux]
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use empty L1 cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$RUNNER_TEMP/empty-wabt-tools-l1"
+          rm -rf "$cache"
+          mkdir -p "$cache"
+          echo "VCPKG_BINARY_CACHE=$cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: read
+      - name: Create focused WABT tools manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/wabt-tools-manifest"
+          rm -rf "$manifest"
+          mkdir -p "$manifest"
+          cat > "$manifest/vcpkg.json" <<'EOF'
+          {
+            "name": "qigao-wabt-tools-cache-contract",
+            "version-string": "1",
+            "dependencies": [
+              {
+                "name": "wabt",
+                "features": ["tools"]
+              }
+            ]
+          }
+          EOF
+          echo "WABT_TOOLS_MANIFEST_ROOT=$manifest" >> "$GITHUB_ENV"
+      - name: Verify WABT tools cache-only restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$RUNNER_TEMP/wabt-tools-install"
+          log="$RUNNER_TEMP/wabt-tools.log"
+          rm -rf "$install_root" "$VCPKG_BINARY_CACHE"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          set +e
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$WABT_TOOLS_MANIFEST_ROOT" \
+            --x-install-root="$install_root" \
+            --triplet x64-linux \
+            --only-binarycaching 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            echo "wabt tools shared-cache restore failed" >&2
+            exit "$status"
+          fi
+          if grep -Eq '^Building wabt(?:\[[^]]+\])?:' "$log"; then
+            echo "wabt source build detected during cache-only qualification" >&2
+            exit 1
+          fi
+          grep -Fq 'wabt' "$log"
+          grep -Eq 'Restored [1-9][0-9]* package\(s\) from NuGet' "$log"
+          test -x "$install_root/x64-linux/tools/wabt/wast2json"
+          echo "WABT tools clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    name: Android arm64
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Prepare host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm autoconf automake libtool
+          test -n "${ANDROID_NDK_HOME:-}"
+      - name: Warm target pkgconf for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/android-pkgconf-manifest"
+          install_root="$RUNNER_TEMP/android-pkgconf-install"
+          rm -rf "$manifest" "$install_root"
+          mkdir -p "$manifest"
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
+          cat > "$manifest/vcpkg.json" <<EOF
+          {
+            "name": "qigao-android-pkgconf-cache-warm",
+            "version-string": "1",
+            "dependencies": ["pkgconf"],
+            "builtin-baseline": "$baseline"
+          }
+          EOF
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root="$manifest" \
+            --x-install-root="$install_root" \
+            --triplet arm64-android
+
+      - name: Warm generic arm64-android cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install --x-manifest-root=. --triplet arm64-android
+) {
+              throw "Unexpected target/host or non-immutable ABI: $id/$version"
+            }
+          }
+          Write-Host "Exact SaltsCore $coreSha LLVM-MinGW ABI count: $($required.Count)"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$triplet" @features
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM-MinGW native dependency compilation failed; no fallback' }
           $packages = @(Get-ChildItem -LiteralPath $env:VCPKG_BINARY_CACHE -Filter '*.zip' -File -Recurse)
-          if ($packages.Count -lt 1) { throw 'No new local MinGW dependency ABI packages produced' }
-          Write-Host "MinGW local ABI artifacts: $($packages.Count)"
-      - name: Retain local ABI packages for separately approved publication
+          if ($packages.Count -ne $required.Count) {
+            throw "Local package count $($packages.Count) differs from exact manifest $($required.Count)"
+          }
+          Write-Host "Local exact LLVM-MinGW native ABI ZIPs: $($packages.Count); NO PUBLISH"
+      - name: Retain exact local ABI and manifest for separately authorized publication
         uses: actions/upload-artifact@v4
         with:
-          name: llvm-mingw-x64-native-abi-${{ github.run_id }}
-          path: build/llvm-mingw-x64-local-cache/
+          name: llvm-mingw-x64-saltscore-${{ github.run_id }}
+          path: |
+            build/llvm-mingw-x64-local-cache/
+            build/llvm-mingw-x64-provenance/packages.config
           if-no-files-found: error
           retention-days: 7
 
