@@ -1,0 +1,7 @@
+{
+  "name": "qigao-tre-native-cache-producer",
+  "version-string": "1",
+  "description": "Focused TRE static binary producer; not a consumer project.",
+  "dependencies": ["tre"],
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01"
+}

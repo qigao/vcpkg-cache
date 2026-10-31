@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 PRODUCTS = {
     "simde": "simde_x64-linux",
     "wabt": "wabt_x64-linux",
+    "tre": "tre_x64-linux",
 }
 IDENTITY = re.compile(r"[A-Za-z0-9_.+-]+\Z")
 EXACT_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}\Z")
@@ -33,6 +34,10 @@ def verify(
         raise ValueError("expected NuGet package ID does not match selected product set")
     if not EXACT_VERSION.fullmatch(expected_version):
         raise ValueError("expected full immutable NuGet ABI version is missing or malformed")
+    # The exact cache source tree pins TRE 0.9.0#1. NuGet versions carry
+    # the upstream version and exact ABI, not the vcpkg port-version suffix.
+    if package_set == "tre" and not expected_version.startswith("0.9.0-vcpkg"):
+        raise ValueError("TRE requires the pinned 0.9.0 exact ABI")
     if not plan.is_file() or plan.stat().st_size > MAX_PLAN_SIZE:
         raise ValueError("missing or unbounded canonical packages.config")
     root = ET.parse(plan).getroot()

@@ -10,7 +10,7 @@ on:
         description: Bounded, audited native vcpkg package set to compile and publish
         required: true
         type: choice
-        options: [simde, wabt]
+        options: [simde, wabt, tre]
       publish:
         description: Actually upload new immutable NuGet V3 versions (false = dry-run)
         required: true
@@ -101,6 +101,7 @@ jobs:
           case "$PACKAGE_SET" in
             simde) manifest="$GITHUB_WORKSPACE/cache-contracts/header-only" ;;
             wabt) manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer" ;;
+            tre) manifest="$GITHUB_WORKSPACE/cache-contracts/tre-producer" ;;
             *) echo "Unqualified producer package set" >&2; exit 1 ;;
           esac
           test -f "$manifest/vcpkg.json"
@@ -304,7 +305,7 @@ jobs:
           mode: read
           triplet: x64-linux
           host-triplet: x64-linux
-          manifest-root: cache-contracts/${{ inputs.package_set == 'simde' && 'header-only' || 'wabt-producer' }}
+          manifest-root: cache-contracts/${{ inputs.package_set == 'simde' && 'header-only' || inputs.package_set == 'wabt' && 'wabt-producer' || 'tre-producer' }}
       - name: Require binary-only native install from fresh L1 without Mono
         shell: bash
         env:
@@ -312,18 +313,30 @@ jobs:
         run: |
           set -euo pipefail
           test "$VCPKG_BINARY_SOURCES" = "clear;files,$VCPKG_BINARY_CACHE,readwrite"
-          manifest="$GITHUB_WORKSPACE/cache-contracts/header-only"
-          if [[ "$PACKAGE_SET" == "wabt" ]]; then
-            manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer"
-          fi
+          case "$PACKAGE_SET" in
+            simde) manifest="$GITHUB_WORKSPACE/cache-contracts/header-only" ;;
+            wabt) manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer" ;;
+            tre) manifest="$GITHUB_WORKSPACE/cache-contracts/tre-producer" ;;
+            *) echo "Unqualified native read-back package set" >&2; exit 1 ;;
+          esac
           "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$manifest" \
             "--x-install-root=$RUNNER_TEMP/verified-native-abi" \
             --triplet=x64-linux --host-triplet=x64-linux --only-binarycaching \
             2>&1 | tee "$RUNNER_TEMP/fresh-binary-verify.log"
           grep -Eq 'Restored [1-9][0-9]* package\(s\)' "$RUNNER_TEMP/fresh-binary-verify.log"
-          if [[ "$PACKAGE_SET" == "simde" ]]; then
-            test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/include/simde/x86/sse.h"
-          else
-            test -x "$RUNNER_TEMP/verified-native-abi/x64-linux/tools/wabt/wast2json"
-          fi
+          case "$PACKAGE_SET" in
+            simde)
+              test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/include/simde/x86/sse.h"
+              ;;
+            wabt)
+              test -x "$RUNNER_TEMP/verified-native-abi/x64-linux/tools/wabt/wast2json"
+              ;;
+            tre)
+              grep -Fq 'tre:x64-linux@0.9.0#1' "$RUNNER_TEMP/fresh-binary-verify.log"
+              test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/include/tre/tre.h"
+              test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/lib/libtre.a"
+              test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/share/unofficial-tre/unofficial-tre-config.cmake"
+              ;;
+            *) echo "Unqualified native read-back package set" >&2; exit 1 ;;
+          esac

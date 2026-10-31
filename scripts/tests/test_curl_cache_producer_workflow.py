@@ -70,6 +70,21 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("packages: write", self.reader)
         self.assertNotIn("setup-vcpkg-cache", self.source)
 
+    def test_tre_is_explicit_master_gated_and_has_fresh_binary_read_back(self):
+        self.assertIn("options: [simde, wabt, tre]", self.header)
+        self.assertIn('tre) manifest="$GITHUB_WORKSPACE/cache-contracts/tre-producer" ;;',
+                      self.producer)
+        self.assertIn("github.ref == 'refs/heads/master'", self.producer)
+        self.assertIn("native-cache-publish", self.publisher)
+        self.assertIn("needs: native-publish", self.reader)
+        self.assertIn('tre:x64-linux@0.9.0#1', self.reader)
+        self.assertIn("x64-linux/include/tre/tre.h", self.reader)
+        self.assertIn("x64-linux/lib/libtre.a", self.reader)
+        self.assertIn("x64-linux/share/unofficial-tre/unofficial-tre-config.cmake",
+                      self.reader)
+        self.assertIn("cache-contracts/tre-producer", self.source)
+        self.assertTrue((WORKFLOW.parents[2] / "cache-contracts/tre-producer/vcpkg.json").is_file())
+
     def test_single_canonical_transport_and_no_old_native_provider(self):
         self.assertIn("scripts/publish-vcpkg-curl-cache.py", self.source)
         self.assertNotIn("scripts/publish-vcpkg-curl.py", self.source)

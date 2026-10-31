@@ -61,6 +61,28 @@ class ManualNativePublisherTargetTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unapproved"):
                 self.verify(file, package_set="other")
 
+    def test_tre_requires_the_exact_selected_native_abi_and_no_alias(self):
+        tre_version = "0.9.0-vcpkg" + ABI
+        with tempfile.TemporaryDirectory() as directory:
+            file = plan(Path(directory) / "config", [("tre_x64-linux", tre_version)])
+            self.assertEqual(
+                self.verify(file, package_set="tre",
+                            expected_id="tre_x64-linux",
+                            expected_version=tre_version),
+                [("tre_x64-linux", tre_version)])
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                self.verify(file, package_set="tre",
+                            expected_id="wabt_x64-linux",
+                            expected_version=tre_version)
+            with self.assertRaisesRegex(ValueError, "pinned 0.9.0"):
+                self.verify(file, package_set="tre",
+                            expected_id="tre_x64-linux",
+                            expected_version=VERSION)
+            with self.assertRaisesRegex(ValueError, "target mismatch"):
+                self.verify(file, package_set="tre",
+                            expected_id="tre_x64-linux",
+                            expected_version="0.9.0-vcpkg" + "b" * 64)
+
     def test_duplicate_missing_or_unsafe_plan_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / "config"
