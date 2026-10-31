@@ -5,7 +5,7 @@ vcpkg_from_github(
     REPO laurikari/tre
     REF 71bfcaf0af3994384987c6c2679ed7d078ffe189
     SHA512 e92738843b9a5830990d83cda16bf925c1f93f2e9d8a72f690829cffd385eed607ec02132e06318608b1ca3f3532f344135838498e77e7dd86e33d0657a96a75
-    PATCHES pointer-width-alignment.patch
+    PATCHES pointer-width-alignment.patch tre-start-position.patch
 )
 
 vcpkg_cmake_configure(
