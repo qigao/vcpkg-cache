@@ -113,7 +113,7 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("packages: write", self.reader)
 
     def test_tre_target_selection_is_explicit_and_provenance_bound(self):
-        self.assertIn("options: [x64-linux, arm64-linux, arm64-android]", self.header)
+        self.assertIn("options: [x64-linux, arm64-linux, arm64-android, arm64-osx, arm64-ios, arm64-ios-simulator]", self.header)
         self.assertIn("inputs.target_triplet == 'arm64-linux'", self.producer)
         self.assertIn("inputs.target_triplet == 'arm64-linux'", self.reader)
         self.assertIn('test "$RUNNER_ARCH" = ARM64', self.producer)
@@ -123,10 +123,32 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn('PRODUCER_HOST_TRIPLET=$host', self.producer)
         self.assertIn('target_triplet=%s', self.producer)
         self.assertIn('grep -Fx "target_triplet=$TARGET_TRIPLET"', self.publisher)
-        self.assertIn('grep -Fx "host_triplet=$TARGET_TRIPLET"', self.publisher)
+        self.assertIn('grep -Fx "host_triplet=$expected_host"', self.publisher)
         self.assertIn('--triplet "$TARGET_TRIPLET"', self.publisher)
         self.assertIn('--triplet "$TARGET_TRIPLET"', self.reader)
         self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
+
+    def test_apple_tre_targets_pin_macos_runner_and_ios_host(self):
+        for triplet in ("arm64-osx", "arm64-ios", "arm64-ios-simulator"):
+            with self.subTest(triplet=triplet):
+                self.assertIn(triplet, self.header)
+                self.assertIn(triplet, self.producer)
+                self.assertIn(triplet, self.reader)
+        self.assertIn("'macos-15'", self.producer)
+        self.assertIn("'macos-15'", self.reader)
+        self.assertIn('test "$RUNNER_OS" = macOS', self.producer)
+        self.assertIn('test "$RUNNER_ARCH" = ARM64', self.producer)
+        self.assertIn('test "$(uname -m)" = arm64', self.producer)
+        self.assertIn('brew install ninja nasm', self.producer)
+        self.assertIn('brew install ninja nasm', self.reader)
+        self.assertIn('arm64-ios|arm64-ios-simulator) host=arm64-osx', self.producer)
+        self.assertIn('arm64-ios|arm64-ios-simulator) host=arm64-osx', self.reader)
+        self.assertIn('arm64-ios|arm64-ios-simulator) expected_host=arm64-osx',
+                      self.publisher)
+        self.assertIn('host_triplet=$expected_host', self.publisher)
+        self.assertIn("environment: native-cache-publish", self.publisher)
+        self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
+        self.assertNotIn("packages: write", self.producer)
 
     def test_single_canonical_transport_and_no_old_native_provider(self):
         self.assertIn("scripts/publish-vcpkg-curl-cache.py", self.source)

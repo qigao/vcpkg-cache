@@ -16,7 +16,7 @@ on:
         required: true
         type: choice
         default: x64-linux
-        options: [x64-linux, arm64-linux, arm64-android]
+        options: [x64-linux, arm64-linux, arm64-android, arm64-osx, arm64-ios, arm64-ios-simulator]
       publish:
         description: Actually upload new immutable NuGet V3 versions (false = dry-run)
         required: true
@@ -64,7 +64,7 @@ jobs:
           github.ref == 'refs/heads/codex/tre-ios-sdk-cache-warm'
         )
       )
-    runs-on: ${{ inputs.target_triplet == 'arm64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ (inputs.target_triplet == 'arm64-osx' || inputs.target_triplet == 'arm64-ios' || inputs.target_triplet == 'arm64-ios-simulator') && 'macos-15' || inputs.target_triplet == 'arm64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 90
     env:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/curl-native-producer/cache
@@ -91,11 +91,23 @@ jobs:
             echo 'Only TRE has approved cross-triplet native sets' >&2; exit 1
           fi
           case "$TARGET_TRIPLET" in
-            x64-linux) test "$RUNNER_ARCH" = X64 ;;
-            arm64-linux) test "$RUNNER_ARCH" = ARM64 ;;
+            x64-linux)
+              test "$RUNNER_OS" = Linux
+              test "$RUNNER_ARCH" = X64
+              ;;
+            arm64-linux)
+              test "$RUNNER_OS" = Linux
+              test "$RUNNER_ARCH" = ARM64
+              ;;
             arm64-android)
+              test "$RUNNER_OS" = Linux
               test "$RUNNER_ARCH" = X64
               test -d "${ANDROID_NDK_HOME:?Android NDK is required}"
+              ;;
+            arm64-osx|arm64-ios|arm64-ios-simulator)
+              test "$RUNNER_OS" = macOS
+              test "$RUNNER_ARCH" = ARM64
+              test "$(uname -m)" = arm64
               ;;
             *) echo 'Unsupported native producer triplet' >&2; exit 1 ;;
           esac
@@ -116,9 +128,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
-            autoconf automake libtool curl
+          case "$RUNNER_OS" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm \
+                autoconf automake libtool curl
+              ;;
+            macOS)
+              brew install ninja nasm autoconf automake autoconf-archive libtool
+              ;;
+            *) echo 'Unsupported native producer runner' >&2; exit 1 ;;
+          esac
           command -v cc
           command -v c++
           command -v ninja
@@ -145,7 +165,10 @@ jobs:
           esac
           test -f "$manifest/vcpkg.json"
           host="$TARGET_TRIPLET"
-          if [[ "$TARGET_TRIPLET" == arm64-android ]]; then host=x64-linux; fi
+          case "$TARGET_TRIPLET" in
+            arm64-android) host=x64-linux ;;
+            arm64-ios|arm64-ios-simulator) host=arm64-osx ;;
+          esac
           {
             echo "ABI_MANIFEST=$manifest"
             echo "PRODUCER_TARGET_TRIPLET=$TARGET_TRIPLET"
@@ -292,11 +315,12 @@ jobs:
           grep -Fx "source_sha=$EXPECTED_MASTER_SHA" source-proof.txt
           grep -Fx 'package_set=${{ inputs.package_set }}' source-proof.txt
           grep -Fx "target_triplet=$TARGET_TRIPLET" source-proof.txt
-          if [[ "$TARGET_TRIPLET" == arm64-android ]]; then
-            grep -Fx 'host_triplet=x64-linux' source-proof.txt
-          else
-            grep -Fx "host_triplet=$TARGET_TRIPLET" source-proof.txt
-          fi
+          expected_host="$TARGET_TRIPLET"
+          case "$TARGET_TRIPLET" in
+            arm64-android) expected_host=x64-linux ;;
+            arm64-ios|arm64-ios-simulator) expected_host=arm64-osx ;;
+          esac
+          grep -Fx "host_triplet=$expected_host" source-proof.txt
           grep -Fx "expected_id=$EXPECTED_NATIVE_ID" source-proof.txt
           grep -Fx "expected_version=$EXPECTED_NATIVE_VERSION" source-proof.txt
           sha256sum --check --status SHA256SUMS
@@ -345,7 +369,7 @@ jobs:
     name: "Fresh runner: exact binary-only GitHub Packages read-back"
     if: ${{ inputs.publish }}
     needs: native-publish
-    runs-on: ${{ inputs.target_triplet == 'arm64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ (inputs.target_triplet == 'arm64-osx' || inputs.target_triplet == 'arm64-ios' || inputs.target_triplet == 'arm64-ios-simulator') && 'macos-15' || inputs.target_triplet == 'arm64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -356,14 +380,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config curl
+          case "$RUNNER_OS" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends ninja-build pkg-config curl
+              ;;
+            macOS)
+              brew install ninja nasm autoconf automake autoconf-archive libtool
+              ;;
+            *) echo 'Unsupported native read-back runner' >&2; exit 1 ;;
+          esac
       - name: Read exact immutable ABI from NuGet V3 with curl
         uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
           triplet: ${{ inputs.target_triplet }}
-          host-triplet: ${{ inputs.target_triplet == 'arm64-android' && 'x64-linux' || inputs.target_triplet }}
+          host-triplet: ${{ inputs.target_triplet == 'arm64-android' && 'x64-linux' || (inputs.target_triplet == 'arm64-ios' || inputs.target_triplet == 'arm64-ios-simulator') && 'arm64-osx' || inputs.target_triplet }}
           manifest-root: cache-contracts/${{ inputs.package_set == 'simde' && 'header-only' || inputs.package_set == 'wabt' && 'wabt-producer' || 'tre-producer' }}
       - name: Require exact approved native ABI from the curl restoration plan
         shell: bash
@@ -400,7 +432,10 @@ jobs:
             *) echo "Unqualified native read-back package set" >&2; exit 1 ;;
           esac
           host="$TARGET_TRIPLET"
-          if [[ "$TARGET_TRIPLET" == arm64-android ]]; then host=x64-linux; fi
+          case "$TARGET_TRIPLET" in
+            arm64-android) host=x64-linux ;;
+            arm64-ios|arm64-ios-simulator) host=arm64-osx ;;
+          esac
           "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$manifest" \
             "--x-install-root=$RUNNER_TEMP/verified-native-abi" \

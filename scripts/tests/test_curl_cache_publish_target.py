@@ -87,7 +87,7 @@ class ManualNativePublisherTargetTests(unittest.TestCase):
     def test_tre_approves_only_linux_and_android_triplets(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "plan.xml"
-            for triplet in ("arm64-linux", "arm64-android"):
+            for triplet in ("arm64-linux", "arm64-android", "arm64-osx", "arm64-ios", "arm64-ios-simulator"):
                 identity = "tre_" + triplet
                 version = "0.9.0-vcpkg" + ABI
                 plan(path, [(identity, version)])
@@ -102,9 +102,9 @@ class ManualNativePublisherTargetTests(unittest.TestCase):
                                 expected_version=version, triplet="x64-linux")
             with self.assertRaisesRegex(ValueError, "unapproved"):
                 self.verify(path, package_set="tre",
-                            expected_id="tre_arm64-osx",
+                            expected_id="tre_x64-windows",
                             expected_version="0.9.0-vcpkg" + ABI,
-                            triplet="arm64-osx")
+                            triplet="x64-windows")
             with self.assertRaisesRegex(ValueError, "unapproved"):
                 self.verify(path, package_set="simde",
                             expected_id="simde_arm64-linux",

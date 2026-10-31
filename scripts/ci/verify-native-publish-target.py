@@ -16,7 +16,8 @@ import xml.etree.ElementTree as ET
 PRODUCTS = {
     "simde": ("x64-linux",),
     "wabt": ("x64-linux",),
-    "tre": ("x64-linux", "arm64-linux", "arm64-android"),
+    "tre": ("x64-linux", "arm64-linux", "arm64-android", "arm64-osx",
+            "arm64-ios", "arm64-ios-simulator"),
 }
 IDENTITY = re.compile(r"[A-Za-z0-9_.+-]+\Z")
 EXACT_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}\Z")
