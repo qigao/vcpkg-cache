@@ -36,6 +36,13 @@ LLVM version restriction. Linux/macOS still use their runner LLVM unchanged.
 An existing `plugin-path` skips developer preparation and source compilation.
 Missing DLL/tools, source/configure/build/link failures remain fatal.
 
+The upstream string pass's existing decoder-bitcode header is generated
+with Python and the selected Clang, preserving its C array names and exact
+bitcode bytes. This replaces its Bash/xxd invocation and propagates compiler
+failures. On Windows, the host compiler builds the plugin while the product
+compiler builds the embedded decoder, including ARM64 cross targets.
+This is a plugin build input, not an IR validation or smoke test.
+
 With `obfuscator: true`, the action exports
 `QIGAO_OBFUSCATOR_ENABLED`, `QIGAO_OBFUSCATOR_PLUGIN_PATH`,
 `QIGAO_COMPILER_OBFUSCATION_CMAKE` and the same pass/seed variables

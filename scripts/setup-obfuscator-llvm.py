@@ -137,7 +137,8 @@ def host_llvm_config(cxx: Path) -> Path:
 
 
 def build_plugin(repo: Path, cxx: Path, root: Path,
-                 windows_kit: Path | None = None) -> Path:
+                 windows_kit: Path | None = None,
+                 decode_compiler: Path | None = None) -> Path:
     lock = json.loads((repo / "compiler-contracts/release-obfuscation.json")
                       .read_text(encoding="utf-8"))
     source = lock["sources"]["obfuscator-llvm"]
@@ -166,6 +167,7 @@ def build_plugin(repo: Path, cxx: Path, root: Path,
         "default-phi-alloca-insertion.patch",
         "fcmp-explicit-insertion.patch",
         "windows-host-import-library.patch",
+        "portable-decode-header.patch",
     ):
         patch = repo / "patches/obfuscator-llvm" / filename
         if not patch.is_file():
@@ -174,10 +176,13 @@ def build_plugin(repo: Path, cxx: Path, root: Path,
     command = [
         "cmake", "-S", str(source_dir), "-B", str(build_dir), "-G", "Ninja",
         "-DLLVM_DIR=" + llvm_dir.as_posix(), "-DCMAKE_BUILD_TYPE=Release",
-        "-DBUILD_DUMMY=OFF", "-DCMAKE_CXX_COMPILER=" + cxx.as_posix()]
+        "-DBUILD_DUMMY=OFF", "-DCMAKE_CXX_COMPILER=" + cxx.as_posix(),
+        "-DCMAKE_C_COMPILER=" + cxx.with_name(cxx.name.replace("clang++", "clang")).as_posix(),
+        "-DPython3_EXECUTABLE=" + Path(sys.executable).resolve().as_posix()]
+    if decode_compiler is not None:
+        command.append("-DTARGET_C_COMPILER=" + decode_compiler.as_posix())
     if host_import_library is not None:
         command += [
-            "-DCMAKE_C_COMPILER=" + cxx.with_name(cxx.name.replace("clang++", "clang")).as_posix(),
             "-DLLVM_OMIT_EXPORTS_FROM_CONFIG=ON",
             "-DQIGAO_LLVM_HOST_IMPORT_LIBRARY=" + host_import_library.as_posix()]
     if sys.platform == "darwin":
@@ -217,6 +222,7 @@ def main() -> int:
     parser.add_argument("--compiler-cxx", type=Path, required=True)
     parser.add_argument("--plugin-path", default="")
     parser.add_argument("--windows-toolchain-root", type=Path)
+    parser.add_argument("--decode-compiler", type=Path)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--seed", required=True)
     parser.add_argument("--github-env", type=Path, required=True)
@@ -235,7 +241,8 @@ def main() -> int:
             root.mkdir(parents=True)
             plugin = build_plugin(
                 repo, args.compiler_cxx.resolve(), root,
-                args.windows_toolchain_root.resolve() if args.windows_toolchain_root else None)
+                args.windows_toolchain_root.resolve() if args.windows_toolchain_root else None,
+                args.decode_compiler.resolve() if args.decode_compiler else None)
         cmake = repo / "cmake/QigaoCompilerObfuscation.cmake"
         launcher = repo / "scripts/obfuscator-clang-launcher.py"
         if not cmake.is_file() or not launcher.is_file():

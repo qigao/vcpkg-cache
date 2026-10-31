@@ -126,6 +126,7 @@ runs:
       shell: pwsh
       env:
         COMPILER_CXX: ${{ steps.install.outputs.host-cxx }}
+        DECODE_COMPILER: ${{ steps.install.outputs.cc }}
         COMPILER_ROOT: ${{ steps.install.outputs.root }}
         PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
         OBF_SEED: ${{ inputs.obfuscation-seed }}
@@ -134,6 +135,7 @@ runs:
         $repo = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
         $argv = @('--repo-root',$repo,
                   '--compiler-cxx',$env:COMPILER_CXX,
+                  '--decode-compiler',$env:DECODE_COMPILER,
                   '--plugin-path',$env:PROVIDED_PLUGIN,
                   '--output-root',(Join-Path $env:RUNNER_TEMP 'qigao-obfuscator-llvm'),
                   '--seed',$env:OBF_SEED,
