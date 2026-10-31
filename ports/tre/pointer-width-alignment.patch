@@ -1,0 +1,23 @@
+diff --git a/lib/tre-internal.h b/lib/tre-internal.h
+--- a/lib/tre-internal.h
++++ b/lib/tre-internal.h
+@@ -20,5 +20,9 @@
+ #include <wctype.h>
+ #endif /* HAVE_WCTYPE_H */
+-
++
++#ifdef HAVE_STDINT_H
++#include <stdint.h>
++#endif /* HAVE_STDINT_H */
++
+ #include <limits.h>
+ #include <ctype.h>
+@@ -140,6 +144,6 @@
+ /* Returns number of bytes to add to (char *)ptr to make it
+    properly aligned for the type. */
+ #define ALIGN(ptr, type) \
+-  ((((long)ptr) % sizeof(type)) \
+-   ? (sizeof(type) - (((long)ptr) % sizeof(type))) \
++  ((((uintptr_t)ptr) % sizeof(type)) \
++   ? (sizeof(type) - (((uintptr_t)ptr) % sizeof(type))) \
+    : 0)
