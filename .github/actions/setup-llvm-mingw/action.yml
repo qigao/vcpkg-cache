@@ -13,8 +13,12 @@ inputs:
     description: Product build configuration; does not trigger compiler tests
     default: toolchain-only
     required: false
+  obfuscator:
+    description: Set true to prepare and activate obfuscator-llvm for all product C/C++ compilation.
+    default: "false"
+    required: false
   plugin-path:
-    description: Existing obfuscator-llvm shared library for protected target builds
+    description: Existing Windows-host plugin path, or empty for pinned source-build.
     default: ""
     required: false
   obfuscation-seed:
@@ -44,12 +48,16 @@ outputs:
     value: ${{ steps.install.outputs.version }}
   archive-sha256:
     value: ${{ steps.install.outputs.archive-sha256 }}
+  obfuscator-enabled:
+    value: ${{ steps.obfuscator.outputs.enabled || 'false' }}
+  plugin-path:
+    value: ${{ steps.obfuscator.outputs.plugin-path }}
   obfuscator-compile-flag:
-    value: ${{ steps.install.outputs.obfuscator-compile-flag }}
+    value: ${{ steps.obfuscator.outputs.compile-flag }}
   vcpkg-triplet:
     value: ${{ steps.install.outputs.vcpkg-triplet }}
-  obfuscation-policy-cmake:
-    value: ${{ steps.install.outputs.obfuscation-policy-cmake }}
+  compiler-obfuscation-cmake:
+    value: ${{ steps.obfuscator.outputs.cmake-file }}
 runs:
   using: composite
   steps:
@@ -63,6 +71,7 @@ runs:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_TARGET: ${{ inputs.target }}
         INPUT_BUILD_TYPE: ${{ inputs.build-type }}
+        INPUT_OBFUSCATOR: ${{ inputs.obfuscator }}
         INPUT_PLUGIN_PATH: ${{ inputs.plugin-path }}
         INPUT_OBF_SEED: ${{ inputs.obfuscation-seed }}
         INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
@@ -76,13 +85,19 @@ runs:
         if (-not $destination) {
           $destination = Join-Path $env:RUNNER_TEMP "qigao-llvm-mingw-$env:INPUT_VERSION-$env:HOST_OS-$env:HOST_ARCH-$env:INPUT_TARGET"
         }
-        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo')) {
-          if ($env:INPUT_TARGET -notin @('x64', 'arm64')) {
-            throw 'Protected Windows Release uses llvm-mingw x64 or arm64 only'
-          }
-          if (-not $env:INPUT_PLUGIN_PATH) {
-            throw 'Protected Windows Release requires obfuscator-llvm plugin-path'
-          }
+        if ($env:INPUT_OBFUSCATOR -notin @('true', 'false')) {
+          throw 'obfuscator must be true or false'
+        }
+        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo') -and
+            $env:INPUT_OBFUSCATOR -ne 'true') {
+          throw 'Protected Windows Release requires obfuscator: true'
+        }
+        if ($env:INPUT_OBFUSCATOR -ne 'true' -and $env:INPUT_PLUGIN_PATH) {
+          throw 'plugin-path requires obfuscator: true'
+        }
+        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo') -and
+            $env:INPUT_TARGET -notin @('x64', 'arm64')) {
+          throw 'Protected Windows Release uses llvm-mingw x64 or arm64 only'
         }
         $argv = @('--compiler', 'llvm-mingw', '--version', $env:INPUT_VERSION,
                   '--target', $env:INPUT_TARGET,
@@ -94,17 +109,30 @@ runs:
                   '--github-path', $env:GITHUB_PATH)
         & python $installer @argv
         if ($LASTEXITCODE -ne 0) { throw 'Windows llvm-mingw package install failed' }
-        $policy = Join-Path $repo 'cmake/QigaoFirstPartyObfuscation.cmake'
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "obfuscation-policy-cmake=$policy"
-        Add-Content -LiteralPath $env:GITHUB_ENV -Value "QIGAO_OBFUSCATION_POLICY_CMAKE=$policy"
         if ($env:INPUT_TARGET -in @('x64','arm64')) {
           $triplet = "qigao-$env:INPUT_TARGET-windows-llvm-mingw"
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "vcpkg-triplet=$triplet"
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_MINGW_VCPKG_TRIPLET=$triplet"
         }
-        if ($env:INPUT_PLUGIN_PATH) {
-          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "obfuscator-compile-flag=-fpass-plugin=$env:INPUT_PLUGIN_PATH"
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "QIGAO_OBFUSCATOR_PLUGIN_PATH=$env:INPUT_PLUGIN_PATH"
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution"
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SEED=$env:INPUT_OBF_SEED"
+    - name: Prepare pinned obfuscator-llvm source or existing host plugin
+      id: obfuscator
+      if: inputs.obfuscator == 'true'
+      shell: pwsh
+      env:
+        COMPILER_CXX: ${{ steps.install.outputs.cxx }}
+        PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
+        OBF_SEED: ${{ inputs.obfuscation-seed }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $repo = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $argv = @('--repo-root',$repo,
+                  '--compiler-cxx',$env:COMPILER_CXX,
+                  '--plugin-path',$env:PROVIDED_PLUGIN,
+                  '--output-root',(Join-Path $env:RUNNER_TEMP 'qigao-obfuscator-llvm'),
+                  '--seed',$env:OBF_SEED,
+                  '--github-env',$env:GITHUB_ENV,
+                  '--github-output',$env:GITHUB_OUTPUT)
+        & python (Join-Path $repo 'scripts/setup-obfuscator-llvm.py') @argv
+        if ($LASTEXITCODE -ne 0) {
+          throw 'Required obfuscator-llvm plugin installation failed, no unprotected fallback'
         }
