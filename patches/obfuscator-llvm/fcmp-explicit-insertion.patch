@@ -1,0 +1,23 @@
+diff --git a/bogus/BogusControlFlow.cpp b/bogus/BogusControlFlow.cpp
+--- a/bogus/BogusControlFlow.cpp
++++ b/bogus/BogusControlFlow.cpp
+@@ -308,7 +308,8 @@
+   // The always true condition. End of the first block
+   Twine *var4 = new Twine("condition");
+   FCmpInst *condition =
+-      new FCmpInst(basicBlock, FCmpInst::FCMP_TRUE, LHS, RHS, *var4);
++      new FCmpInst(FCmpInst::FCMP_TRUE, LHS, RHS, *var4);
++  condition->insertInto(basicBlock, basicBlock->end());
+   DEBUG_WITH_TYPE("gen", errs() << "bcf: Always true condition created\n");
+ 
+   // Jump to the original basic block if the condition is true or
+@@ -344,7 +345,8 @@
+   // We add at the end a new always true condition
+   Twine *var6 = new Twine("condition2");
+   FCmpInst *condition2 =
+-      new FCmpInst(originalBB, CmpInst::FCMP_TRUE, LHS, RHS, *var6);
++      new FCmpInst(CmpInst::FCMP_TRUE, LHS, RHS, *var6);
++  condition2->insertInto(originalBB, originalBB->end());
+   BranchInst::Create(originalBBpart2, alteredBB, (Value *)condition2,
+                      originalBB);
+   DEBUG_WITH_TYPE("gen", errs()

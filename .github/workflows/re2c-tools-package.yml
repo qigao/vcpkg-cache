@@ -11,6 +11,12 @@ on:
       - "packaging/re2c/**"
       - ".github/workflows/re2c-tools-package.yml"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Explicitly opt in to publishing a new immutable package version
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -22,7 +28,7 @@ env:
 
 jobs:
   linux:
-    name: Linux x64 (Ubuntu 22.04 / GCC 11 floor)
+    name: Linux x64 (Ubuntu 22.04 / runner Clang)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +43,7 @@ jobs:
         run: >-
           cmake -S upstream/re2c -B build/re2c -G Ninja
           -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_C_COMPILER=/usr/bin/gcc-11 -DCMAKE_CXX_COMPILER=/usr/bin/g++-11
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           -DRE2C_BUILD_RE2D=OFF -DRE2C_BUILD_RE2GO=OFF -DRE2C_BUILD_RE2HS=OFF
           -DRE2C_BUILD_RE2JAVA=OFF -DRE2C_BUILD_RE2JS=OFF -DRE2C_BUILD_RE2OCAML=OFF
           -DRE2C_BUILD_RE2PY=OFF -DRE2C_BUILD_RE2RUST=OFF -DRE2C_BUILD_RE2SWIFT=OFF
@@ -71,6 +77,7 @@ jobs:
         run: >-
           cmake -S upstream/re2c -B build/re2c -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           -DRE2C_BUILD_RE2D=OFF -DRE2C_BUILD_RE2GO=OFF -DRE2C_BUILD_RE2HS=OFF
           -DRE2C_BUILD_RE2JAVA=OFF -DRE2C_BUILD_RE2JS=OFF -DRE2C_BUILD_RE2OCAML=OFF
           -DRE2C_BUILD_RE2PY=OFF -DRE2C_BUILD_RE2RUST=OFF -DRE2C_BUILD_RE2SWIFT=OFF
@@ -103,6 +110,12 @@ jobs:
           ref: ${{ env.RE2C_UPSTREAM_COMMIT }}
           path: upstream/re2c
           persist-credentials: false
+      - name: Select runner Homebrew LLVM/Clang
+        shell: bash
+        run: |
+          llvm="$(brew --prefix llvm@18)"
+          echo "CC=$llvm/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=$llvm/bin/clang++" >> "$GITHUB_ENV"
       - name: Configure
         run: >-
           cmake -S upstream/re2c -B build/re2c -G Ninja
@@ -143,10 +156,19 @@ jobs:
           ref: ${{ env.RE2C_UPSTREAM_COMMIT }}
           path: upstream/re2c
           persist-credentials: false
+      - uses: ./.github/actions/setup-llvm-mingw
+        with:
+          version: "20261020"
+          target: x64
+          build-type: toolchain-only
+      - name: Install Ninja for the llvm-mingw native build
+        shell: pwsh
+        run: choco install ninja -y --no-progress
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S upstream/re2c -B build/re2c -A x64 `
+          cmake -S upstream/re2c -B build/re2c -G Ninja `
+            '-DCMAKE_BUILD_TYPE=Release' "-DCMAKE_TOOLCHAIN_FILE=$env:LLVM_MINGW_TOOLCHAIN_FILE" `
             -DRE2C_BUILD_RE2D=OFF -DRE2C_BUILD_RE2GO=OFF -DRE2C_BUILD_RE2HS=OFF `
             -DRE2C_BUILD_RE2JAVA=OFF -DRE2C_BUILD_RE2JS=OFF -DRE2C_BUILD_RE2OCAML=OFF `
             -DRE2C_BUILD_RE2PY=OFF -DRE2C_BUILD_RE2RUST=OFF -DRE2C_BUILD_RE2SWIFT=OFF `
@@ -257,7 +279,7 @@ jobs:
   publish:
     name: Publish verified NuGet
     needs: [pack, linux-compatibility]
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true
     runs-on: ubuntu-latest
     permissions:
       contents: read

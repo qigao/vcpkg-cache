@@ -18,6 +18,12 @@ on:
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
   workflow_dispatch:
+    inputs:
+      warm_llvm_mingw:
+        description: Opt in to Windows x64+arm64 LLVM-MinGW package build (NO PUBLISH)
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,6 +33,9 @@ jobs:
   linux:
     name: Linux x64
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
@@ -90,6 +99,9 @@ jobs:
     name: Linux x64 cache-only restore
     needs: linux
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     permissions:
       contents: read
       packages: read
@@ -123,6 +135,9 @@ jobs:
   linux-arm64-sdk-deps:
     name: Linux arm64 SDK deps
     runs-on: ubuntu-24.04-arm
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - name: Prepare host dependencies
@@ -203,6 +218,9 @@ jobs:
     name: Linux arm64 SDK deps clean L2
     needs: linux-arm64-sdk-deps
     runs-on: ubuntu-24.04-arm
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
@@ -296,171 +314,121 @@ jobs:
           test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
           echo "Linux arm64 SDK dependency clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
 
-  windows:
-    name: Windows x64 / ${{ matrix.runner }}
+  windows-llvm-mingw:
+    name: Windows ${{ matrix.target }} llvm-mingw native ABI producer / NO PUBLISH
+    if: github.event_name == 'workflow_dispatch' && inputs.warm_llvm_mingw == true
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: windows-2022
-            triplet: x64-windows
-          - runner: windows-2025
-            triplet: qigao-x64-windows-v145
-    runs-on: ${{ matrix.runner }}
+        target: [x64, arm64]
+    runs-on: windows-2025
+    permissions:
+      contents: read
+      packages: read
     env:
-      VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/llvm-mingw-${{ matrix.target }}-local-cache
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-vcpkg-cache
+      - uses: actions/setup-python@v5
         with:
-          mode: readwrite
-      - name: Prepare host dependencies
+          python-version: "3.12"
+      - id: llvm
+        uses: ./.github/actions/setup-llvm-mingw
+        with:
+          version: "20261020"
+          target: ${{ matrix.target }}
+          build-type: toolchain-only
+      - name: Install native dependency build tools
         shell: pwsh
         run: choco install nasm ninja strawberryperl -y --no-progress
-      - name: Warm generic x64-windows cache
+      - name: Bootstrap canonical vcpkg without Mono or NuGet
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --x-manifest-root=. --triplet $env:VCPKG_WARM_TRIPLET --host-triplet $env:VCPKG_WARM_TRIPLET
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg warm failed" }
-      - name: Warm Core Capture media dependencies / v145
-        if: matrix.triplet == 'qigao-x64-windows-v145'
+          $ErrorActionPreference = 'Stop'
+          & python scripts/setup-vcpkg-curl-cache.py "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { throw 'curl-only vcpkg bootstrap failed' }
+      - name: Build exact SaltsCore Windows LLVM-MinGW package closure (local-only)
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $manifest = Join-Path $env:RUNNER_TEMP "saltscore-media-v145"
-          $installRoot = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-install"
-          if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Recurse -Force }
-          if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
-          $baseline = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "vcpkg.json") -Raw | ConvertFrom-Json)."builtin-baseline"
-          @{
-            name = "saltscore-media-v145"
-            "version-string" = "1"
-            dependencies = @("libjpeg-turbo", "libyuv")
-            "builtin-baseline" = $baseline
-          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET"
-          if ($LASTEXITCODE -ne 0) { throw "Core v145 media cache warm failed" }
+          $ErrorActionPreference = 'Stop'
+          # The product manifest, not the cache infrastructure manifest, owns
+          # the source/feature graph. Do not use a floating release branch.
+          $coreSha = 'c5141ef4ba766a854c6befc112e722c4f260f4c9'
+          $source = Join-Path $env:RUNNER_TEMP 'saltscore-exact-llvm-mingw-manifest'
+          if (Test-Path -LiteralPath $source) { throw 'Expected a fresh pinned source checkout' }
+          New-Item -ItemType Directory -Path $source | Out-Null
+          & git -C $source init --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore checkout init failed' }
+          & git -C $source remote add origin https://github.com/qigao/salts-core.git
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore checkout remote failed' }
+          & git -C $source fetch --no-tags --depth=1 origin $coreSha
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore source SHA unavailable' }
+          & git -C $source checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Exact SaltsCore source checkout failed' }
+          if ((& git -C $source rev-parse HEAD).Trim() -ne $coreSha) {
+            throw 'Exact SaltsCore source identity mismatch'
+          }
 
-      - name: Warm unversioned Windows MIR JIT cache
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned"
-          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-unversioned-install"
-          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
-          @{
-            name = "qigao-mir-jit-unversioned-cache"
-            "version-string" = "1"
-            dependencies = @("mir-jit")
-          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET"
-          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT warm failed" }
+          $target = '${{ matrix.target }}'
+          $triplet = "qigao-$target-windows-llvm-mingw"
+          $hostTriplet = 'qigao-x64-windows-llvm-mingw'
+          $features = @('--x-feature=simd','--x-feature=usb','--x-feature=playback',
+                        '--x-feature=capture','--x-feature=zstd')
+          $provenance = Join-Path $env:GITHUB_WORKSPACE "build/llvm-mingw-$target-provenance"
+          New-Item -ItemType Directory -Force -Path $provenance | Out-Null
+          $config = Join-Path $provenance 'packages.config'
+          $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,write"
 
-  windows-cache-contract:
-    name: Windows x64 cache-only restore / ${{ matrix.runner }}
-    needs: windows
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-2022
-            triplet: x64-windows
-          - runner: windows-2025
-            triplet: qigao-x64-windows-v145
-    runs-on: ${{ matrix.runner }}
-    env:
-      VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use empty L1 cache
-        shell: pwsh
-        run: |
-          $cache = Join-Path $env:RUNNER_TEMP "empty-vcpkg-l1"
-          if (Test-Path -LiteralPath $cache) { Remove-Item -LiteralPath $cache -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path $cache | Out-Null
-          "VCPKG_BINARY_CACHE=$cache" >> $env:GITHUB_ENV
-      - uses: ./.github/actions/setup-vcpkg-cache
+          # Real vcpkg owns the exact package IDs/ABI hashes, including host tools.
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$hostTriplet" @features --dry-run "--x-write-nuget-packages-config=$config"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $config)) {
+            throw 'Exact LLVM-MinGW ABI manifest resolution failed'
+          }
+          [xml]$resolved = Get-Content -LiteralPath $config -Raw
+          $required = @($resolved.packages.package)
+          if ($required.Count -lt 1) { throw 'No exact LLVM-MinGW ABI dependencies resolved' }
+          foreach ($entry in $required) {
+            $id = [string]$entry.id
+            $version = [string]$entry.version
+            $targetABI = $id.EndsWith("_$triplet", [StringComparison]::OrdinalIgnoreCase)
+            $hostABI = $id.EndsWith("_$hostTriplet", [StringComparison]::OrdinalIgnoreCase)
+            if ((-not $targetABI -and -not $hostABI) -or
+                $version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}$') {
+              throw "Unexpected target/host or non-immutable ABI: $id/$version"
+            }
+          }
+          Write-Host "Exact SaltsCore $coreSha LLVM-MinGW ABI count: $($required.Count)"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$hostTriplet" @features
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM-MinGW native dependency compilation failed; no fallback' }
+          $packages = @(Get-ChildItem -LiteralPath $env:VCPKG_BINARY_CACHE -Filter '*.zip' -File -Recurse)
+          if ($packages.Count -ne $required.Count) {
+            throw "Local package count $($packages.Count) differs from exact manifest $($required.Count)"
+          }
+          Write-Host "Local exact LLVM-MinGW native ABI ZIPs: $($packages.Count); NO PUBLISH"
+      - name: Retain exact local ABI and manifest for separately authorized publication
+        uses: actions/upload-artifact@v4
         with:
-          mode: read
-      - name: Prepare host dependencies
-        shell: pwsh
-        run: choco install nasm ninja strawberryperl -y --no-progress
-      - name: Verify generic cache-only restore
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $installRoot = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows"
-          $log = Join-Path $env:RUNNER_TEMP "vcpkg-root-windows.log"
-          if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
-          & "$env:VCPKG_ROOT\vcpkg.exe" install             "--x-manifest-root=$env:GITHUB_WORKSPACE"             "--x-install-root=$installRoot"             "--triplet=$env:VCPKG_WARM_TRIPLET"             "--host-triplet=$env:VCPKG_WARM_TRIPLET"             --only-binarycaching 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg cache-only restore failed" }
-          $text = Get-Content -LiteralPath $log -Raw
-          if ($text -match ("(?m)^Building [^:]+:" + [regex]::Escape($env:VCPKG_WARM_TRIPLET))) {
-            throw "generic Windows shared-cache miss detected"
-          }
-          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
-            throw "generic Windows restore did not use NuGet"
-          }
-      - name: Verify Core Capture media cache-only restore / v145
-        if: matrix.triplet == 'qigao-x64-windows-v145'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $manifest = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-contract"
-          $installRoot = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-contract-install"
-          $log = Join-Path $env:RUNNER_TEMP "saltscore-media-v145-contract.log"
-          if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Recurse -Force }
-          if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force }
-          if (Test-Path -LiteralPath $env:VCPKG_BINARY_CACHE) { Remove-Item -LiteralPath $env:VCPKG_BINARY_CACHE -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
-          New-Item -ItemType Directory -Force -Path $env:VCPKG_BINARY_CACHE | Out-Null
-          $baseline = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "vcpkg.json") -Raw | ConvertFrom-Json)."builtin-baseline"
-          @{
-            name = "saltscore-media-v145-contract"
-            "version-string" = "1"
-            dependencies = @("libjpeg-turbo", "libyuv")
-            "builtin-baseline" = $baseline
-          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET" --only-binarycaching 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) { throw "Core v145 media cache-only restore failed" }
-          $text = Get-Content -LiteralPath $log -Raw
-          if ($text -match "(?m)^Building (libjpeg-turbo|libyuv):") {
-            throw "Core v145 media source build detected"
-          }
-          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
-            throw "Core v145 media restore did not use NuGet"
-          }
-
-      - name: Verify unversioned Windows MIR JIT cache-only restore
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $manifest = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract"
-          $installRoot = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract-install"
-          $log = Join-Path $env:RUNNER_TEMP "mir-jit-cache-contract.log"
-          New-Item -ItemType Directory -Force -Path $manifest | Out-Null
-          @{
-            name = "qigao-mir-jit-cache-contract"
-            "version-string" = "1"
-            dependencies = @("mir-jit")
-          } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$installRoot" "--triplet=$env:VCPKG_WARM_TRIPLET" "--host-triplet=$env:VCPKG_WARM_TRIPLET" --only-binarycaching 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) { throw "Windows MIR JIT cache-only restore failed" }
-          $text = Get-Content -LiteralPath $log -Raw
-          if ($text -match "(?m)^Building mir-jit:") {
-            throw "MIR JIT source build detected during cache-only qualification"
-          }
-          if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
-            throw "Windows MIR JIT restore did not use NuGet"
-          }
+          name: llvm-mingw-${{ matrix.target }}-saltscore-${{ github.run_id }}
+          path: |
+            build/llvm-mingw-${{ matrix.target }}-local-cache/
+            build/llvm-mingw-${{ matrix.target }}-provenance/packages.config
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     name: macOS host
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Select preinstalled independent LLVM/Clang for macOS dependency builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          llvm="$(brew --prefix llvm@18)"
+          echo "CC=$llvm/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=$llvm/bin/clang++" >> "$GITHUB_ENV"
+          echo "AR=$llvm/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB=$llvm/bin/llvm-ranlib" >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
@@ -703,6 +671,9 @@ jobs:
     name: WABT tools clean L2 / x64-linux
     needs: [linux]
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - name: Use empty L1 cache
@@ -768,6 +739,9 @@ jobs:
   android:
     name: Android arm64
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache

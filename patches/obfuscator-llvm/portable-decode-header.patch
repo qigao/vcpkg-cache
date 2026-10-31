@@ -1,0 +1,106 @@
+diff --git a/string/CMakeLists.txt b/string/CMakeLists.txt
+--- a/string/CMakeLists.txt
++++ b/string/CMakeLists.txt
+@@ -1,26 +1,26 @@
+-find_program(XXD xxd)
+-
+-# If defined, use the target compiler.
+-# For cross-compilation the LLVM-IR generated is still arch specific.
+-if (NOT ${TARGET_C_COMPILER})
+-    set(CLANG ${TARGET_C_COMPILER})
+-else()
+-    set(CLANG "${LLVM_TOOLS_BINARY_DIR}/clang")
+-endif()
+-
+-# Compile the string decode function into IR bitcode and embed it as a c array
+-ADD_CUSTOM_COMMAND(
+-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/decode.h
+-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/generate_ir_header.sh
+-                ${CLANG} ${XXD}
+-                ${CMAKE_CURRENT_SOURCE_DIR}/decode.c
+-                ${CMAKE_CURRENT_BINARY_DIR} decode.h
+-    DEPENDS decode.c
+-)
+-
+-add_custom_target(generateDecodeIRHeader ALL
+-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/decode.h
+-)
+-
+-add_dependencies(LLVMObfuscator generateDecodeIRHeader)
+-target_sources(LLVMObfuscator PRIVATE StringObfuscation.cpp)
++find_package(Python3 REQUIRED COMPONENTS Interpreter)
++
++# The plugin executes on the host; its embedded decoder belongs to the target.
++if(TARGET_C_COMPILER)
++    set(CLANG "${TARGET_C_COMPILER}")
++else()
++    set(CLANG "${CMAKE_C_COMPILER}")
++endif()
++
++# Compile the original decoder and embed the exact bitcode bytes.
++add_custom_command(
++    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/decode.h"
++    COMMAND "${Python3_EXECUTABLE}"
++            "${CMAKE_CURRENT_SOURCE_DIR}/generate_ir_header.py"
++            "${CLANG}" "${CMAKE_CURRENT_SOURCE_DIR}/decode.c"
++            "${CMAKE_CURRENT_BINARY_DIR}/decode.h"
++    DEPENDS decode.c generate_ir_header.py
++    VERBATIM
++)
++
++add_custom_target(generateDecodeIRHeader ALL
++    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/decode.h"
++)
++
++add_dependencies(LLVMObfuscator generateDecodeIRHeader)
++target_sources(LLVMObfuscator PRIVATE StringObfuscation.cpp)
+diff --git a/string/generate_ir_header.py b/string/generate_ir_header.py
+new file mode 100644
+--- /dev/null
++++ b/string/generate_ir_header.py
+@@ -0,0 +1,27 @@
++import subprocess
++import sys
++from pathlib import Path
++
++
++def main():
++    compiler, source_name, output_name = sys.argv[1:]
++    source = Path(source_name).resolve()
++    output = Path(output_name).resolve()
++    output.parent.mkdir(parents=True, exist_ok=True)
++    bitcode = output.with_name(source.name + ".bc")
++    subprocess.run(
++        [compiler, "-Os", "-emit-llvm", "-c", str(source), "-o", str(bitcode)],
++        check=True)
++    payload = bitcode.read_bytes()
++    with output.open("w", encoding="ascii", newline="\n") as stream:
++        stream.write("unsigned char decode_c_bc[] = {\n")
++        for offset in range(0, len(payload), 12):
++            row = payload[offset:offset + 12]
++            stream.write("  " + ", ".join(f"0x{value:02x}" for value in row))
++            stream.write(",\n" if offset + 12 < len(payload) else "\n")
++        stream.write("};\n")
++        stream.write(f"unsigned int decode_c_bc_len = {len(payload)};\n")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/string/generate_ir_header.sh b/string/generate_ir_header.sh
+deleted file mode 100755
+--- a/string/generate_ir_header.sh
++++ /dev/null
+@@ -1,13 +0,0 @@
+-#!/usr/bin/env bash
+-
+-CC=${1}
+-XXD=${2}
+-INPUT_FILE=${3}
+-OUTPUT_DIR=${4}
+-OUTPUT_FILENAME=${5}
+-
+-BC_FILENAME="$(basename ${INPUT_FILE}).bc"
+-
+-cd ${OUTPUT_DIR}
+-${CC} -Os -emit-llvm -c "${INPUT_FILE}" -o "${BC_FILENAME}"
+-${XXD} -i "${BC_FILENAME}" > "${OUTPUT_FILENAME}"

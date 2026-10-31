@@ -377,8 +377,8 @@ runs:
         echo "VCPKG_CACHE_REPOSITORY_ROOT=$contract_root" >> "$GITHUB_ENV"
         echo "VCPKG_OVERLAY_PORTS=$contract_root/ports" >> "$GITHUB_ENV"
         echo "VCPKG_OVERLAY_TRIPLETS=$contract_root/triplets" >> "$GITHUB_ENV"
-        echo "QIGAO_VCPKG_WINDOWS_TRIPLET=qigao-x64-windows-v145" >> "$GITHUB_ENV"
-        echo "QIGAO_VCPKG_WINDOWS_HOST_TRIPLET=qigao-x64-windows-v145" >> "$GITHUB_ENV"
+        echo "QIGAO_VCPKG_WINDOWS_TRIPLET=qigao-x64-windows-llvm-mingw" >> "$GITHUB_ENV"
+        echo "QIGAO_VCPKG_WINDOWS_HOST_TRIPLET=qigao-x64-windows-llvm-mingw" >> "$GITHUB_ENV"
         echo "VCPKG_BINARY_SOURCES=$sources" >> "$GITHUB_ENV"
         echo "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> "$GITHUB_ENV"
         if [ "$CACHE_MODE" != "read" ]; then
@@ -480,8 +480,8 @@ runs:
         "VCPKG_CACHE_REPOSITORY_ROOT=$contractRoot" >> $env:GITHUB_ENV
         "VCPKG_OVERLAY_PORTS=$(Join-Path $contractRoot 'ports')" >> $env:GITHUB_ENV
         "VCPKG_OVERLAY_TRIPLETS=$(Join-Path $contractRoot 'triplets')" >> $env:GITHUB_ENV
-        "QIGAO_VCPKG_WINDOWS_TRIPLET=qigao-x64-windows-v145" >> $env:GITHUB_ENV
-        "QIGAO_VCPKG_WINDOWS_HOST_TRIPLET=qigao-x64-windows-v145" >> $env:GITHUB_ENV
+        "QIGAO_VCPKG_WINDOWS_TRIPLET=qigao-x64-windows-llvm-mingw" >> $env:GITHUB_ENV
+        "QIGAO_VCPKG_WINDOWS_HOST_TRIPLET=qigao-x64-windows-llvm-mingw" >> $env:GITHUB_ENV
         "VCPKG_BINARY_SOURCES=$sources" >> $env:GITHUB_ENV
         "VCPKG_NUGET_REPOSITORY=https://github.com/qigao/vcpkg-cache" >> $env:GITHUB_ENV
         if ($env:CACHE_MODE -ne "read") {

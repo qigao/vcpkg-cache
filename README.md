@@ -1,11 +1,22 @@
 # vcpkg-cache
 
-Shared **vcpkg infrastructure** and **re2c host tooling** for the qigao repositories.
+Shared **vcpkg infrastructure**, **re2c host tooling**, and
+**pinned compiler setup actions** for the qigao repositories.
 
-This repository owns exactly two reusable build inputs:
+This repository owns three reusable infrastructure inputs:
 
 1. **vcpkg infrastructure** — pinned vcpkg tool/scripts identity, shared overlay ports/versions, setup action, and ABI-compatible binary-cache production.
-2. **re2c host binaries** — `Qigao.Re2c.Binary` plus the reusable setup action.
+2. **re2c host binaries** — `Qigao.Re2c.Binary` plus its reusable setup action.
+3. **Compiler selection** — Windows uses pinned llvm-mingw/UCRT, Linux/macOS use the runner's native Clang, and obfuscator-llvm has no global LLVM-version restriction. GCC is test-only. There are no Clang verification CI jobs, probes, or synthetic consumer projects. See [compiler setup](docs/setup-compiler-actions.md) and [Release policy](docs/release-obfuscation-toolchains.md).
+
+Obfuscation is selected **once at compiler setup**, with
+`obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.
+The action prepares the single upstream eshard/obfuscator-llvm pass and
+activates it for product C/C++ source compilation through the product-side
+toolchain compiler launcher. No `SENSITIVE_TARGETS`, `ORDINARY_TARGETS`,
+target lists or product-level per-target flags are required. Existing
+third-party vcpkg binary packages retain their independent ABI and are
+not retroactively obfuscated. See [compiler setup](docs/setup-compiler-actions.md).
 
 ## Ownership boundary
 
