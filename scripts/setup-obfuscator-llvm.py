@@ -61,7 +61,7 @@ def windows_llvm_development(lock: dict, kit: Path, cxx: Path,
     """Build missing headers and an import library for the installed host DLL.
 
     llvm-mingw strips its LLVM includes, CMake config and .dll.a files. Keep
-    its compiler/runtime bytes: upstream's intrinsics_gen supplies the dev
+    its compiler/runtime bytes: upstream's public-header targets supply dev
     headers; the installed DLL exports supply its import library.
     """
     source = lock["sources"]["llvm-mingw"]
@@ -90,12 +90,16 @@ def windows_llvm_development(lock: dict, kit: Path, cxx: Path,
         "-DLLVM_ENABLE_ASSERTIONS=OFF", "-DLLVM_ENABLE_ABI_BREAKING_CHECKS=FORCE_OFF",
         "-DLLVM_ENABLE_RTTI=ON", "-DLLVM_ENABLE_EH=OFF",
         "-DLLVM_BUILD_LLVM_DYLIB=ON", "-DLLVM_LINK_LLVM_DYLIB=ON",
+        "-DLLVM_INSTALL_TOOLCHAIN_ONLY=OFF",
         "-DLLVM_INCLUDE_TESTS=OFF", "-DLLVM_INCLUDE_EXAMPLES=OFF",
         "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DLLVM_ENABLE_ZLIB=OFF",
         "-DLLVM_ENABLE_ZSTD=OFF", "-DLLVM_ENABLE_LIBXML2=OFF",
         "-DLLVM_ENABLE_LIBEDIT=OFF", "-DLLVM_ENABLE_CURL=OFF",
     ], stream=True)
-    run(["cmake", "--build", str(build_dir), "--target", "intrinsics_gen",
+    # llvm-headers covers IR/OpenMP/target-parser headers. This pinned LLVM
+    # revision keeps Analysis, ValueTypes and OpenACC as separate generators.
+    run(["cmake", "--build", str(build_dir), "--target",
+         "llvm-headers", "analysis_gen", "vt_gen", "acc_gen", "llvm_vcsrevision_h",
          "--parallel", "2"], stream=True)
     # This is a linker input built from the selected runtime, not a plugin
     # load test, compiler probe, or another compiled copy of LLVM.

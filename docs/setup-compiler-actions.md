@@ -22,8 +22,9 @@ and `LLVMConfig.cmake`). All source builds need Git, CMake and Ninja.
 
 The Windows llvm-mingw package strips its LLVM developer files. For a
 source-built plugin, the Action prepares them from the exact LLVM source
-belonging to that selected MinGW release: upstream `intrinsics_gen` builds
-the generated headers and TableGen dependency, and `llvm-readobj` plus
+belonging to that selected MinGW release: upstream `llvm-headers` and the
+Analysis, ValueTypes, OpenACC and revision-header targets build the public
+generated headers and TableGen dependency, and `llvm-readobj` plus
 `llvm-dlltool` generate an import library from the **installed host LLVM DLL**.
 The plugin links that import library and loads the same DLL as its compiler.
 This step builds development dependencies; it does not build another Clang
