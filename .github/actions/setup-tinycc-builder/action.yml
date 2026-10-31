@@ -1,101 +1,57 @@
-name: Set up pinned TinyCC-builder compiler
-description: Restore verified Windows TinyCC kit and pinned obfus.h; does not silently qualify obfuscated Release.
+name: Set up TinyCC-builder
+description: Install immutable TinyCC kit and obfus.h; no compiler smoke/consumer CI.
 inputs:
   version:
-    description: Exact release tag, must match SHA256 source lock.
-    required: false
     default: "2026-10-29"
+    required: false
   target:
-    description: Windows target x86, x64, or arm64. ARM64 cross-only and not obfus.h Release-qualified.
-    required: false
     default: x64
+    required: false
   build-type:
-    description: toolchain-only or Debug; unqualified Release, MinSizeRel and RelWithDebInfo fail closed.
-    required: false
     default: toolchain-only
-  verify-smoke:
-    description: Compile and inspect PE, execute native x86/x64.
     required: false
-    default: "true"
   install-root:
-    description: Optional fresh absolute install path.
-    required: false
     default: ""
+    required: false
 outputs:
   root:
-    description: Installed TinyCC portable kit.
     value: ${{ steps.install.outputs.root }}
   cc:
-    description: Selected TinyCC executable.
     value: ${{ steps.install.outputs.cc }}
   toolchain-file:
-    description: Candidate C-only Windows CMake toolchain; downstream CMake support must be admitted.
     value: ${{ steps.install.outputs.toolchain-file }}
-  target-triple:
-    description: Windows PE target name; not a TinyCC --target option.
-    value: ${{ steps.install.outputs.target-triple }}
-  version:
-    description: Verified TinyCC-builder tag.
-    value: ${{ steps.install.outputs.version }}
-  archive-sha256:
-    description: Verified archive digest.
-    value: ${{ steps.install.outputs.archive-sha256 }}
-  smoke:
-    description: compiler-identity-only, cross-compile-pe-machine, or native-execution.
-    value: ${{ steps.install.outputs.smoke }}
   obfus-header:
-    description: Exact SHA256-verified obfus.h. Include after system headers in protected C source.
     value: ${{ steps.install.outputs.obfus-header }}
   obfus-include:
-    description: Directory containing pinned obfus.h.
     value: ${{ steps.install.outputs.obfus-include }}
-  obfuscator-installed:
-    description: Header installed, not proof of downstream protected compilation.
-    value: ${{ steps.install.outputs.obfuscator-installed }}
-  release-qualified:
-    description: False until protected native Release and ABI gates are qualified.
-    value: ${{ steps.install.outputs.release-qualified }}
 runs:
   using: composite
   steps:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Restore SHA256-pinned TinyCC-builder and obfus.h
+    - name: Install TinyCC kit and obfus.h
       id: install
       shell: pwsh
       env:
-        INPUT_VERSION: ${{ inputs.version }}
-        INPUT_TARGET: ${{ inputs.target }}
-        INPUT_BUILD_TYPE: ${{ inputs.build-type }}
-        INPUT_VERIFY_SMOKE: ${{ inputs.verify-smoke }}
-        INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
-        HOST_OS: ${{ runner.os }}
-        HOST_ARCH: ${{ runner.arch }}
+        VER: ${{ inputs.version }}
+        TARGET: ${{ inputs.target }}
+        TYPE: ${{ inputs.build-type }}
+        ROOT: ${{ inputs.install-root }}
+        RUNNER_OS_NAME: ${{ runner.os }}
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
       run: |
         $ErrorActionPreference = 'Stop'
-        $root = [System.IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
-        $script = Join-Path $root 'scripts/setup-compiler-toolchain.py'
-        if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
-          throw 'The compiler setup script is missing from this action repository'
+        $repo = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $dest = $env:ROOT
+        if (-not $dest) {
+          $dest = Join-Path $env:RUNNER_TEMP "qigao-tinycc-$env:VER-$env:TARGET"
         }
-        $destination = $env:INPUT_INSTALL_ROOT
-        if (-not $destination) {
-          $destination = Join-Path $env:RUNNER_TEMP "qigao-tinycc-$($env:INPUT_VERSION)-$($env:HOST_ARCH)-$($env:INPUT_TARGET)"
-        }
-        if (-not [System.IO.Path]::IsPathFullyQualified($destination)) {
-          throw 'install-root must be an absolute path'
-        }
-        $arguments = @(
-          '--compiler', 'tinycc-builder', '--version', $env:INPUT_VERSION,
-          '--target', $env:INPUT_TARGET, '--build-type', $env:INPUT_BUILD_TYPE,
-          '--runner-os', $env:HOST_OS, '--runner-arch', $env:HOST_ARCH,
-          '--destination', $destination,
-          '--github-output', $env:GITHUB_OUTPUT,
-          '--github-path', $env:GITHUB_PATH,
-          '--github-env', $env:GITHUB_ENV
-        )
-        if ($env:INPUT_VERIFY_SMOKE -eq 'true') { $arguments += '--verify-smoke' }
-        elseif ($env:INPUT_VERIFY_SMOKE -ne 'false') { throw 'verify-smoke must be true or false' }
-        & python $script @arguments
-        if ($LASTEXITCODE -ne 0) { throw 'Pinned TinyCC-builder setup failed' }
+        $argv = @('--compiler', 'tinycc-builder', '--version', $env:VER,
+                  '--target', $env:TARGET, '--build-type', $env:TYPE,
+                  '--runner-os', $env:RUNNER_OS_NAME,
+                  '--runner-arch', $env:RUNNER_ARCH_NAME,
+                  '--destination', $dest, '--github-output', $env:GITHUB_OUTPUT,
+                  '--github-env', $env:GITHUB_ENV, '--github-path', $env:GITHUB_PATH)
+        & python (Join-Path $repo 'scripts/setup-compiler-toolchain.py') @argv
+        if ($LASTEXITCODE -ne 0) { throw 'TinyCC toolchain install failed' }

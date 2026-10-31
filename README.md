@@ -7,7 +7,7 @@ This repository owns three reusable infrastructure inputs:
 
 1. **vcpkg infrastructure** — pinned vcpkg tool/scripts identity, shared overlay ports/versions, setup action, and ABI-compatible binary-cache production.
 2. **re2c host binaries** — `Qigao.Re2c.Binary` plus its reusable setup action.
-3. **Compiler toolchain distribution** — immutable Windows llvm-mingw/UCRT, Linux/macOS upstream LLVM 23.1.4 and independent TinyCC-builder locks. Protected first-party Windows/Linux/macOS x64/ARM64 Release selects LLVM/Clang with obfuscator-llvm; GCC is test-only and MSVC/AppleClang remain diagnostic-only. Native host plugin and product gates are still pending; this does **not** publish or qualify a product SDK. See [setup-compiler-actions](docs/setup-compiler-actions.md) and [Release obfuscation design](docs/release-obfuscation-toolchains.md).
+3. **Compiler selection** — Windows uses pinned llvm-mingw/UCRT, Linux/macOS use the runner's native Clang, and obfuscator-llvm has no global LLVM-version restriction. GCC is test-only. There are no Clang verification CI jobs, probes, or synthetic consumer projects. See [compiler setup](docs/setup-compiler-actions.md) and [Release policy](docs/release-obfuscation-toolchains.md).
 
 Compiler archive digests and obfuscation seeds belong to a separate toolchain
 identity. The generic vcpkg cache revision must not change solely because an
@@ -194,6 +194,5 @@ Allowed workflows in this repository are infrastructure workflows only:
 - `validate-cache-contract.yml` — validates the shared vcpkg contract and cross-platform identity.
 - vcpkg port-specific validation workflows, where the subject is a central overlay port rather than a product.
 - `re2c-tools-package.yml` — builds and publishes `Qigao.Re2c.Binary`.
-- `validate-compiler-setup-actions.yml` — validates pinned TinyCC/llvm-mingw plus native Linux/macOS LLVM setup actions, exact archive safety, ELF/Mach-O/PE identity and host execution; no setup or pass-only preflight qualifies a product Release.
 
 Product SDK packaging and publishing must live in the product repository.

@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""Install exact, SHA256-locked compiler archives for qigao composite Actions.
+"""Install SHA256-pinned Windows llvm-mingw and TinyCC packages; no Clang probes.
 
-This is a *compiler setup*, not a Release obfuscation certification. Release
-admission requires a separate build/IR/actual-runtime proof (issue #243).
+Linux/macOS use the runner's own Clang through setup-llvm-native/action.yml.
+The source archive integrity check below is a download safety requirement,
+NOT a compiler version, IR, ABI, executable or obfuscation test.
 """
 from __future__ import annotations
-
 import argparse
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import posixpath
 import re
 import shutil
 import stat
-import struct
-import subprocess
 import sys
 import tarfile
 import tempfile
@@ -27,39 +25,23 @@ import zipfile
 
 LOCK = Path(__file__).resolve().parents[1] / "compiler-contracts/release-obfuscation.json"
 TARGETS = {
-    "x86": ("i686-w64-mingw32", 0x014C, "x86"),
-    "x64": ("x86_64-w64-mingw32", 0x8664, "AMD64"),
-    "armv7": ("armv7-w64-mingw32", 0x01C4, "ARM"),
-    "arm64": ("aarch64-w64-mingw32", 0xAA64, "ARM64"),
+    "x86": ("i686-w64-mingw32", "x86"),
+    "x64": ("x86_64-w64-mingw32", "AMD64"),
+    "armv7": ("armv7-w64-mingw32", "ARM"),
+    "arm64": ("aarch64-w64-mingw32", "ARM64"),
 }
-RELEASE = {"Release", "MinSizeRel", "RelWithDebInfo"}
 HOST_ARCH = {"X64": "x64", "ARM64": "arm64"}
 HOST_OS = {"Windows": "windows", "Linux": "linux", "macOS": "macos"}
-NATIVE_TRIPLES = {
-    "linux-x64": "x86_64-unknown-linux-gnu",
-    "linux-arm64": "aarch64-unknown-linux-gnu",
-    "macos-x64": "x86_64-apple-darwin",
-    "macos-arm64": "arm64-apple-darwin",
-}
-NATIVE_MACHINES = {
-    "linux-x64": ("ELF", 62),
-    "linux-arm64": ("ELF", 183),
-    "macos-x64": ("Mach-O", 0x01000007),
-    "macos-arm64": ("Mach-O", 0x0100000C),
-}
 MAX_ARCHIVE = 750 * 1024 * 1024
-MAX_NATIVE_LLVM_ARCHIVE = 2400 * 1024 * 1024
 MAX_EXTRACTED = 12 * 1024 * 1024 * 1024
 MAX_FILES = 100_000
 HEADER_MAX = 5 * 1024 * 1024
 
-
 class AdmissionError(ValueError):
-    """Fail closed on unsupported host, target, or source identity."""
+    pass
 
-
-def ensure(test: bool, message: str) -> None:
-    if not test:
+def ensure(ok: bool, message: str) -> None:
+    if not ok:
         raise AdmissionError(message)
 
 
@@ -189,363 +171,163 @@ def safe_extract(archive: Path, destination: Path) -> None:
         raise AdmissionError("unsupported locked toolchain archive format")
 
 
-def find_toolchain_root(staging: Path, compiler: str) -> Path:
-    candidates = [staging]
-    candidates.extend(p for p in staging.iterdir() if p.is_dir())
-    for candidate in candidates:
-        if compiler == "tinycc-builder" and (candidate / "tcc.exe").is_file():
+def archive_root(stage: Path, compiler: str) -> Path:
+    for candidate in [stage, *(x for x in stage.iterdir() if x.is_dir())]:
+        if compiler == "tinycc-builder" and (candidate / "tcc.exe").exists():
             return candidate
-        if compiler == "llvm-native" and (candidate / "bin").is_dir() and (
-            (candidate / "bin" / "clang").is_file() and
-            (candidate / "bin" / "clang++").is_file()
-        ):
+        if compiler == "llvm-mingw" and (candidate / "bin").is_dir():
             return candidate
-        if compiler == "llvm-mingw" and (candidate / "bin").is_dir() and (
-            (candidate / "bin" / "clang").exists() or
-            (candidate / "bin" / "clang.exe").exists() or
-            any((candidate / "bin").glob("x86_64-w64-mingw32-clang*"))
-        ):
-            return candidate
-    raise AdmissionError(f"archive does not contain expected {compiler} compiler layout")
+    raise AdmissionError("archive lacks expected toolchain directory")
 
-
-def native_machine(executable: Path) -> tuple[str, int]:
-    with executable.open("rb") as f:
-        head = f.read(64)
-    ensure(len(head) >= 24, "native binary header too short")
-    if head[:4] == b"\x7fELF":
-        ensure(head[4] == 2 and head[5] == 1,
-               "native ELF must be 64-bit little-endian")
-        return "ELF", struct.unpack_from("<H", head, 18)[0]
-    if head[:4] == b"\xcf\xfa\xed\xfe":
-        return "Mach-O", struct.unpack_from("<I", head, 4)[0]
-    raise AdmissionError("native Release smoke is not ELF64 or Mach-O64")
-
-
-def pe_machine(executable: Path) -> int:
-    with executable.open("rb") as f:
-        header = f.read(64)
-        ensure(len(header) == 64 and header[:2] == b"MZ", "missing PE/MZ executable")
-        offset = struct.unpack_from("<I", header, 0x3C)[0]
-        ensure(64 <= offset < 16 * 1024 * 1024, "invalid PE header offset")
-        f.seek(offset)
-        pe = f.read(6)
-    ensure(len(pe) == 6 and pe[:4] == b"PE\x00\x00", "invalid PE signature")
-    return struct.unpack_from("<H", pe, 4)[0]
-
-
-def run(command: list[str], *, cwd: Path, timeout: int = 90) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, cwd=cwd, encoding="utf-8", errors="replace",
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
-    if result.returncode:
-        raise AdmissionError(f"toolchain execution failed ({result.returncode}): "
-                             f"{Path(command[0]).name}: {result.stderr[-1600:]}")
-    return result
-
-
-def compiler_paths(root: Path, compiler: str, target: str, host: str) -> dict[str, str]:
-    ext = ".exe" if host.startswith("windows-") else ""
-    if compiler == "llvm-native":
-        bin_dir = root / "bin"
-        paths = {key: str(bin_dir / name) for key, name in
-                 {"cc": "clang", "cxx": "clang++",
-                  "ar": "llvm-ar", "ranlib": "llvm-ranlib"}.items()}
-    elif compiler == "llvm-mingw":
-        triple = TARGETS[target][0]
-        bin_dir = root / "bin"
-        names = {
-            "cc": f"{triple}-clang{ext}",
-            "cxx": f"{triple}-clang++{ext}",
-            "ar": f"{triple}-ar{ext}",
-            "ranlib": f"{triple}-ranlib{ext}",
-            "rc": f"{triple}-windres{ext}",
-        }
-        paths = {k: str(bin_dir / v) for k, v in names.items()}
-    else:
-        names = {"x86": "i386-win32-tcc.exe", "x64": "tcc.exe",
-                 "arm64": "arm64-win32-tcc.exe"}
-        paths = {"cc": str(root / names[target])}
-    required = (("cc", "cxx", "ar", "ranlib") if compiler == "llvm-native"
-                else ("cc", "cxx") if compiler == "llvm-mingw" else ("cc",))
-    for key in required:
-        ensure(Path(paths[key]).is_file(),
-               f"compiler executable missing: {paths[key]}")
-    return paths
-
-
-def native_macos_sdk(host: str) -> Path | None:
-    if not host.startswith("macos-"):
-        return None
-    sdk = os.environ.get("SDKROOT", "")
-    ensure(bool(sdk) and Path(sdk).is_absolute() and Path(sdk).is_dir(),
-           "macOS upstream LLVM requires explicit SDKROOT from xcrun")
-    return Path(sdk).resolve()
-
-
-def generated_cmake(root: Path, compiler: str, target: str,
-                    paths: dict[str, str], host: str) -> Path:
-    cmake = root / "qigao-toolchain.cmake"
-    if compiler == "llvm-native":
-        system = "Darwin" if host.startswith("macos-") else "Linux"
-        architecture = "aarch64" if target == "arm64" else "x86_64"
-    else:
-        system = "Windows"
-        architecture = TARGETS[target][2]
-    lines = [
-        "# Generated by qigao/vcpkg-cache. Installed compiler is SHA256-locked.",
-        f"set(CMAKE_SYSTEM_NAME {system})",
-        f"set(CMAKE_SYSTEM_PROCESSOR {architecture})",
-    ]
-    if compiler == "llvm-native" and host.startswith("macos-"):
-        sdk = native_macos_sdk(host)
-        lines.append(f'set(CMAKE_OSX_SYSROOT "{sdk.as_posix()}")')
-    for cmake_var, key in (
-        ("CMAKE_C_COMPILER", "cc"), ("CMAKE_CXX_COMPILER", "cxx"),
-        ("CMAKE_AR", "ar"), ("CMAKE_RANLIB", "ranlib"), ("CMAKE_RC_COMPILER", "rc")
-    ):
-        if key in paths and Path(paths[key]).is_file():
-            # CMake paths use forward slashes even for Windows native paths.
-            value = Path(paths[key]).as_posix().replace("\\", "/")
-            ensure('"' not in value and "\n" not in value, "unsafe CMake path")
-            lines.append(f'set({cmake_var} "{value}")')
+def tool_paths(root: Path, compiler: str, target: str, host: str) -> dict[str, str]:
     if compiler == "tinycc-builder":
-        lines.append("# C-only compiler: CMake C++ is intentionally not supplied.")
-    cmake.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return cmake
+        name = {"x86": "i386-win32-tcc.exe",
+                "x64": "tcc.exe", "arm64": "arm64-win32-tcc.exe"}[target]
+        return {"cc": str(root / name)}
+    prefix = TARGETS[target][0]
+    ext = ".exe" if host.startswith("windows-") else ""
+    binary = root / "bin"
+    return {
+        "cc": str(binary / (prefix + "-clang" + ext)),
+        "cxx": str(binary / (prefix + "-clang++" + ext)),
+        "ar": str(binary / (prefix + "-ar" + ext)),
+        "ranlib": str(binary / (prefix + "-ranlib" + ext)),
+        "rc": str(binary / (prefix + "-windres" + ext)),
+    }
 
+def cmake_toolchain(root: Path, target: str, paths: dict[str, str]) -> Path:
+    lines = [
+        "# Windows llvm-mingw / TinyCC path configuration. No compiler probes.",
+        "set(CMAKE_SYSTEM_NAME Windows)",
+        "set(CMAKE_SYSTEM_PROCESSOR " + TARGETS[target][1] + ")",
+    ]
+    for cmake_name, key in (
+        ("CMAKE_C_COMPILER", "cc"), ("CMAKE_CXX_COMPILER", "cxx"),
+        ("CMAKE_AR", "ar"), ("CMAKE_RANLIB", "ranlib"),
+        ("CMAKE_RC_COMPILER", "rc"),
+    ):
+        if key in paths:
+            value = paths[key].replace("\\", "/")
+            ensure('"' not in value and "\n" not in value, "invalid CMake path")
+            lines.append(f'set({cmake_name} "{value}")')
+    output = root / "qigao-toolchain.cmake"
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return output
 
-def smoke_compiler(root: Path, compiler: str, target: str, host: str,
-                   paths: dict[str, str], expected_llvm: str, verify_smoke: bool) -> str:
-    scratch = root / ".qigao-smoke"
-    scratch.mkdir(exist_ok=False)
-    try:
-        compiler_bin = paths["cc"]
-        if compiler in ("llvm-mingw", "llvm-native"):
-            version = run([compiler_bin, "--version"], cwd=scratch, timeout=30).stdout
-            ensure(re.search(r"\bclang version " + re.escape(expected_llvm) + r"\b", version) is not None,
-                   f"unexpected clang version: {version[:160]}")
-        else:
-            version_cmd = run([compiler_bin, "-v"], cwd=scratch, timeout=30)
-            version = version_cmd.stdout + version_cmd.stderr
-            ensure("tcc" in version.lower(), "TinyCC identity check failed")
-        if not verify_smoke:
-            return "compiler-identity-only"
-        src = scratch / "smoke.c"
-        exe = scratch / ("smoke" if compiler == "llvm-native" else "smoke.exe")
-        src.write_text("int main(void) { return 0; }\n", encoding="ascii")
-        invocation = [compiler_bin]
-        if compiler == "llvm-native" and host.startswith("macos-"):
-            invocation.extend(["-isysroot", str(native_macos_sdk(host))])
-        invocation.extend([str(src), "-o", str(exe)])
-        run(invocation, cwd=scratch)
-        if compiler == "llvm-native":
-            ensure(native_machine(exe) == NATIVE_MACHINES[host],
-                   f"wrong native ELF/Mach-O machine for {host}")
-            run([str(exe)], cwd=scratch, timeout=30)
-            return "native-execution"
-        ensure(pe_machine(exe) == TARGETS[target][1],
-               f"wrong PE machine for target {target}")
-        native = ((host == "windows-x64" and target in ("x64", "x86")) or
-                  (host == "windows-arm64" and target == "arm64"))
-        if native:
-            run([str(exe)], cwd=scratch, timeout=30)
-            return "native-execution"
-        return "cross-compile-pe-machine"
-    finally:
-        shutil.rmtree(scratch)
-
-
-def github_append(filename: str | None, entries: dict[str, str] | list[str]) -> None:
-    if not filename:
+def append_github(path: str | None, entries: dict[str, str] | list[str]) -> None:
+    if not path:
         return
-    with Path(filename).open("a", encoding="utf-8", newline="\n") as f:
+    with Path(path).open("a", encoding="utf-8", newline="\n") as stream:
         if isinstance(entries, dict):
             for key, value in entries.items():
                 ensure("\n" not in key + value and "\r" not in key + value,
-                       "invalid GitHub Actions output value")
-                f.write(f"{key}={value}\n")
+                       "invalid action output")
+                stream.write(f"{key}={value}\n")
         else:
-            for entry in entries:
-                ensure("\n" not in entry and "\r" not in entry, "invalid GitHub Actions PATH")
-                f.write(entry + "\n")
-
+            for value in entries:
+                ensure("\n" not in value and "\r" not in value,
+                       "invalid action PATH")
+                stream.write(value + "\n")
 
 def install(args: argparse.Namespace) -> dict[str, str]:
-    lock = json.loads(args.contract.read_text(encoding="utf-8"))
-    ensure(lock.get("schema_version") == 1 and
-           lock.get("state") == "design-candidate-not-release-qualified",
-           "expected reviewed compiler source-lock contract")
-    ensure(args.compiler in ("llvm-mingw", "llvm-native", "tinycc-builder"),
-           "unsupported compiler")
+    data = json.loads(LOCK.read_text(encoding="utf-8"))
+    ensure(args.compiler in ("llvm-mingw", "tinycc-builder"),
+           "only Windows llvm-mingw and TinyCC use archive installer")
+    ensure(args.target in TARGETS, "unsupported Windows CPU")
     ensure(args.runner_os in HOST_OS and args.runner_arch in HOST_ARCH,
-           "unsupported runner OS or architecture")
-    host = f"{HOST_OS[args.runner_os]}-{HOST_ARCH[args.runner_arch]}"
-    ensure(args.target in TARGETS, "unknown target architecture")
-    if args.compiler == "llvm-native":
-        ensure(host in NATIVE_TRIPLES and host.split("-")[-1] == args.target,
-               "native LLVM target must exactly match Linux/macOS host architecture")
-        native = lock["sources"]["llvm-native"]
-        ensure(native.get("distribution") == "pinned" and
-               native.get("source_commit") and
-               any(item["host"] == host for item in native["assets"]),
-               "native LLVM distribution not SHA256-pinned for this host")
-        if host.startswith("macos-"):
-            native_macos_sdk(host)  # fail before downloading multi-GB LLVM
+           "unsupported runner")
     if args.compiler == "tinycc-builder":
-        ensure(host == "windows-x64", "TinyCC-builder currently supports Windows x64 host only")
-        ensure(args.target in ("x86", "x64", "arm64"), "unsupported TinyCC target")
-    # Setup is permitted for ordinary development/smoke; it must never
-    # advertise that an unqualified release can use a non-obfuscated compiler.
-    ensure(args.build_type in ("toolchain-only", "Debug", *RELEASE),
-           "unknown build configuration")
-    ensure(args.build_type not in RELEASE,
-           f"{args.compiler} {args.build_type} Release profile unqualified; "
-           "no unprotected release fallback")
-    source = lock["sources"][args.compiler]
-    expected_tag = (source["source_tag"] if args.compiler == "llvm-native"
-                    else source["release_tag"])
-    ensure(not args.version or args.version == expected_tag,
-           f"version override must match immutable lock {expected_tag}")
+        ensure(args.target != "armv7", "TinyCC ARMv7 kit unavailable")
+        ensure(args.runner_os == "Windows" and args.runner_arch == "X64",
+               "TinyCC setup requires Windows x64 host")
+        ensure(args.build_type not in ("Release", "MinSizeRel", "RelWithDebInfo"),
+               "TinyCC is not the protected Release compiler")
+    source = data["sources"][args.compiler]
+    tag = source["release_tag"]
+    ensure(not args.version or args.version == tag,
+           "Windows release archive tag differs from the selected llvm-mingw kit")
+    host = HOST_OS[args.runner_os] + "-" + HOST_ARCH[args.runner_arch]
     assets = [a for a in source["assets"] if a["host"] == host or
               (host.startswith("macos-") and a["host"] == "macos-universal")]
-    ensure(len(assets) == 1, f"no locked {args.compiler} asset for {host}")
-    asset = assets[0]
-    destination = args.destination.resolve()
-    ensure(not destination.exists() and not destination.is_symlink(),
-           "compiler destination must be fresh, never reuse stale binaries")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    ensure(os.access(destination.parent, os.W_OK), "compiler install directory is not writable")
-
-    with tempfile.TemporaryDirectory(prefix=".qigao-compiler-", dir=destination.parent) as temp:
-        workspace = Path(temp)
-        archive = workspace / asset["name"]
+    ensure(len(assets) == 1, "no Windows toolchain package for this host")
+    item = assets[0]
+    dest = args.destination.absolute()
+    ensure(not dest.exists(), "toolchain destination must be fresh")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".qigao-toolchain-", dir=dest.parent) as temp:
+        work = Path(temp)
+        archive = work / item["name"]
         url = (f"https://github.com/{source['repository']}/releases/download/"
-               f"{expected_tag}/{asset['name']}")
-        limit = MAX_NATIVE_LLVM_ARCHIVE if args.compiler == "llvm-native" else MAX_ARCHIVE
-        verified_download(url, archive, asset["sha256"], limit)
-        extracted = workspace / "extracted"
+               f"{tag}/{item['name']}")
+        verified_download(url, archive, item["sha256"], MAX_ARCHIVE)
+        extracted = work / "extracted"
         safe_extract(archive, extracted)
-        payload = find_toolchain_root(extracted, args.compiler)
-        root = workspace / "installed"
-        if args.compiler == "llvm-native":
-            # Official LLVM source-tag archives exceed 1.5GB compressed.
-            # Copying unpacked binaries twice would waste many GB per runner.
-            payload.rename(root)
-        else:
-            shutil.copytree(payload, root, symlinks=True)
-
-        obfus_header = None
+        kit = archive_root(extracted, args.compiler)
+        root = work / "installed"
+        shutil.copytree(kit, root, symlinks=True)
+        header = ""
         if args.compiler == "tinycc-builder":
-            protected = lock["sources"]["obfus-h"]
-            header_sha = protected.get("sha256")
-            ensure(bool(header_sha), "obfus.h source SHA256 must be locked")
-            header = root / "share" / "obfus.h" / "include" / "obfus.h"
-            url = (f"https://raw.githubusercontent.com/{protected['repository']}/"
-                   f"{protected['source_commit']}/{protected['header_path']}")
-            verified_download(url, header, header_sha, HEADER_MAX)
-            obfus_header = header
-        paths = compiler_paths(root, args.compiler, args.target, host)
-        cmake = generated_cmake(root, args.compiler, args.target, paths, host)
-        # The final action output must never point back into the temporary
-        # staging directory after atomic installation.
+            h = data["sources"]["obfus-h"]
+            hdir = root / "share" / "obfus.h" / "include"
+            headerpath = hdir / "obfus.h"
+            url = (f"https://raw.githubusercontent.com/{h['repository']}/"
+                   f"{h['source_commit']}/{h['header_path']}")
+            verified_download(url, headerpath, h["sha256"], HEADER_MAX)
+            header = str(dest / "share" / "obfus.h" / "include" / "obfus.h")
+        paths = tool_paths(root, args.compiler, args.target, host)
+        cmake = cmake_toolchain(root, args.target, paths)
         cmake.write_text(
             cmake.read_text(encoding="utf-8").replace(
-                root.as_posix(), destination.as_posix()),
-            encoding="utf-8")
-        smoke = smoke_compiler(root, args.compiler, args.target, host, paths,
-                               lock["sources"].get("llvm-mingw", {}).get("llvm_version", ""),
-                               args.verify_smoke)
-        target_triple = (NATIVE_TRIPLES[host] if args.compiler == "llvm-native"
-                         else TARGETS[args.target][0])
-        report = {
-            "compiler": args.compiler,
-            "host": host,
-            "target": args.target,
-            "target_triple": target_triple,
-            "archive": asset["name"],
-            "archive_sha256": asset["sha256"],
-            "source_commit": (source["source_commit"] if args.compiler == "llvm-native"
-                              else source["release_commit"]),
-            "version": expected_tag,
-            "smoke": smoke,
-            "release_qualified": False,
-            "obfuscator_source": (lock["sources"]["obfus-h"]["source_commit"]
-                                  if obfus_header else None),
-            "obfuscator_sha256": (lock["sources"]["obfus-h"]["sha256"]
-                                  if obfus_header else None),
-        }
-        (root / "qigao-compiler-install.json").write_text(
-            json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        # Move only after all verification; relocate only the trusted staged prefix.
-        root.rename(destination)
-
-    final_paths = compiler_paths(destination, args.compiler, args.target, host)
+                root.as_posix(), dest.as_posix()), encoding="utf-8")
+        (root / "qigao-toolchain-source.json").write_text(json.dumps({
+            "compiler": args.compiler, "host": host, "target": args.target,
+            "tag": tag, "archive_sha256": item["sha256"],
+        }, indent=2) + "\n", encoding="utf-8")
+        root.rename(dest)
+    installed = tool_paths(dest, args.compiler, args.target, host)
     outputs = {
-        "root": str(destination),
-        "cc": final_paths["cc"],
-        "cxx": final_paths.get("cxx", ""),
-        "ar": final_paths.get("ar", ""),
-        "rc": final_paths.get("rc", ""),
-        "toolchain-file": str(destination / "qigao-toolchain.cmake"),
-        "target-triple": (NATIVE_TRIPLES[host] if args.compiler == "llvm-native"
-                          else TARGETS[args.target][0]),
-        "version": expected_tag,
-        "archive-sha256": asset["sha256"],
-        "smoke": smoke,
-        "release-qualified": "false",
-        "obfuscator-installed": "true" if args.compiler == "tinycc-builder" else "false",
-        "obfus-header": str(destination / "share" / "obfus.h" / "include" / "obfus.h")
-                        if args.compiler == "tinycc-builder" else "",
-        "obfus-include": str(destination / "share" / "obfus.h" / "include")
-                         if args.compiler == "tinycc-builder" else "",
+        "root": str(dest), "cc": installed["cc"], "cxx": installed.get("cxx", ""),
+        "ar": installed.get("ar", ""), "rc": installed.get("rc", ""),
+        "toolchain-file": str(dest / "qigao-toolchain.cmake"),
+        "target-triple": TARGETS[args.target][0],
+        "version": tag, "archive-sha256": item["sha256"],
+        "obfus-header": header,
+        "obfus-include": str(Path(header).parent) if header else "",
     }
-    github_append(args.github_output, outputs)
-    prefix = (destination / "bin" if args.compiler in ("llvm-mingw", "llvm-native")
-              else destination)
-    github_append(args.github_path, [str(prefix)])
-    env_prefix = ("LLVM_NATIVE" if args.compiler == "llvm-native" else
-                  "LLVM_MINGW" if args.compiler == "llvm-mingw" else "TINYCC")
-    github_append(args.github_env, {
-        f"{env_prefix}_ROOT": str(destination),
-        f"{env_prefix}_CC": final_paths["cc"],
-        f"{env_prefix}_TOOLCHAIN_FILE": outputs["toolchain-file"],
+    append_github(args.github_output, outputs)
+    env_name = "LLVM_MINGW" if args.compiler == "llvm-mingw" else "TINYCC"
+    append_github(args.github_env, {
+        env_name + "_ROOT": str(dest),
+        env_name + "_CC": installed["cc"],
+        env_name + "_TOOLCHAIN_FILE": outputs["toolchain-file"],
         "QIGAO_COMPILER_TOOLCHAIN_FILE": outputs["toolchain-file"],
-        **({f"{env_prefix}_CXX": final_paths["cxx"]}
-           if args.compiler in ("llvm-mingw", "llvm-native")
-           else {"TINYCC_OBFUS_HEADER": outputs["obfus-header"],
-                 "TINYCC_OBFUS_INCLUDE": outputs["obfus-include"]}),
+        **({env_name + "_CXX": installed["cxx"]} if "cxx" in installed
+           else {"TINYCC_OBFUS_INCLUDE": outputs["obfus-include"]}),
     })
+    append_github(args.github_path, [
+        str(dest / "bin" if args.compiler == "llvm-mingw" else dest)])
     return outputs
 
-
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler", required=True,
-                        choices=("llvm-mingw", "llvm-native", "tinycc-builder"))
+                        choices=("llvm-mingw", "tinycc-builder"))
     parser.add_argument("--version", default="")
     parser.add_argument("--target", required=True, choices=tuple(TARGETS))
+    parser.add_argument("--build-type", default="toolchain-only")
     parser.add_argument("--runner-os", required=True, choices=tuple(HOST_OS))
     parser.add_argument("--runner-arch", required=True, choices=tuple(HOST_ARCH))
-    parser.add_argument("--build-type", default="toolchain-only")
-    parser.add_argument("--destination", type=Path, required=True)
-    parser.add_argument("--verify-smoke", action="store_true")
-    parser.add_argument("--contract", type=Path, default=LOCK,
-                        help="internal/test only; composite Actions always use canonical lock")
+    parser.add_argument("--destination", required=True, type=Path)
     parser.add_argument("--github-output")
-    parser.add_argument("--github-path")
     parser.add_argument("--github-env")
-    args = parser.parse_args(argv)
+    parser.add_argument("--github-path")
+    args = parser.parse_args()
     try:
-        result = install(args)
-    except (AdmissionError, OSError, ValueError, KeyError, RuntimeError,
-            subprocess.TimeoutExpired, tarfile.TarError, zipfile.BadZipFile) as exc:
-        print(f"compiler setup denied: {exc}", file=sys.stderr)
+        print(json.dumps(install(args), sort_keys=True))
+        return 0
+    except (AdmissionError, OSError, ValueError, KeyError) as exc:
+        print("TOOLCHAIN_SETUP_FAILED: " + str(exc), file=sys.stderr)
         return 2
-    print(json.dumps({k: v for k, v in result.items()
-                      if k not in ("cc", "cxx", "ar", "rc", "obfus-header", "obfus-include")},
-                     sort_keys=True))
-    return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

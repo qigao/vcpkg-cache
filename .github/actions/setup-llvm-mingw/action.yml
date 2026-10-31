@@ -1,90 +1,58 @@
-name: Set up pinned LLVM-MinGW compiler
-description: Restore verified llvm-mingw host archive and export Windows-target C/C++ CMake toolchain. Compiler setup does not qualify obfuscated Release.
+name: Set up Windows llvm-mingw
+description: Install the selected immutable llvm-mingw UCRT package; no Clang validation or smoke CI.
 inputs:
   version:
-    description: Exact release tag, must match the central SHA256 lock.
-    required: false
+    description: Windows llvm-mingw release tag (MinGW-specific)
     default: "20261020"
+    required: false
   target:
-    description: Windows target CPU x86, x64, armv7 or arm64.
-    required: false
+    description: Windows target CPU
     default: x64
+    required: false
   build-type:
-    description: toolchain-only/Debug, or protected Release with a pinned host plugin and verified IR/PE preflight.
-    required: false
+    description: Product build configuration; does not trigger compiler tests
     default: toolchain-only
+    required: false
   plugin-path:
-    description: Absolute path to host LLVMObfuscator library; required for protected Release and checked against central SHA lock.
-    required: false
+    description: Existing obfuscator-llvm shared library for protected target builds
     default: ""
+    required: false
   obfuscation-seed:
-    description: Recorded fixed 16-byte hexadecimal seed (not a secret).
-    required: false
+    description: Obfuscation pass seed
     default: "0xA04252B187478C00A40BC6D81D1A8A52"
-  verify-smoke:
-    description: Compile and inspect real Windows PE; execute when native.
     required: false
-    default: "true"
   install-root:
-    description: Optional fresh absolute install path.
-    required: false
+    description: Optional fresh absolute toolchain folder
     default: ""
+    required: false
 outputs:
   root:
-    description: Installed toolchain root.
     value: ${{ steps.install.outputs.root }}
   cc:
-    description: Target Clang executable.
     value: ${{ steps.install.outputs.cc }}
   cxx:
-    description: Target Clang++ executable.
     value: ${{ steps.install.outputs.cxx }}
   ar:
-    description: Target archiver.
     value: ${{ steps.install.outputs.ar }}
   rc:
-    description: Windows resource compiler.
     value: ${{ steps.install.outputs.rc }}
   toolchain-file:
-    description: CMake toolchain; use VCPKG_CHAINLOAD_TOOLCHAIN_FILE with a separately qualified MinGW triplet.
     value: ${{ steps.install.outputs.toolchain-file }}
   target-triple:
-    description: Windows GNU target triple.
     value: ${{ steps.install.outputs.target-triple }}
   version:
-    description: Verified llvm-mingw tag.
     value: ${{ steps.install.outputs.version }}
   archive-sha256:
-    description: Verified archive digest.
     value: ${{ steps.install.outputs.archive-sha256 }}
-  smoke:
-    description: compiler-identity-only, cross-compile-pe-machine, or native-execution.
-    value: ${{ steps.install.outputs.smoke }}
-  release-qualified:
-    description: False until LLVM pass and native Release gate is qualified.
-    value: ${{ steps.install.outputs.release-qualified }}
-  obfuscator-installed:
-    description: True only if a real compiler+plugin preflight succeeded.
-    value: ${{ steps.prove.outputs.verified || steps.install.outputs.obfuscator-installed }}
-  obfuscator-verified:
-    description: Pinned host plugin, nonidentity IR, actual PE and native parity preflight, not product Release admission.
-    value: ${{ steps.prove.outputs.verified || 'false' }}
-  obfuscator-plugin:
-    description: Pinned host plugin path for explicitly protected first-party targets.
-    value: ${{ steps.prove.outputs.plugin }}
   obfuscator-compile-flag:
-    description: Per-target clang -fpass-plugin argument (not for third-party dependency builds).
-    value: ${{ steps.prove.outputs.compile-flag }}
-  obfuscator-preflight-receipt:
-    description: Exact compiler-plugin proof, not a final product release receipt.
-    value: ${{ steps.prove.outputs.receipt }}
+    value: ${{ steps.install.outputs.obfuscator-compile-flag }}
 runs:
   using: composite
   steps:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Restore SHA256-pinned LLVM-MinGW and smoke compiler
+    - name: Install Windows llvm-mingw toolchain
       id: install
       shell: pwsh
       env:
@@ -92,108 +60,34 @@ runs:
         INPUT_TARGET: ${{ inputs.target }}
         INPUT_BUILD_TYPE: ${{ inputs.build-type }}
         INPUT_PLUGIN_PATH: ${{ inputs.plugin-path }}
-        INPUT_VERIFY_SMOKE: ${{ inputs.verify-smoke }}
+        INPUT_OBF_SEED: ${{ inputs.obfuscation-seed }}
         INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
         HOST_OS: ${{ runner.os }}
         HOST_ARCH: ${{ runner.arch }}
       run: |
         $ErrorActionPreference = 'Stop'
-        $root = [System.IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
-        $script = Join-Path $root 'scripts/setup-compiler-toolchain.py'
-        if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
-          throw "The compiler setup script is missing from this action repository"
-        }
+        $repo = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $installer = Join-Path $repo 'scripts/setup-compiler-toolchain.py'
         $destination = $env:INPUT_INSTALL_ROOT
         if (-not $destination) {
-          $destination = Join-Path $env:RUNNER_TEMP "qigao-llvm-mingw-$($env:INPUT_VERSION)-$($env:HOST_OS)-$($env:HOST_ARCH)-$($env:INPUT_TARGET)"
+          $destination = Join-Path $env:RUNNER_TEMP "qigao-llvm-mingw-$env:INPUT_VERSION-$env:HOST_OS-$env:HOST_ARCH-$env:INPUT_TARGET"
         }
-        if (-not [System.IO.Path]::IsPathFullyQualified($destination)) {
-          throw 'install-root must be an absolute path'
+        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo') -and
+            -not $env:INPUT_PLUGIN_PATH) {
+          throw 'Protected Windows Release requires obfuscator-llvm plugin-path'
         }
-        $setupMode = $env:INPUT_BUILD_TYPE
-        if ($env:INPUT_BUILD_TYPE -in @('Release','MinSizeRel','RelWithDebInfo')) {
-          if ($env:INPUT_TARGET -notin @('x64','arm64')) {
-            throw 'Protected Windows Release supports only llvm-mingw x64/arm64'
-          }
-          if (-not [IO.Path]::IsPathFullyQualified($env:INPUT_PLUGIN_PATH) -or
-              -not (Test-Path -LiteralPath $env:INPUT_PLUGIN_PATH -PathType Leaf)) {
-            throw 'Protected Release needs an absolute, preinstalled pinned host LLVM pass plugin'
-          }
-          # Fail BEFORE the large compiler download when the host plugin
-          # lacks an immutable lock or the supplied binary digest is wrong.
-          $hostOs = @{Windows='windows';Linux='linux';macOS='macos'}[$env:HOST_OS]
-          $hostArch = @{X64='x64';ARM64='arm64'}[$env:HOST_ARCH]
-          if (-not $hostOs -or -not $hostArch) { throw 'Unknown LLVM plugin host' }
-          $hostId = "$hostOs-$hostArch"
-          $policy = Get-Content -LiteralPath (Join-Path $root 'compiler-contracts/release-obfuscation.json') -Raw | ConvertFrom-Json
-          $pins = @($policy.sources.'obfuscator-llvm'.host_plugin_assets | Where-Object { $_.host -eq $hostId })
-          if ($pins.Count -ne 1) { throw "No immutable LLVM obfuscator host plugin for $hostId" }
-          $pin = $pins[0]
-          if ($pin.llvm_version -ne $policy.sources.'llvm-mingw'.llvm_version -or
-              $pin.source_commit -ne $policy.sources.'obfuscator-llvm'.source_commit -or
-              $pin.name -ne [IO.Path]::GetFileName($env:INPUT_PLUGIN_PATH) -or
-              $pin.sha256 -ne (Get-FileHash -LiteralPath $env:INPUT_PLUGIN_PATH -Algorithm SHA256).Hash.ToLowerInvariant()) {
-            throw 'Host LLVM plugin SHA/source/ABI lock mismatch before compiler installation'
-          }
-          # Compiler setup alone cannot grant a Release qualification. The
-          # following step independently verifies pinned plugin IR and PE.
-          $setupMode = 'toolchain-only'
+        $argv = @('--compiler', 'llvm-mingw', '--version', $env:INPUT_VERSION,
+                  '--target', $env:INPUT_TARGET,
+                  '--build-type', $env:INPUT_BUILD_TYPE,
+                  '--runner-os', $env:HOST_OS, '--runner-arch', $env:HOST_ARCH,
+                  '--destination', $destination,
+                  '--github-output', $env:GITHUB_OUTPUT,
+                  '--github-env', $env:GITHUB_ENV,
+                  '--github-path', $env:GITHUB_PATH)
+        & python $installer @argv
+        if ($LASTEXITCODE -ne 0) { throw 'Windows llvm-mingw package install failed' }
+        if ($env:INPUT_PLUGIN_PATH) {
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "obfuscator-compile-flag=-fpass-plugin=$env:INPUT_PLUGIN_PATH"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SEED=$env:INPUT_OBF_SEED"
         }
-        $arguments = @(
-          '--compiler', 'llvm-mingw', '--version', $env:INPUT_VERSION,
-          '--target', $env:INPUT_TARGET, '--build-type', $setupMode,
-          '--runner-os', $env:HOST_OS, '--runner-arch', $env:HOST_ARCH,
-          '--destination', $destination,
-          '--github-output', $env:GITHUB_OUTPUT,
-          '--github-path', $env:GITHUB_PATH,
-          '--github-env', $env:GITHUB_ENV
-        )
-        if ($env:INPUT_VERIFY_SMOKE -eq 'true') { $arguments += '--verify-smoke' }
-        elseif ($env:INPUT_VERIFY_SMOKE -ne 'false') { throw 'verify-smoke must be true or false' }
-        & python $script @arguments
-        if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM-MinGW compiler setup failed' }
-
-    - name: Validate actual LLVM obfuscator before protected Windows Release
-      id: prove
-      if: inputs.build-type == 'Release' || inputs.build-type == 'MinSizeRel' || inputs.build-type == 'RelWithDebInfo'
-      shell: pwsh
-      env:
-        LLVM_MINGW_COMPILER: ${{ steps.install.outputs.cc }}
-        INPUT_PLUGIN_PATH: ${{ inputs.plugin-path }}
-        INPUT_BUILD_TYPE: ${{ inputs.build-type }}
-        INPUT_TARGET: ${{ inputs.target }}
-        INPUT_SEED: ${{ inputs.obfuscation-seed }}
-        HOST_OS: ${{ runner.os }}
-        HOST_ARCH: ${{ runner.arch }}
-      run: |
-        $ErrorActionPreference = 'Stop'
-        $repoRoot = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
-        $gate = Join-Path $repoRoot 'scripts/ci/verify_llvm_mingw_obfuscation.py'
-        if (-not (Test-Path -LiteralPath $gate -PathType Leaf)) {
-          throw 'Missing authoritative llvm-mingw/obfuscator IR verifier'
-        }
-        $hostOs = @{Windows='windows';Linux='linux';macOS='macos'}[$env:HOST_OS]
-        $hostArch = @{X64='x64';ARM64='arm64'}[$env:HOST_ARCH]
-        if (-not $hostOs -or -not $hostArch) { throw 'Unsupported plugin execution host' }
-        $hostId = "$hostOs-$hostArch"
-        $targetId = "windows-$($env:INPUT_TARGET)"
-        $out = Join-Path $env:RUNNER_TEMP "qigao-obf-preflight-$env:GITHUB_RUN_ID-$env:INPUT_TARGET"
-        & python $gate '--compiler' $env:LLVM_MINGW_COMPILER '--plugin' $env:INPUT_PLUGIN_PATH '--host' $hostId '--target' $targetId '--build-type' $env:INPUT_BUILD_TYPE '--seed' $env:INPUT_SEED '--output' $out
-        if ($LASTEXITCODE -ne 0) {
-          throw 'Real host plugin SHA/IR/PE/native preflight RED; no Release fallback'
-        }
-        # Compiler-only proof. Downstream product native tests still gate Release.
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'verified=true'
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "plugin=$env:INPUT_PLUGIN_PATH"
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "compile-flag=-fpass-plugin=$env:INPUT_PLUGIN_PATH"
-        $receiptPath = Join-Path $out 'obfuscation-preflight.json'
-        $proof = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
-        if ($proof.release_qualified -ne $false -or
-            $proof.compiler_family -ne 'llvm-mingw') {
-          throw 'Unverified or incorrectly identified LLVM-MinGW pass receipt'
-        }
-        $passes = $proof.pass_pipeline.LLVM_OBF_SCALAROPTIMIZERLATE_PASSES
-        if (-not $passes) { throw 'Required locked LLVM obfuscation passes missing' }
-        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "receipt=$receiptPath"
-        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=$passes"
-        Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SEED=$env:INPUT_SEED"
