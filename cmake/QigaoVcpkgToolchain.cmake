@@ -13,6 +13,16 @@ if(WIN32 AND
   set(VCPKG_HOST_TRIPLET "$ENV{QIGAO_VCPKG_WINDOWS_HOST_TRIPLET}" CACHE STRING
       "Canonical Qigao Windows host triplet" FORCE)
 endif()
+# The product must use the target compiler; vcpkg ports independently
+# chainload the plain target/host compilers from their LLVM-MinGW triplets.
+if(DEFINED VCPKG_TARGET_TRIPLET AND
+   VCPKG_TARGET_TRIPLET MATCHES "^qigao-(x64|arm64)-windows-llvm-mingw$")
+  if(NOT DEFINED ENV{LLVM_MINGW_TOOLCHAIN_FILE} OR
+     "$ENV{LLVM_MINGW_TOOLCHAIN_FILE}" STREQUAL "")
+    message(FATAL_ERROR "Windows product requires setup-llvm-mingw target toolchain")
+  endif()
+  include("$ENV{LLVM_MINGW_TOOLCHAIN_FILE}")
+endif()
 if("$ENV{QIGAO_OBFUSCATOR_ENABLED}" STREQUAL "true")
   if(NOT DEFINED ENV{QIGAO_COMPILER_OBFUSCATION_CMAKE} OR
      "$ENV{QIGAO_COMPILER_OBFUSCATION_CMAKE}" STREQUAL "")

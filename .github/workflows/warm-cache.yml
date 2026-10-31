@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       warm_llvm_mingw:
-        description: Opt in to Windows x64 llvm-mingw dependency production (not compiler testing)
+        description: Opt in to Windows x64+arm64 LLVM-MinGW package build (NO PUBLISH)
         required: false
         type: boolean
         default: false
@@ -315,11 +315,18 @@ jobs:
           echo "Linux arm64 SDK dependency clean-L2 restore passed." >> "$GITHUB_STEP_SUMMARY"
 
   windows-llvm-mingw:
-    name: Windows x64 llvm-mingw local ABI producer / curl-only transport
+    name: Windows ${{ matrix.target }} llvm-mingw native ABI producer / NO PUBLISH
     if: github.event_name == 'workflow_dispatch' && inputs.warm_llvm_mingw == true
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x64, arm64]
     runs-on: windows-2025
+    permissions:
+      contents: read
+      packages: read
     env:
-      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/llvm-mingw-x64-local-cache
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/llvm-mingw-${{ matrix.target }}-local-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -329,7 +336,7 @@ jobs:
         uses: ./.github/actions/setup-llvm-mingw
         with:
           version: "20261020"
-          target: x64
+          target: ${{ matrix.target }}
           build-type: toolchain-only
       - name: Install native dependency build tools
         shell: pwsh
@@ -362,16 +369,18 @@ jobs:
             throw 'Exact SaltsCore source identity mismatch'
           }
 
-          $triplet = 'qigao-x64-windows-llvm-mingw'
+          $target = '${{ matrix.target }}'
+          $triplet = "qigao-$target-windows-llvm-mingw"
+          $hostTriplet = 'qigao-x64-windows-llvm-mingw'
           $features = @('--x-feature=simd','--x-feature=usb','--x-feature=playback',
                         '--x-feature=capture','--x-feature=zstd')
-          $provenance = Join-Path $env:GITHUB_WORKSPACE 'build/llvm-mingw-x64-provenance'
+          $provenance = Join-Path $env:GITHUB_WORKSPACE "build/llvm-mingw-$target-provenance"
           New-Item -ItemType Directory -Force -Path $provenance | Out-Null
           $config = Join-Path $provenance 'packages.config'
           $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,write"
 
           # Real vcpkg owns the exact package IDs/ABI hashes, including host tools.
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$triplet" @features --dry-run "--x-write-nuget-packages-config=$config"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$hostTriplet" @features --dry-run "--x-write-nuget-packages-config=$config"
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $config)) {
             throw 'Exact LLVM-MinGW ABI manifest resolution failed'
           }
@@ -381,13 +390,15 @@ jobs:
           foreach ($entry in $required) {
             $id = [string]$entry.id
             $version = [string]$entry.version
-            if (-not $id.EndsWith("_$triplet", [StringComparison]::OrdinalIgnoreCase) -or
+            $targetABI = $id.EndsWith("_$triplet", [StringComparison]::OrdinalIgnoreCase)
+            $hostABI = $id.EndsWith("_$hostTriplet", [StringComparison]::OrdinalIgnoreCase)
+            if ((-not $targetABI -and -not $hostABI) -or
                 $version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}$') {
               throw "Unexpected target/host or non-immutable ABI: $id/$version"
             }
           }
           Write-Host "Exact SaltsCore $coreSha LLVM-MinGW ABI count: $($required.Count)"
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$triplet" @features
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$source" "--triplet=$triplet" "--host-triplet=$hostTriplet" @features
           if ($LASTEXITCODE -ne 0) { throw 'LLVM-MinGW native dependency compilation failed; no fallback' }
           $packages = @(Get-ChildItem -LiteralPath $env:VCPKG_BINARY_CACHE -Filter '*.zip' -File -Recurse)
           if ($packages.Count -ne $required.Count) {
@@ -397,10 +408,10 @@ jobs:
       - name: Retain exact local ABI and manifest for separately authorized publication
         uses: actions/upload-artifact@v4
         with:
-          name: llvm-mingw-x64-saltscore-${{ github.run_id }}
+          name: llvm-mingw-${{ matrix.target }}-saltscore-${{ github.run_id }}
           path: |
-            build/llvm-mingw-x64-local-cache/
-            build/llvm-mingw-x64-provenance/packages.config
+            build/llvm-mingw-${{ matrix.target }}-local-cache/
+            build/llvm-mingw-${{ matrix.target }}-provenance/packages.config
           if-no-files-found: error
           retention-days: 7
 

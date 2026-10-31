@@ -195,7 +195,8 @@ def tool_paths(root: Path, compiler: str, target: str, host: str) -> dict[str, s
         "rc": str(binary / (prefix + "-windres" + ext)),
     }
 
-def cmake_toolchain(root: Path, target: str, paths: dict[str, str]) -> Path:
+def cmake_toolchain(root: Path, target: str, paths: dict[str, str],
+                    filename: str = "qigao-toolchain.cmake") -> Path:
     lines = [
         "# Windows llvm-mingw / TinyCC path configuration. No compiler probes.",
         "set(CMAKE_SYSTEM_NAME Windows)",
@@ -210,7 +211,7 @@ def cmake_toolchain(root: Path, target: str, paths: dict[str, str]) -> Path:
             value = paths[key].replace("\\", "/")
             ensure('"' not in value and "\n" not in value, "invalid CMake path")
             lines.append(f'set({cmake_name} "{value}")')
-    output = root / "qigao-toolchain.cmake"
+    output = root / filename
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return output
 
@@ -296,6 +297,17 @@ def install(args: argparse.Namespace) -> dict[str, str]:
         cmake.write_text(
             cmake.read_text(encoding="utf-8").replace(
                 root.as_posix(), dest.as_posix()), encoding="utf-8")
+        # Host tools use the runner's CPU even when target libraries are ARM64.
+        # The x64 host triplet must never chainload the ARM64 target compiler.
+        host_cmake = None
+        if args.compiler == "llvm-mingw" and args.runner_os == "Windows":
+            host_target = HOST_ARCH[args.runner_arch]
+            host_tools = tool_paths(root, args.compiler, host_target, host)
+            host_cmake = cmake_toolchain(
+                root, host_target, host_tools, "qigao-host-toolchain.cmake")
+            host_cmake.write_text(
+                host_cmake.read_text(encoding="utf-8").replace(
+                    root.as_posix(), dest.as_posix()), encoding="utf-8")
         product = (product_toolchain(root, cmake)
                    if args.compiler == "llvm-mingw" else cmake)
         (root / "qigao-toolchain-source.json").write_text(json.dumps({
@@ -319,6 +331,10 @@ def install(args: argparse.Namespace) -> dict[str, str]:
         "ar": installed.get("ar", ""), "rc": installed.get("rc", ""),
         "toolchain-file": str(dest / product.name),
         "dependency-toolchain-file": str(dest / cmake.name),
+        "host-dependency-toolchain-file": (
+            str(dest / "qigao-host-toolchain.cmake")
+            if args.compiler == "llvm-mingw" and args.runner_os == "Windows"
+            else ""),
         "target-triple": TARGETS[args.target][0],
         "version": tag, "archive-sha256": item["sha256"],
         "obfus-header": header,
@@ -330,8 +346,13 @@ def install(args: argparse.Namespace) -> dict[str, str]:
         env_name + "_ROOT": str(dest),
         env_name + "_CC": installed["cc"],
         env_name + "_TOOLCHAIN_FILE": outputs["toolchain-file"],
-        **({"LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE": outputs["dependency-toolchain-file"]}
-           if args.compiler == "llvm-mingw" else {}),
+        **({
+            "LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE": outputs["dependency-toolchain-file"],
+            "LLVM_MINGW_HOST_DEPENDENCY_TOOLCHAIN_FILE": outputs["host-dependency-toolchain-file"],
+        } if args.compiler == "llvm-mingw" and args.runner_os == "Windows"
+           else ({"LLVM_MINGW_DEPENDENCY_TOOLCHAIN_FILE":
+                  outputs["dependency-toolchain-file"]}
+                 if args.compiler == "llvm-mingw" else {})),
         "QIGAO_COMPILER_TOOLCHAIN_FILE": outputs["toolchain-file"],
         **({env_name + "_CXX": installed["cxx"]} if "cxx" in installed
            else {"TINYCC_OBFUS_INCLUDE": outputs["obfus-include"]}),

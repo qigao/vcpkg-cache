@@ -46,6 +46,8 @@ outputs:
     value: ${{ steps.install.outputs.toolchain-file }}
   dependency-toolchain-file:
     value: ${{ steps.install.outputs.dependency-toolchain-file }}
+  host-dependency-toolchain-file:
+    value: ${{ steps.install.outputs.host-dependency-toolchain-file }}
   target-triple:
     value: ${{ steps.install.outputs.target-triple }}
   version:
