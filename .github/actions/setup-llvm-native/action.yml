@@ -23,25 +23,25 @@ inputs:
     required: false
 outputs:
   root:
-    value: ${ steps.local.outputs.root }
+    value: ${{ steps.local.outputs.root }}
   cc:
-    value: ${ steps.local.outputs.cc }
+    value: ${{ steps.local.outputs.cc }}
   cxx:
-    value: ${ steps.local.outputs.cxx }
+    value: ${{ steps.local.outputs.cxx }}
   ar:
-    value: ${ steps.local.outputs.ar }
+    value: ${{ steps.local.outputs.ar }}
   ranlib:
-    value: ${ steps.local.outputs.ranlib }
+    value: ${{ steps.local.outputs.ranlib }}
   toolchain-file:
-    value: ${ steps.local.outputs.toolchain-file }
+    value: ${{ steps.local.outputs.toolchain-file }}
   obfuscator-enabled:
-    value: ${ steps.obfuscator.outputs.enabled || 'false' }
+    value: ${{ steps.obfuscator.outputs.enabled || 'false' }}
   plugin-path:
-    value: ${ steps.obfuscator.outputs.plugin-path }
+    value: ${{ steps.obfuscator.outputs.plugin-path }}
   obfuscator-compile-flag:
-    value: ${ steps.obfuscator.outputs.compile-flag }
+    value: ${{ steps.obfuscator.outputs.compile-flag }}
   compiler-obfuscation-cmake:
-    value: ${ steps.obfuscator.outputs.cmake-file }
+    value: ${{ steps.obfuscator.outputs.cmake-file }}
 runs:
   using: composite
   steps:
@@ -49,10 +49,10 @@ runs:
       id: local
       shell: bash
       env:
-        BUILD_TYPE: ${ inputs.build-type }
-        OBFUSCATOR: ${ inputs.obfuscator }
-        PROVIDED_PLUGIN: ${ inputs.plugin-path }
-        LLVM_FORMULA: ${ inputs.macos-llvm-formula }
+        BUILD_TYPE: ${{ inputs.build-type }}
+        OBFUSCATOR: ${{ inputs.obfuscator }}
+        PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
+        LLVM_FORMULA: ${{ inputs.macos-llvm-formula }}
       run: |
         set -euo pipefail
         case "$OBFUSCATOR" in
@@ -135,12 +135,12 @@ runs:
       if: inputs.obfuscator == 'true'
       shell: bash
       env:
-        COMPILER_CXX: ${ steps.local.outputs.cxx }
-        PROVIDED_PLUGIN: ${ inputs.plugin-path }
-        OBFUSCATION_SEED: ${ inputs.obfuscation-seed }
+        COMPILER_CXX: ${{ steps.local.outputs.cxx }}
+        PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
+        OBFUSCATION_SEED: ${{ inputs.obfuscation-seed }}
       run: |
         set -euo pipefail
-        repo="$(cd "${ github.action_path }/../../.." && pwd)"
+        repo="$(cd "${{ github.action_path }}/../../.." && pwd)"
         python "$repo/scripts/setup-obfuscator-llvm.py" \
           --repo-root "$repo" --compiler-cxx "$COMPILER_CXX" \
           --plugin-path "$PROVIDED_PLUGIN" \
