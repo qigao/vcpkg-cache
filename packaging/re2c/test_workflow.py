@@ -24,14 +24,14 @@ def policy_errors(text):
             errors.append(f"{job} must retain: {line}")
 
     require("linux", "runs-on: ubuntu-22.04")
-    require("linux", "-DCMAKE_C_COMPILER=/usr/bin/gcc-11 -DCMAKE_CXX_COMPILER=/usr/bin/g++-11")
+    require("linux", "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++")
     require("pack", "needs: [linux, linux-arm64, macos, windows]")
     require("linux-compatibility", "needs: pack")
     require("linux-compatibility", "os: [ubuntu-22.04, ubuntu-24.04]")
     require("linux-compatibility", "runs-on: ${{ matrix.os }}")
     require("linux-compatibility", "fail-fast: false")
     require("publish", "needs: [pack, linux-compatibility]")
-    require("publish", "if: github.event_name != 'pull_request'")
+    require("publish", "if: github.event_name == 'workflow_dispatch' && inputs.publish == true")
     for job in ("linux-compatibility", "publish"):
         require(job, "name: re2c-binary-nuget")
         require(job, "sha256sum --check dist/SHA256SUMS")
@@ -63,7 +63,7 @@ class WorkflowTests(unittest.TestCase):
         for before, after in (
             ("needs: [pack, linux-compatibility]", "needs: [pack]"),
             ("os: [ubuntu-22.04, ubuntu-24.04]", "os: [ubuntu-24.04]"),
-            ("if: github.event_name != 'pull_request'", "if: always()"),
+            ("if: github.event_name == 'workflow_dispatch' && inputs.publish == true", "if: always()"),
         ):
             with self.subTest(before=before):
                 self.assertTrue(policy_errors(text.replace(before, after)))
