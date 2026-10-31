@@ -62,8 +62,26 @@ runs:
         else
           cc="$(command -v clang)"
           cxx="$(command -v clang++)"
-          ar="$(command -v llvm-ar)"
-          ranlib="$(command -v llvm-ranlib)"
+          # Ubuntu images expose some llvm-binutils only with numeric suffixes.
+          # Select installed LLVM tools without pinning or executing/probing a
+          # Clang version. Never substitute GCC/binutils or another compiler.
+          select_llvm_tool() {
+            local name="$1" candidate
+            if command -v "$name" >/dev/null 2>&1; then
+              command -v "$name"
+              return
+            fi
+            for candidate in /usr/lib/llvm-*/bin/"$name" /usr/bin/"$name"-[0-9]*; do
+              if [[ -x "$candidate" ]]; then
+                printf '%s\n' "$candidate"
+                return
+              fi
+            done
+            echo "Missing installed LLVM archive utility: $name" >&2
+            return 1
+          }
+          ar="$(select_llvm_tool llvm-ar)"
+          ranlib="$(select_llvm_tool llvm-ranlib)"
           root="$(dirname "$(dirname "$cc")")"
           system=Linux
           sdk=''
