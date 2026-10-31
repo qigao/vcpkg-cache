@@ -81,10 +81,10 @@ def windows_llvm_development(lock: dict, kit: Path, cxx: Path,
                     source_dir, ("llvm", "cmake", "third-party", "libc"))
     run([
         "cmake", "-S", str(source_dir / "llvm"), "-B", str(build_dir), "-G", "Ninja",
-        "-DCMAKE_C_COMPILER=" + str(cc), "-DCMAKE_CXX_COMPILER=" + str(cxx),
-        "-DCMAKE_RC_COMPILER=" + str(cxx.with_name(cxx.name.replace("clang++", "windres"))),
-        "-DCMAKE_AR=" + str(cxx.with_name(cxx.name.replace("clang++", "ar"))),
-        "-DCMAKE_RANLIB=" + str(cxx.with_name(cxx.name.replace("clang++", "ranlib"))),
+        "-DCMAKE_C_COMPILER=" + cc.as_posix(), "-DCMAKE_CXX_COMPILER=" + cxx.as_posix(),
+        "-DCMAKE_RC_COMPILER=" + cxx.with_name(cxx.name.replace("clang++", "windres")).as_posix(),
+        "-DCMAKE_AR=" + cxx.with_name(cxx.name.replace("clang++", "ar")).as_posix(),
+        "-DCMAKE_RANLIB=" + cxx.with_name(cxx.name.replace("clang++", "ranlib")).as_posix(),
         "-DCMAKE_BUILD_TYPE=Release",
         "-DLLVM_ENABLE_PROJECTS=", "-DLLVM_TARGETS_TO_BUILD=ARM;AArch64;X86;NVPTX",
         "-DLLVM_ENABLE_ASSERTIONS=OFF", "-DLLVM_ENABLE_ABI_BREAKING_CHECKS=FORCE_OFF",
@@ -169,13 +169,13 @@ def build_plugin(repo: Path, cxx: Path, root: Path,
         run(["git", "-C", str(source_dir), "apply", "--whitespace=error", str(patch)])
     command = [
         "cmake", "-S", str(source_dir), "-B", str(build_dir), "-G", "Ninja",
-        "-DLLVM_DIR=" + str(llvm_dir), "-DCMAKE_BUILD_TYPE=Release",
-        "-DBUILD_DUMMY=OFF", "-DCMAKE_CXX_COMPILER=" + str(cxx)]
+        "-DLLVM_DIR=" + llvm_dir.as_posix(), "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_DUMMY=OFF", "-DCMAKE_CXX_COMPILER=" + cxx.as_posix()]
     if host_import_library is not None:
         command += [
-            "-DCMAKE_C_COMPILER=" + str(cxx.with_name(cxx.name.replace("clang++", "clang"))),
+            "-DCMAKE_C_COMPILER=" + cxx.with_name(cxx.name.replace("clang++", "clang")).as_posix(),
             "-DLLVM_OMIT_EXPORTS_FROM_CONFIG=ON",
-            "-DQIGAO_LLVM_HOST_IMPORT_LIBRARY=" + str(host_import_library)]
+            "-DQIGAO_LLVM_HOST_IMPORT_LIBRARY=" + host_import_library.as_posix()]
     if sys.platform == "darwin":
         sdk = os.environ.get("SDKROOT", "")
         if not sdk:
