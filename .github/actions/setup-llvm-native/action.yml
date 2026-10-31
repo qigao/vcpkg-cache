@@ -1,54 +1,71 @@
-name: Use runner-native Clang for Linux and macOS
-description: Select installed Clang directly; no download, compiler version checks, smoke or dedicated validation CI.
+name: Set up runner-native LLVM/Clang
+description: Select installed Clang and optionally enable product-wide LLVM obfuscation.
 inputs:
   build-type:
-    description: Product build configuration
+    description: Compiler setup type; explicit protected Release requires obfuscator=true.
     default: toolchain-only
     required: false
+  obfuscator:
+    description: Activate LLVM pass for product C/C++ compilation, without target lists.
+    default: "false"
+    required: false
   plugin-path:
-    description: Existing obfuscator-llvm plugin path for protected builds
+    description: Existing host plugin; if empty when enabled, build the pinned source.
     default: ""
     required: false
   obfuscation-seed:
-    description: Obfuscator seed
+    description: LLVM obfuscation seed.
     default: "0xA04252B187478C00A40BC6D81D1A8A52"
     required: false
   macos-llvm-formula:
-    description: Runner-provided independent LLVM formula; no LLVM version is enforced
+    description: Independent Homebrew LLVM formula, no LLVM version enforcement.
     default: "llvm@18"
     required: false
 outputs:
   root:
-    value: ${{ steps.local.outputs.root }}
+    value: ${ steps.local.outputs.root }
   cc:
-    value: ${{ steps.local.outputs.cc }}
+    value: ${ steps.local.outputs.cc }
   cxx:
-    value: ${{ steps.local.outputs.cxx }}
+    value: ${ steps.local.outputs.cxx }
   ar:
-    value: ${{ steps.local.outputs.ar }}
+    value: ${ steps.local.outputs.ar }
   ranlib:
-    value: ${{ steps.local.outputs.ranlib }}
+    value: ${ steps.local.outputs.ranlib }
   toolchain-file:
-    value: ${{ steps.local.outputs.toolchain-file }}
+    value: ${ steps.local.outputs.toolchain-file }
+  obfuscator-enabled:
+    value: ${ steps.obfuscator.outputs.enabled || 'false' }
+  plugin-path:
+    value: ${ steps.obfuscator.outputs.plugin-path }
   obfuscator-compile-flag:
-    value: ${{ steps.local.outputs.obfuscator-compile-flag }}
-  obfuscation-policy-cmake:
-    value: ${{ steps.local.outputs.obfuscation-policy-cmake }}
+    value: ${ steps.obfuscator.outputs.compile-flag }
+  compiler-obfuscation-cmake:
+    value: ${ steps.obfuscator.outputs.cmake-file }
 runs:
   using: composite
   steps:
-    - name: Select local LLVM/Clang; no verification
+    - name: Select installed Clang (without compiler probes)
       id: local
       shell: bash
       env:
-        BUILD_TYPE: ${{ inputs.build-type }}
-        PLUGIN_PATH: ${{ inputs.plugin-path }}
-        SEED: ${{ inputs.obfuscation-seed }}
-        LLVM_FORMULA: ${{ inputs.macos-llvm-formula }}
+        BUILD_TYPE: ${ inputs.build-type }
+        OBFUSCATOR: ${ inputs.obfuscator }
+        PROVIDED_PLUGIN: ${ inputs.plugin-path }
+        LLVM_FORMULA: ${ inputs.macos-llvm-formula }
       run: |
         set -euo pipefail
-        if [[ "$BUILD_TYPE" =~ ^(Release|MinSizeRel|RelWithDebInfo)$ ]] && [[ -z "$PLUGIN_PATH" ]]; then
-          echo 'Protected Release requires obfuscator-llvm plugin-path' >&2
+        case "$OBFUSCATOR" in
+          true|false) ;;
+          *) echo 'obfuscator must be true or false' >&2; exit 2 ;;
+        esac
+        if [[ "$BUILD_TYPE" =~ ^(Release|MinSizeRel|RelWithDebInfo)$ ]] &&
+           [[ "$OBFUSCATOR" != true ]]; then
+          echo 'Protected Release requires obfuscator: true' >&2
+          exit 1
+        fi
+        if [[ "$OBFUSCATOR" != true && -n "$PROVIDED_PLUGIN" ]]; then
+          echo 'plugin-path requires obfuscator: true' >&2
           exit 1
         fi
         if [[ "$RUNNER_OS" == macOS ]]; then
@@ -62,9 +79,6 @@ runs:
         else
           cc="$(command -v clang)"
           cxx="$(command -v clang++)"
-          # Ubuntu images expose some llvm-binutils only with numeric suffixes.
-          # Select installed LLVM tools without pinning or executing/probing a
-          # Clang version. Never substitute GCC/binutils or another compiler.
           select_llvm_tool() {
             local name="$1" candidate
             if command -v "$name" >/dev/null 2>&1; then
@@ -77,7 +91,7 @@ runs:
                 return
               fi
             done
-            echo "Missing installed LLVM archive utility: $name" >&2
+            echo "Missing installed LLVM utility: $name" >&2
             return 1
           }
           ar="$(select_llvm_tool llvm-ar)"
@@ -86,23 +100,20 @@ runs:
           system=Linux
           sdk=''
         fi
+        tc="$RUNNER_TEMP/qigao-runner-clang-$RUNNER_ARCH.cmake"
         if [[ "$system" == Darwin ]]; then
-          tc="$RUNNER_TEMP/qigao-runner-clang-$RUNNER_ARCH.cmake"
           printf 'set(CMAKE_SYSTEM_NAME Darwin)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\nset(CMAKE_RANLIB "%s")\nset(CMAKE_OSX_SYSROOT "%s")\n' "$cc" "$cxx" "$ar" "$ranlib" "$sdk" > "$tc"
         else
-          tc="$RUNNER_TEMP/qigao-runner-clang-$RUNNER_ARCH.cmake"
           printf 'set(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\nset(CMAKE_RANLIB "%s")\n' "$cc" "$cxx" "$ar" "$ranlib" > "$tc"
         fi
+        # Product compiler launcher is not installed in third-party vcpkg ports.
+        printf 'if("$ENV{QIGAO_OBFUSCATOR_ENABLED}" STREQUAL "true")\n  include("$ENV{QIGAO_COMPILER_OBFUSCATION_CMAKE}")\nelseif(QIGAO_COMPILER_OBFUSCATION_ENABLED)\n  message(FATAL_ERROR "Reused protected CMake cache without obfuscator setup")\nendif()\n' >> "$tc"
         echo "root=$root" >> "$GITHUB_OUTPUT"
         echo "cc=$cc" >> "$GITHUB_OUTPUT"
         echo "cxx=$cxx" >> "$GITHUB_OUTPUT"
         echo "ar=$ar" >> "$GITHUB_OUTPUT"
         echo "ranlib=$ranlib" >> "$GITHUB_OUTPUT"
         echo "toolchain-file=$tc" >> "$GITHUB_OUTPUT"
-        policy_root="$(cd "${{ github.action_path }}/../../.." && pwd)"
-        policy="$policy_root/cmake/QigaoFirstPartyObfuscation.cmake"
-        echo "obfuscation-policy-cmake=$policy" >> "$GITHUB_OUTPUT"
-        echo "QIGAO_OBFUSCATION_POLICY_CMAKE=$policy" >> "$GITHUB_ENV"
         {
           echo "LLVM_NATIVE_ROOT=$root"
           echo "LLVM_NATIVE_CC=$cc"
@@ -115,9 +126,24 @@ runs:
         if [[ "$system" == Darwin ]]; then
           echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
         fi
-        if [[ -n "$PLUGIN_PATH" ]]; then
-          echo "obfuscator-compile-flag=-fpass-plugin=$PLUGIN_PATH" >> "$GITHUB_OUTPUT"
-          echo "QIGAO_OBFUSCATOR_PLUGIN_PATH=$PLUGIN_PATH" >> "$GITHUB_ENV"
-          echo 'LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution' >> "$GITHUB_ENV"
-          echo "LLVM_OBF_SEED=$SEED" >> "$GITHUB_ENV"
-        fi
+    - uses: actions/setup-python@v5
+      if: inputs.obfuscator == 'true'
+      with:
+        python-version: "3.12"
+    - name: Prepare pinned obfuscator-llvm host plugin
+      id: obfuscator
+      if: inputs.obfuscator == 'true'
+      shell: bash
+      env:
+        COMPILER_CXX: ${ steps.local.outputs.cxx }
+        PROVIDED_PLUGIN: ${ inputs.plugin-path }
+        OBFUSCATION_SEED: ${ inputs.obfuscation-seed }
+      run: |
+        set -euo pipefail
+        repo="$(cd "${ github.action_path }/../../.." && pwd)"
+        python "$repo/scripts/setup-obfuscator-llvm.py" \
+          --repo-root "$repo" --compiler-cxx "$COMPILER_CXX" \
+          --plugin-path "$PROVIDED_PLUGIN" \
+          --output-root "$RUNNER_TEMP/qigao-obfuscator-llvm" \
+          --seed "$OBFUSCATION_SEED" \
+          --github-env "$GITHUB_ENV" --github-output "$GITHUB_OUTPUT"
