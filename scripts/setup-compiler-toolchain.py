@@ -264,7 +264,9 @@ def install(args: argparse.Namespace) -> dict[str, str]:
         safe_extract(archive, extracted)
         kit = archive_root(extracted, args.compiler)
         root = work / "installed"
-        shutil.copytree(kit, root, symlinks=True)
+        # The whole archive was checked before extraction. Move its extracted
+        # prefix instead of duplicating hundreds of MB inside runner temp.
+        kit.rename(root)
         header = ""
         if args.compiler == "tinycc-builder":
             h = data["sources"]["obfus-h"]

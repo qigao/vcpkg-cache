@@ -26,6 +26,8 @@ outputs:
     value: ${{ steps.local.outputs.cxx }}
   ar:
     value: ${{ steps.local.outputs.ar }}
+  ranlib:
+    value: ${{ steps.local.outputs.ranlib }}
   toolchain-file:
     value: ${{ steps.local.outputs.toolchain-file }}
   obfuscator-compile-flag:
@@ -52,28 +54,43 @@ runs:
           cc="$root/bin/clang"
           cxx="$root/bin/clang++"
           ar="$root/bin/llvm-ar"
+          ranlib="$root/bin/llvm-ranlib"
           sdk="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
           system=Darwin
         else
           cc="$(command -v clang)"
           cxx="$(command -v clang++)"
-          ar="$(command -v llvm-ar || command -v ar)"
+          ar="$(command -v llvm-ar)"
+          ranlib="$(command -v llvm-ranlib)"
           root="$(dirname "$(dirname "$cc")")"
           system=Linux
           sdk=''
         fi
         if [[ "$system" == Darwin ]]; then
           tc="$RUNNER_TEMP/qigao-runner-clang-$RUNNER_ARCH.cmake"
-          printf 'set(CMAKE_SYSTEM_NAME Darwin)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\nset(CMAKE_OSX_SYSROOT "%s")\n' "$cc" "$cxx" "$ar" "$sdk" > "$tc"
+          printf 'set(CMAKE_SYSTEM_NAME Darwin)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\nset(CMAKE_RANLIB "%s")\nset(CMAKE_OSX_SYSROOT "%s")\n' "$cc" "$cxx" "$ar" "$ranlib" "$sdk" > "$tc"
         else
           tc="$RUNNER_TEMP/qigao-runner-clang-$RUNNER_ARCH.cmake"
-          printf 'set(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\n' "$cc" "$cxx" "$ar" > "$tc"
+          printf 'set(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\nset(CMAKE_RANLIB "%s")\n' "$cc" "$cxx" "$ar" "$ranlib" > "$tc"
         fi
         echo "root=$root" >> "$GITHUB_OUTPUT"
         echo "cc=$cc" >> "$GITHUB_OUTPUT"
         echo "cxx=$cxx" >> "$GITHUB_OUTPUT"
         echo "ar=$ar" >> "$GITHUB_OUTPUT"
+        echo "ranlib=$ranlib" >> "$GITHUB_OUTPUT"
         echo "toolchain-file=$tc" >> "$GITHUB_OUTPUT"
+        {
+          echo "LLVM_NATIVE_ROOT=$root"
+          echo "LLVM_NATIVE_CC=$cc"
+          echo "LLVM_NATIVE_CXX=$cxx"
+          echo "LLVM_NATIVE_AR=$ar"
+          echo "LLVM_NATIVE_RANLIB=$ranlib"
+          echo "LLVM_NATIVE_TOOLCHAIN_FILE=$tc"
+          echo "QIGAO_COMPILER_TOOLCHAIN_FILE=$tc"
+        } >> "$GITHUB_ENV"
+        if [[ "$system" == Darwin ]]; then
+          echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
+        fi
         if [[ -n "$PLUGIN_PATH" ]]; then
           echo "obfuscator-compile-flag=-fpass-plugin=$PLUGIN_PATH" >> "$GITHUB_OUTPUT"
           echo 'LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution' >> "$GITHUB_ENV"

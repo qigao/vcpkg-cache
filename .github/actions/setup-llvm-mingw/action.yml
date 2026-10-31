@@ -72,9 +72,13 @@ runs:
         if (-not $destination) {
           $destination = Join-Path $env:RUNNER_TEMP "qigao-llvm-mingw-$env:INPUT_VERSION-$env:HOST_OS-$env:HOST_ARCH-$env:INPUT_TARGET"
         }
-        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo') -and
-            -not $env:INPUT_PLUGIN_PATH) {
-          throw 'Protected Windows Release requires obfuscator-llvm plugin-path'
+        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo')) {
+          if ($env:INPUT_TARGET -notin @('x64', 'arm64')) {
+            throw 'Protected Windows Release uses llvm-mingw x64 or arm64 only'
+          }
+          if (-not $env:INPUT_PLUGIN_PATH) {
+            throw 'Protected Windows Release requires obfuscator-llvm plugin-path'
+          }
         }
         $argv = @('--compiler', 'llvm-mingw', '--version', $env:INPUT_VERSION,
                   '--target', $env:INPUT_TARGET,
