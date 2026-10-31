@@ -11,9 +11,10 @@ This repository owns three reusable infrastructure inputs:
 
 Compiler archive digests and obfuscation seeds belong to a separate toolchain
 identity. The generic vcpkg cache revision must not change solely because an
-unrelated compiler candidate or product-specific seed changes. Any dependency
-built with these compilers still requires a **distinct compiler-specific vcpkg
-triplet, ABI and exact source cache qualification**.
+unrelated compiler candidate or product-specific seed changes. Any dependency built with these compilers needs a separate compiler-specific
+vcpkg triplet/ABI. Windows uses `qigao-x64-windows-llvm-mingw` or
+`qigao-arm64-windows-llvm-mingw`; historic MSVC v145 binaries cannot be reused.
+Ordinary third-party dependencies are not implicitly obfuscated.
 
 ## Ownership boundary
 

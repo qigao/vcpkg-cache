@@ -46,6 +46,8 @@ outputs:
     value: ${{ steps.install.outputs.archive-sha256 }}
   obfuscator-compile-flag:
     value: ${{ steps.install.outputs.obfuscator-compile-flag }}
+  vcpkg-triplet:
+    value: ${{ steps.install.outputs.vcpkg-triplet }}
 runs:
   using: composite
   steps:
@@ -90,6 +92,11 @@ runs:
                   '--github-path', $env:GITHUB_PATH)
         & python $installer @argv
         if ($LASTEXITCODE -ne 0) { throw 'Windows llvm-mingw package install failed' }
+        if ($env:INPUT_TARGET -in @('x64','arm64')) {
+          $triplet = "qigao-$env:INPUT_TARGET-windows-llvm-mingw"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "vcpkg-triplet=$triplet"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_MINGW_VCPKG_TRIPLET=$triplet"
+        }
         if ($env:INPUT_PLUGIN_PATH) {
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "obfuscator-compile-flag=-fpass-plugin=$env:INPUT_PLUGIN_PATH"
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_OBF_SCALAROPTIMIZERLATE_PASSES=flattening,substitution"

@@ -7,3 +7,19 @@ Linux selects the runner's existing `clang`, `clang++`, `llvm-ar` and `llvm-ranl
 Release binaries use the `obfuscator-llvm` pass supplied by the product through `plugin-path`. The action returns `obfuscator-compile-flag=-fpass-plugin=...` and the selected pass pipeline. The downstream product must apply that compile flag to protected first-party targets. No plugin ABI, IR, version, CPU, source-build or runtime verification is performed in vcpkg-cache. An absent plugin will fail the actual compiler invocation.
 
 GCC is test-only; AppleClang and MSVC are not release compilers. TinyCC stays independent and is not an obfuscated product Release fallback. No special compiler-validation CI or consumer projects live here.
+
+## Windows llvm-mingw dependency triplets
+
+The retired `qigao-x64-windows-v145` MSVC triplet was deleted.
+`qigao-x64-windows-llvm-mingw` and `qigao-arm64-windows-llvm-mingw`
+are separate MinGW/UCRT ABI identities. Run `setup-llvm-mingw`
+before vcpkg; its `LLVM_MINGW_TOOLCHAIN_FILE` is chainloaded by
+the selected triplet. Compiler tracking remains enabled.
+Old MSVC cache versions must not be reused or overwritten.
+
+`warm-cache.yml` has an explicit `workflow_dispatch` opt-in
+`warm_llvm_mingw=true` for *real Windows x64 dependency production*.
+This is not a new workflow or Clang validation CI. The ARM64 triplet
+is available, but it is not automatically produced by an x64 runner.
+Third-party packages are not implicitly obfuscated; protect sensitive
+first-party source during its actual compilation.

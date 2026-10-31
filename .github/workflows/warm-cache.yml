@@ -18,6 +18,12 @@ on:
       - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/warm-cache.yml"
   workflow_dispatch:
+    inputs:
+      warm_llvm_mingw:
+        description: Opt in to Windows x64 llvm-mingw dependency production (not compiler testing)
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -293,8 +299,6 @@ jobs:
         include:
           - runner: windows-2022
             triplet: x64-windows
-          - runner: windows-2025
-            triplet: qigao-x64-windows-v145
     runs-on: ${{ matrix.runner }}
     env:
       VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
@@ -336,8 +340,6 @@ jobs:
         include:
           - runner: windows-2022
             triplet: x64-windows
-          - runner: windows-2025
-            triplet: qigao-x64-windows-v145
     runs-on: ${{ matrix.runner }}
     env:
       VCPKG_WARM_TRIPLET: ${{ matrix.triplet }}
@@ -394,6 +396,32 @@ jobs:
           if ($text -notmatch "Restored [1-9][0-9]* package\(s\) from NuGet") {
             throw "Windows MIR JIT restore did not use NuGet"
           }
+
+  windows-llvm-mingw:
+    name: Windows x64 llvm-mingw dependency cache producer
+    if: github.event_name == 'workflow_dispatch' && inputs.warm_llvm_mingw == true
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - id: llvm
+        uses: ./.github/actions/setup-llvm-mingw
+        with:
+          version: "20261020"
+          target: x64
+          build-type: toolchain-only
+      - uses: ./.github/actions/setup-vcpkg-cache
+        with:
+          mode: readwrite
+      - name: Install shared package build tools
+        shell: pwsh
+        run: choco install nasm ninja strawberryperl -y --no-progress
+      - name: Produce real x64 llvm-mingw dependency ABI packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $triplet = 'qigao-x64-windows-llvm-mingw'
+          & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$env:GITHUB_WORKSPACE" "--triplet=$triplet" "--host-triplet=$triplet"
+          if ($LASTEXITCODE -ne 0) { throw 'llvm-mingw dependency build failed; no MSVC fallback' }
 
   macos:
     name: macOS host

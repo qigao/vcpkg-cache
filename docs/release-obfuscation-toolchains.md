@@ -7,3 +7,12 @@
 * GCC may be used in tests only. MSVC and AppleClang do not build protected Release binaries.
 
 The project consuming the action owns its own actual build, obfuscator plugin installation and published artifacts. This repository no longer produces compiler validation workflows, synthetic consumer/installer projects, Clang version/ABI checks, standalone pass probes or their test suites. The historic LLVM23 host plugin experiments remain recorded in GitHub PR/Issue history but are not constraints on runner-provided Clang.
+
+## Windows llvm-mingw ABI migration
+
+Removed the MSVC `qigao-x64-windows-v145` triplet and introduced x64/ARM64
+Windows llvm-mingw/UCRT triplets with explicit compiler chainload.
+These must produce separate package ABI records; historical MSVC
+packages cannot become MinGW binaries by renaming a cache key.
+Neither ordinary dependency compilation nor static linkage
+retroactively applies obfuscator-llvm to precompiled code.

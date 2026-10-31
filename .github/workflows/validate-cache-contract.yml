@@ -312,8 +312,8 @@ jobs:
         with:
           mode: read
           manifest-root: cache-contracts/optional-feature
-          triplet: qigao-x64-windows-v145
-          host-triplet: qigao-x64-windows-v145
+          triplet: x64-windows
+          host-triplet: x64-windows
       - name: Verify canonical contract identity
         shell: pwsh
         env:
@@ -347,10 +347,10 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $expectedRoot "cmake\QigaoVcpkgToolchain.cmake") -PathType Leaf)) {
             throw "canonical toolchain copy is missing"
           }
-          if ($env:QIGAO_VCPKG_WINDOWS_TRIPLET -ne "qigao-x64-windows-v145") {
+          if ($env:QIGAO_VCPKG_WINDOWS_TRIPLET -ne "qigao-x64-windows-llvm-mingw") {
             throw "canonical Windows triplet env mismatch"
           }
-          $triplet = Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "triplets\qigao-x64-windows-v145.cmake"
+          $triplet = Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "triplets\qigao-x64-windows-llvm-mingw.cmake"
           if (-not (Test-Path -LiteralPath $triplet -PathType Leaf)) {
             throw "canonical Windows triplet is missing"
           }
@@ -369,36 +369,15 @@ jobs:
           }
           $tripletText = Get-Content -LiteralPath $triplet -Raw
           foreach ($required in @(
-            'set(VCPKG_PLATFORM_TOOLSET v145)',
-            'set(VCPKG_PLATFORM_TOOLSET_VERSION "14.51.36231")',
-            'set(VCPKG_CMAKE_SYSTEM_VERSION "10.0.26100.0")',
-            'set(VCPKG_DISABLE_COMPILER_TRACKING ON)'
+            'set(VCPKG_TARGET_ARCHITECTURE x64)',
+            'set(VCPKG_CMAKE_SYSTEM_NAME MinGW)',
+            'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "$ENV{LLVM_MINGW_TOOLCHAIN_FILE}")'
           )) {
-            if (-not $tripletText.Contains($required)) {
-              throw "canonical Windows triplet missing: $required"
-            }
+            if (-not $tripletText.Contains($required)) { throw "MinGW triplet declaration missing: $required" }
           }
-
-      - name: Verify canonical Windows runner toolset
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsInstall = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
-          if ([string]::IsNullOrWhiteSpace($vsInstall)) {
-            throw "Visual Studio C++ installation not found"
+          if (Test-Path (Join-Path $env:VCPKG_CACHE_REPOSITORY_ROOT "triplets\qigao-x64-windows-v145.cmake")) {
+            throw 'retired v145 triplet must not be copied'
           }
-          $toolsetRoot = Join-Path $vsInstall "VC\Tools\MSVC\14.51.36231"
-          $compiler = Join-Path $toolsetRoot "bin\Hostx64\x64\cl.exe"
-          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
-            throw "canonical v145 compiler is unavailable: $compiler"
-          }
-          $sdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\Include\10.0.26100.0"
-          if (-not (Test-Path -LiteralPath $sdkRoot -PathType Container)) {
-            throw "canonical Windows SDK is unavailable: $sdkRoot"
-          }
-          Write-Host "canonical compiler=$compiler"
-          Write-Host "canonical sdk=$sdkRoot"
 
   consistent:
     name: Contract identity is cross-platform stable
