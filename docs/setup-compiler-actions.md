@@ -1,69 +1,58 @@
-# Compiler selection and setup
+# Compiler setup: opt-in whole-product obfuscation
 
-Windows uses [llvm-mingw 20261020](https://github.com/mstorsjo/llvm-mingw) (UCRT) from a fixed release archive. The shared `setup-llvm-mingw` action downloads this kit, checks the archive digest for download integrity, and exports C/C++ toolchain paths. **It does not test, identify, benchmark or verify Clang**, does not compile smoke executables, and creates no installer/consumer tests.
+Both existing compiler Actions expose **one** switch:
 
-Linux selects the runner's existing `clang`, `clang++`, `llvm-ar` and `llvm-ranlib` directly from PATH; macOS selects the same LLVM tools from the installed Homebrew formula (`llvm@18` by default, configurable). No compiler version or identity checks are performed. The `setup-llvm-native` action writes a native CMake toolchain file and exports `LLVM_NATIVE_ROOT`, `LLVM_NATIVE_CC`, `LLVM_NATIVE_CXX`, `LLVM_NATIVE_AR`, `LLVM_NATIVE_RANLIB`, `LLVM_NATIVE_TOOLCHAIN_FILE` and `QIGAO_COMPILER_TOOLCHAIN_FILE`; on macOS it also exports the selected SDK as `SDKROOT`. No native LLVM archives are downloaded.
-
-Release binaries use the `obfuscator-llvm` pass supplied by the product through `plugin-path`. The action returns `obfuscator-compile-flag=-fpass-plugin=...` and the selected pass pipeline. The downstream product must apply that compile flag to protected first-party targets. No plugin ABI, IR, version, CPU, source-build or runtime verification is performed in vcpkg-cache. An absent plugin will fail the actual compiler invocation.
-
-GCC is test-only; AppleClang and MSVC are not release compilers. TinyCC stays independent and is not an obfuscated product Release fallback. No special compiler-validation CI or consumer projects live here.
-
-## Windows llvm-mingw dependency triplets
-
-The retired `qigao-x64-windows-v145` MSVC triplet was deleted.
-`qigao-x64-windows-llvm-mingw` and `qigao-arm64-windows-llvm-mingw`
-are separate MinGW/UCRT ABI identities. Run `setup-llvm-mingw`
-before vcpkg; its `LLVM_MINGW_TOOLCHAIN_FILE` is chainloaded by
-the selected triplet. Compiler tracking remains enabled.
-Old MSVC cache versions must not be reused or overwritten.
-
-`warm-cache.yml` has an explicit `workflow_dispatch` opt-in
-`warm_llvm_mingw=true` for *real Windows x64 dependency production into a local write-only files cache*.
-This is not a new workflow or Clang validation CI. The ARM64 triplet
-is available, but it is not automatically produced by an x64 runner.
-Third-party packages are not implicitly obfuscated; protect sensitive
-first-party source during its actual compilation.
-
-Windows llvm-mingw packages are generated through the repository's curl-only
-bootstrap into a local write-only ABI files cache. The optional producer
-preserves the resulting ZIPs as short-retention workflow artifacts; it does
-**not** invoke Mono/nuget.exe or automatically publish immutable packages.
-Any remote upload must go through a separately approved curl-native publisher.
-
-## Enforce protection in the owning CMake targets
-
-Both `setup-llvm-native` and `setup-llvm-mingw` export
-`QIGAO_OBFUSCATION_POLICY_CMAKE` (also output
-`obfuscation-policy-cmake`) and forward a supplied `plugin-path` as
-`QIGAO_OBFUSCATOR_PLUGIN_PATH`. After the ordinary product targets are
-defined, the product must include the shared module and classify its
-**entire first-party compiled target inventory**:
-
-```cmake
-include("$ENV{QIGAO_OBFUSCATION_POLICY_CMAKE}")
-qigao_apply_obfuscation_policy(
-  SENSITIVE_TARGETS proprietary_engine license_core
-  ORDINARY_TARGETS ui_shell logging
-)
+```yaml
+- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@PINNED_COMMIT
+  with:
+    build-type: Release
+    obfuscator: "true"
 ```
 
-For protected Release configurations the sensitive targets receive a
-**PRIVATE** `-fpass-plugin` compile option, not a link flag.
-Imported or precompiled sensitive dependencies cannot be declared as
-protected targets; protect them at their original source-owning target.
-Ordinary first-party and third-party dependency code remains unmodified,
-even if linked into the final App. A Debug compilation adds no pass.
-Missing plugin/targets fail without Clang/LLVM version probes, smoke
-programs, compiler verification CI or a second obfuscator runtime.
+On Windows use `setup-llvm-mingw` with `target: x64` or `arm64`.
+The action still accepts `plugin-path` to use an existing host plugin;
+with no path supplied it checks out the exact pinned
+`eshard/obfuscator-llvm` source and builds `LLVMObfuscator` against the
+**selected host LLVM development configuration**. The compiler is not
+replaced or version-pinned just to satisfy the plugin. The Windows
+llvm-mingw release tag is fixed independently for MinGW/UCRT package ABI.
 
-## General cache producer CI compiler retirement
+The host must have the LLVM development config (`llvm-config` and
+`LLVMConfig.cmake`), CMake and Ninja to source-build the plugin.
+The Windows llvm-mingw distribution may lack the host LLVM development
+files; in that case provide a suitable Windows-host `plugin-path` or
+install the required host development files. Failure is fatal: no alternate
+obfuscator and no silent unprotected Release.
 
-The existing `warm-cache.yml` no longer creates `x64-windows` MSVC
-producer/readback jobs. Its only new Windows source-producer lane is the
-independent llvm-mingw/UCRT ABI producer, which is manually opt-in until
-real packages are available. Generic Linux producer jobs set
-`CC=clang`, `CXX=clang++` (no GCC compiler selection); the normal
-macOS host package producer selects the preinstalled independent Homebrew
-LLVM compiler. Cache restores respect vcpkg's own compiler ABI and must
-not reuse previous GCC/MSVC binaries under a new LLVM ABI. No Clang
-version/smoke/dedicated verifier jobs have been introduced.
+With `obfuscator: true`, the action exports
+`QIGAO_OBFUSCATOR_ENABLED`, `QIGAO_OBFUSCATOR_PLUGIN_PATH`,
+`QIGAO_COMPILER_OBFUSCATION_CMAKE` and the same pass/seed variables
+for Clang. Its `obfuscator-enabled`, `plugin-path`,
+`obfuscator-compile-flag` and `compiler-obfuscation-cmake` outputs
+remain available for build provenance.
+
+Use the action-provided native `toolchain-file` or the existing
+`QigaoVcpkgToolchain.cmake` **product CMake wrapper**. These include
+`cmake/QigaoCompilerObfuscation.cmake` during product CMake configuration.
+It installs C and C++ compiler launchers for every CMake source compilation
+in Release/MinSizeRel/RelWithDebInfo; it does not add a link flag or
+change Debug. There are **no target lists** and no downstream
+`include()`/`qigao_apply_obfuscation_policy()` calls.
+
+The product launcher never runs in third-party vcpkg port build CMake
+processes, which use independent triplets and cache ABIs. Already
+compiled `.a/.lib/.so/.dll` binaries are unchanged by linking.
+Vendored source compiled *inside the product CMake graph* does follow
+its compiler, so non-product dependencies should instead be built
+through the separate vcpkg dependency graph.
+
+An existing product build may preserve a CMake cache from a prior
+compiler; use a fresh product build directory when switching protected
+status. The setup rejects a protected Release with obfuscator disabled.
+Real Clang compilation is the fail-fast mechanism: **no** dedicated
+Clang version, ABI, IR, smoke or separate compiler validation CI exists.
+
+Windows dependencies use distinct `qigao-x64-windows-llvm-mingw` and
+`qigao-arm64-windows-llvm-mingw` triplets with independent UCRT ABI.
+Historic MSVC/GCC cached packages cannot be aliased to the new ABIs.
+Publishing immutable packages remains separately opt-in.

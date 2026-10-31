@@ -9,16 +9,14 @@ This repository owns three reusable infrastructure inputs:
 2. **re2c host binaries** — `Qigao.Re2c.Binary` plus its reusable setup action.
 3. **Compiler selection** — Windows uses pinned llvm-mingw/UCRT, Linux/macOS use the runner's native Clang, and obfuscator-llvm has no global LLVM-version restriction. GCC is test-only. There are no Clang verification CI jobs, probes, or synthetic consumer projects. See [compiler setup](docs/setup-compiler-actions.md) and [Release policy](docs/release-obfuscation-toolchains.md).
 
-Compiler archive digests and obfuscation seeds belong to a separate toolchain
-identity. The generic vcpkg cache revision must not change solely because an
-unrelated compiler candidate or product-specific seed changes. Any dependency built with these compilers needs a separate compiler-specific
-vcpkg triplet/ABI. Windows uses `qigao-x64-windows-llvm-mingw` or
-`qigao-arm64-windows-llvm-mingw`; historic MSVC v145 binaries cannot be reused.
-Ordinary third-party dependencies are not implicitly obfuscated. Products
-explicitly classify their own sensitive and ordinary source targets using
-[`cmake/QigaoFirstPartyObfuscation.cmake`](cmake/QigaoFirstPartyObfuscation.cmake)
-so protected Release compile flags apply at the code-owning target, not at
-final link time. No Clang version check or dedicated probe CI is added.
+Obfuscation is selected **once at compiler setup**, with
+`obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.
+The action prepares the single upstream eshard/obfuscator-llvm pass and
+activates it for product C/C++ source compilation through the product-side
+toolchain compiler launcher. No `SENSITIVE_TARGETS`, `ORDINARY_TARGETS`,
+target lists or product-level per-target flags are required. Existing
+third-party vcpkg binary packages retain their independent ABI and are
+not retroactively obfuscated. See [compiler setup](docs/setup-compiler-actions.md).
 
 ## Ownership boundary
 

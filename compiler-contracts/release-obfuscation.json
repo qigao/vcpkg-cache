@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "purpose": "Compiler selection only. No Clang validation CI, compiler-version probes or obfuscation preflight.",
+  "purpose": "Compiler setup owns optional all-product C/C++ obfuscation; no per-target classification",
   "protected_release": {
     "windows-x64": "llvm-mingw",
     "windows-arm64": "llvm-mingw",
@@ -86,25 +86,19 @@
       "note": "Build with the selected compiler; no compiler compatibility checks are run by vcpkg-cache."
     }
   },
-  "first_party_obfuscation": {
-    "policy_module": "cmake/QigaoFirstPartyObfuscation.cmake",
-    "classification_owner": "downstream product source CMake",
-    "declarations": [
-      "SENSITIVE_TARGETS",
-      "ORDINARY_TARGETS"
-    ],
-    "sensitive_rule": "source-compiled C/C++ targets only; PRIVATE -fpass-plugin in Release, MinSizeRel, RelWithDebInfo",
-    "ordinary_rule": "no obfuscator; ordinary third-party vcpkg libraries unmodified",
-    "imported_sensitive_rule": "reject imported/precompiled targets; downstream link cannot retroactively obfuscate code",
-    "missing_plugin_rule": "single-config protected Release configure fails; multi-config Release compiler fails, Debug remains possible",
-    "native_llvm_version": "unrestricted; no compiler version or ABI probes",
-    "release_compiler_owners": {
-      "linux": "runner-native Clang",
-      "macos": "runner-native independent LLVM/Clang",
-      "windows": "fixed llvm-mingw UCRT"
-    },
-    "no_fallback": true,
-    "explicit_product_inventory_required": true,
-    "compiler_validation_ci": "forbidden"
+  "compiler_obfuscation": {
+    "input": "obfuscator: true",
+    "default_enabled": false,
+    "plugin": "eshard/obfuscator-llvm",
+    "source_commit": "ad26aa21b90cc5c5118d32114b674d1455f54168",
+    "activation": "CMake C/C++ compiler launcher from compiler setup",
+    "scope": "all product C/C++ sources in non-Debug CMake graph; third-party vcpkg port builds are separate",
+    "sensitive_targets": "removed; no target classification",
+    "plugin_path_override": "plugin-path",
+    "plugin_bootstrap": "pinned source plus installed host LLVMConfig.cmake; failure is fatal",
+    "llvm_version_limit": "none",
+    "release_admission": "QIGAO_COMPILER_OBFUSCATION_ENABLED in actual CMakeCache",
+    "compiler_probe_ci": "forbidden",
+    "no_fallback": true
   }
 }
