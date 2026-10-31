@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       expected_master_sha:
-        description: Exact 40-hex master commit; wrong HEAD fails closed
+        description: Exact 40-hex selected source commit; publishing requires master HEAD
         required: true
         type: string
       expected_native_id:
@@ -49,8 +49,15 @@ jobs:
     name: Native Linux x64 ABI source build and read-only admission
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/master' &&
-      github.repository == 'qigao/vcpkg-cache'
+      github.repository == 'qigao/vcpkg-cache' &&
+      (
+        github.ref == 'refs/heads/master' ||
+        (
+          inputs.publish == false &&
+          inputs.package_set == 'tre' &&
+          github.ref == 'refs/heads/codex/tre-ios-sdk-cache-warm'
+        )
+      )
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -66,12 +73,24 @@ jobs:
         shell: bash
         env:
           EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
+          PACKAGE_SET: ${{ inputs.package_set }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
-          test "$GITHUB_REF" = refs/heads/master
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          # A pinned development branch may *only* produce read-only
+          # evidence for the single TRE port. It cannot enter the protected
+          # publish job, and no arbitrary PR branch is admitted here.
+          case "$GITHUB_REF" in
+            refs/heads/master) ;;
+            refs/heads/codex/tre-ios-sdk-cache-warm)
+              test "$PUBLISH_REQUESTED" = "false"
+              test "$PACKAGE_SET" = tre
+              ;;
+            *) echo 'Unqualified native producer source ref' >&2; exit 1 ;;
+          esac
           test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
           test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
       - name: Prepare native compiler and source build tools

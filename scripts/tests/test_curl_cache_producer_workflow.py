@@ -46,6 +46,21 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("environment:", self.producer)
         self.assertNotIn("--publish", self.producer)
 
+    def test_tre_manual_dry_run_is_one_pinned_branch_without_upload_rights(self):
+        self.assertIn("inputs.publish == false", self.producer)
+        self.assertIn("inputs.package_set == 'tre'", self.producer)
+        self.assertIn("refs/heads/codex/tre-ios-sdk-cache-warm", self.producer)
+        self.assertIn('test "$PUBLISH_REQUESTED" = "false"', self.producer)
+        self.assertIn('test "$PACKAGE_SET" = tre', self.producer)
+        self.assertIn('test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"', self.producer)
+        self.assertNotIn("packages: write", self.producer)
+        self.assertNotIn("environment:", self.producer)
+        self.assertNotIn("--publish", self.producer)
+        # Actual publication remains master-only and requires protected review.
+        self.assertIn("github.ref == 'refs/heads/master'", self.publisher)
+        self.assertIn("environment: native-cache-publish", self.publisher)
+        self.assertIn("secrets.NATIVE_CACHE_PUBLISH_ARM", self.publisher)
+
     def test_only_protected_job_can_upload_an_immutable_native_package(self):
         self.assertEqual(self.source.count("packages: write"), 1)
         self.assertIn("needs: native-producer", self.publisher)
