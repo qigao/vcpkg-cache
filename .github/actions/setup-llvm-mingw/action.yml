@@ -126,6 +126,7 @@ runs:
       shell: pwsh
       env:
         COMPILER_CXX: ${{ steps.install.outputs.host-cxx }}
+        COMPILER_ROOT: ${{ steps.install.outputs.root }}
         PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
         OBF_SEED: ${{ inputs.obfuscation-seed }}
       run: |
@@ -138,8 +139,10 @@ runs:
                   '--seed',$env:OBF_SEED,
                   '--github-env',$env:GITHUB_ENV,
                   '--github-output',$env:GITHUB_OUTPUT)
+        if ($env:RUNNER_OS -eq 'Windows') {
+          $argv += @('--windows-toolchain-root',$env:COMPILER_ROOT)
+        }
         & python (Join-Path $repo 'scripts/setup-obfuscator-llvm.py') @argv
         if ($LASTEXITCODE -ne 0) {
           throw 'Required obfuscator-llvm plugin installation failed, no unprotected fallback'
         }
-

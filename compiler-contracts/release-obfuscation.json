@@ -23,6 +23,8 @@
       "release_tag": "20261020",
       "release_commit": "e08a31fbfe5cfdad07b698299af22d66e5608383",
       "llvm_version": "23.1.4",
+      "llvm_repository": "llvm/llvm-project",
+      "llvm_source_commit": "7a941dfb2877a0b8cf30323fefa85ad019e0b0f5",
       "crt": "ucrt",
       "assets": [
         {

@@ -17,12 +17,23 @@ with no path supplied it checks out the exact pinned
 replaced or version-pinned just to satisfy the plugin. The Windows
 llvm-mingw release tag is fixed independently for MinGW/UCRT package ABI.
 
-The host must have the LLVM development config (`llvm-config` and
-`LLVMConfig.cmake`), CMake and Ninja to source-build the plugin.
-The Windows llvm-mingw distribution may lack the host LLVM development
-files; in that case provide a suitable Windows-host `plugin-path` or
-install the required host development files. Failure is fatal: no alternate
-obfuscator and no silent unprotected Release.
+Linux/macOS need the installed host LLVM development config (`llvm-config`
+and `LLVMConfig.cmake`). All source builds need Git, CMake and Ninja.
+
+The Windows llvm-mingw package strips its LLVM developer files. For a
+source-built plugin, the Action prepares them from the exact LLVM source
+belonging to that selected MinGW release: upstream `intrinsics_gen` builds
+the generated headers and TableGen dependency, and `llvm-readobj` plus
+`llvm-dlltool` generate an import library from the **installed host LLVM DLL**.
+The plugin links that import library and loads the same DLL as its compiler.
+This step builds development dependencies; it does not build another Clang
+or LLVM runtime, or run a compiler/plugin smoke test. CMake and build output
+stream into the existing setup step so this work is visible in its log.
+
+The LLVM source pin is a Windows MinGW package dependency, not a global
+LLVM version restriction. Linux/macOS still use their runner LLVM unchanged.
+An existing `plugin-path` skips developer preparation and source compilation.
+Missing DLL/tools, source/configure/build/link failures remain fatal.
 
 With `obfuscator: true`, the action exports
 `QIGAO_OBFUSCATOR_ENABLED`, `QIGAO_OBFUSCATOR_PLUGIN_PATH`,
@@ -82,4 +93,3 @@ prove ARM64 native runtime execution; that remains a separate downstream
 Windows ARM64 gate. No NuGet publication occurs in this producer.
 
 Publishing immutable packages remains separately opt-in.
-

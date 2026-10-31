@@ -2,8 +2,9 @@
 """Prepare pinned obfuscator-llvm at compiler setup, with unrestricted LLVM.
 
 Use a supplied native host plugin, or source-build pinned eshard source
-against the selected host LLVMConfig.cmake. No compiler/IR/ABI probe or
-second engine. A missing dev package or failed source build is fatal.
+against the selected host LLVM development files. Windows llvm-mingw
+prepares its stripped headers/import library from the matching source and
+installed DLL. No compiler/IR/ABI probe or second engine.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -20,15 +22,90 @@ class SetupError(ValueError):
     pass
 
 
-def run(args: list[str], cwd: Path | None = None) -> str:
-    proc = subprocess.run(args, cwd=cwd, capture_output=True,
+def run(args: list[str], cwd: Path | None = None, *, stream: bool = False) -> str:
+    if stream:
+        print("SOURCE_BUILD: " + subprocess.list2cmdline(args), flush=True)
+    proc = subprocess.run(args, cwd=cwd, capture_output=not stream,
                           text=True, check=False)
     if proc.returncode:
         raise SetupError(
             "required source-build command failed: " + Path(args[0]).name
-            + "\nSTDOUT:\n" + proc.stdout[-6000:]
-            + "\nSTDERR:\n" + proc.stderr[-6000:])
-    return proc.stdout.strip()
+            + "\nSTDOUT:\n" + (proc.stdout or "")[-6000:]
+            + "\nSTDERR:\n" + (proc.stderr or "")[-6000:])
+    return (proc.stdout or "").strip()
+
+
+def checkout_source(repository: str, sha: str, destination: Path,
+                    sparse: tuple[str, ...] = ()) -> None:
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise SetupError("Source pin must be an immutable Git SHA")
+    destination.mkdir(parents=True)
+    run(["git", "init", str(destination)])
+    run(["git", "-C", str(destination), "config", "core.longpaths", "true"])
+    run(["git", "-C", str(destination), "config", "core.autocrlf", "false"])
+    run(["git", "-C", str(destination), "remote", "add", "origin",
+         "https://github.com/" + repository + ".git"])
+    run(["git", "-C", str(destination), "fetch", "--depth=1", "origin", sha],
+        stream=True)
+    if sparse:
+        run(["git", "-C", str(destination), "sparse-checkout", "init", "--cone"])
+        run(["git", "-C", str(destination), "sparse-checkout", "set", *sparse])
+    run(["git", "-C", str(destination), "checkout", "--detach", "FETCH_HEAD"],
+        stream=True)
+    if run(["git", "-C", str(destination), "rev-parse", "HEAD"]) != sha:
+        raise SetupError("Source checkout differs from pinned SHA")
+
+
+def windows_llvm_development(lock: dict, kit: Path, cxx: Path,
+                             root: Path) -> tuple[Path, Path]:
+    """Build missing headers and an import library for the installed host DLL.
+
+    llvm-mingw strips its LLVM includes, CMake config and .dll.a files. Keep
+    its compiler/runtime bytes: upstream's intrinsics_gen supplies the dev
+    headers; the installed DLL exports supply its import library.
+    """
+    source = lock["sources"]["llvm-mingw"]
+    receipt = json.loads((kit / "qigao-toolchain-source.json").read_text())
+    if receipt["compiler"] != "llvm-mingw" or receipt["tag"] != source["release_tag"]:
+        raise SetupError("Windows dev source must belong to the installed MinGW kit")
+    machine = {"windows-x64": "i386:x86-64", "windows-arm64": "arm64"}[receipt["host"]]
+    dlls = sorted(p for p in (kit / "bin").glob("*.dll")
+                  if re.fullmatch(r"(?:lib)?LLVM(?:-[0-9.]+)?\.dll", p.name, re.I))
+    if len(dlls) != 1:
+        raise SetupError("Selected MinGW kit must provide one host LLVM runtime DLL")
+    cc = cxx.with_name(cxx.name.replace("clang++", "clang"))
+    source_dir, build_dir = root / "llvm-source", root / "llvm-development"
+    checkout_source(source["llvm_repository"], source["llvm_source_commit"],
+                    source_dir, ("llvm", "cmake", "third-party"))
+    run([
+        "cmake", "-S", str(source_dir / "llvm"), "-B", str(build_dir), "-G", "Ninja",
+        "-DCMAKE_C_COMPILER=" + str(cc), "-DCMAKE_CXX_COMPILER=" + str(cxx),
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DLLVM_ENABLE_PROJECTS=", "-DLLVM_TARGETS_TO_BUILD=ARM;AArch64;X86;NVPTX",
+        "-DLLVM_ENABLE_ASSERTIONS=OFF", "-DLLVM_ENABLE_ABI_BREAKING_CHECKS=FORCE_OFF",
+        "-DLLVM_ENABLE_RTTI=ON", "-DLLVM_ENABLE_EH=OFF",
+        "-DLLVM_BUILD_LLVM_DYLIB=ON", "-DLLVM_LINK_LLVM_DYLIB=ON",
+        "-DLLVM_INCLUDE_TESTS=OFF", "-DLLVM_INCLUDE_EXAMPLES=OFF",
+        "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DLLVM_ENABLE_ZLIB=OFF",
+        "-DLLVM_ENABLE_ZSTD=OFF", "-DLLVM_ENABLE_LIBXML2=OFF",
+        "-DLLVM_ENABLE_LIBEDIT=OFF", "-DLLVM_ENABLE_CURL=OFF",
+    ], stream=True)
+    run(["cmake", "--build", str(build_dir), "--target", "intrinsics_gen",
+         "--parallel", "2"], stream=True)
+    # This is a linker input built from the selected runtime, not a plugin
+    # load test, compiler probe, or another compiled copy of LLVM.
+    exports = run([str(kit / "bin/llvm-readobj.exe"), "--coff-exports", str(dlls[0])])
+    names = sorted(set(re.findall(r"^\s*Name: (\S+)\s*$", exports, re.MULTILINE)))
+    if not names or any('"' in name for name in names):
+        raise SetupError("Cannot generate the selected LLVM DLL import definition")
+    definition = root / "llvm-host.def"
+    definition.write_text("EXPORTS\n" + "".join(f'  "{name}"\n' for name in names),
+                          encoding="utf-8")
+    import_library = root / "libLLVM-host.dll.a"
+    run([str(kit / "bin/llvm-dlltool.exe"), "-m", machine,
+         "-D", dlls[0].name, "-d", str(definition), "-l", str(import_library)],
+        stream=True)
+    return build_dir / "lib/cmake/llvm", import_library
 
 
 def host_llvm_config(cxx: Path) -> Path:
@@ -50,34 +127,36 @@ def host_llvm_config(cxx: Path) -> Path:
         "Never fall back to an unprotected Release.")
 
 
-def build_plugin(repo: Path, cxx: Path, root: Path) -> Path:
+def build_plugin(repo: Path, cxx: Path, root: Path,
+                 windows_kit: Path | None = None) -> Path:
     lock = json.loads((repo / "compiler-contracts/release-obfuscation.json")
                       .read_text(encoding="utf-8"))
     source = lock["sources"]["obfuscator-llvm"]
     sha = source["source_commit"]
     if len(sha) != 40 or any(x not in "0123456789abcdef" for x in sha):
         raise SetupError("obfuscator source pin must be immutable Git SHA")
-    llvm_dir = Path(run([str(host_llvm_config(cxx)), "--cmakedir"])).resolve()
-    if not (llvm_dir / "LLVMConfig.cmake").is_file():
-        raise SetupError("Selected host LLVM lacks LLVMConfig.cmake")
     for required in ("git", "cmake", "ninja"):
         if not shutil.which(required):
             raise SetupError("Required host plugin build tool missing: " + required)
+    host_import_library = None
+    if windows_kit is not None:
+        if os.name != "nt":
+            raise SetupError("Windows LLVM development needs a Windows host")
+        llvm_dir, host_import_library = windows_llvm_development(
+            lock, windows_kit, cxx, root)
+    else:
+        llvm_dir = Path(run([str(host_llvm_config(cxx)), "--cmakedir"])).resolve()
+    if not (llvm_dir / "LLVMConfig.cmake").is_file():
+        raise SetupError("Selected host LLVM lacks LLVMConfig.cmake")
     source_dir, build_dir = root / "source", root / "build"
-    source_dir.mkdir(parents=True)
-    run(["git", "init", str(source_dir)])
-    run(["git", "-C", str(source_dir), "remote", "add", "origin",
-         "https://github.com/" + source["repository"] + ".git"])
-    run(["git", "-C", str(source_dir), "fetch", "--depth=1", "origin", sha])
-    run(["git", "-C", str(source_dir), "checkout", "--detach", "FETCH_HEAD"])
-    if run(["git", "-C", str(source_dir), "rev-parse", "HEAD"]) != sha:
-        raise SetupError("Obfuscator source checkout differs from pinned SHA")
+    checkout_source(source["repository"], sha, source_dir)
     # One exact source-compatibility fix: both LLVM 18 and LLVM 23 provide
     # a default alloca insertion point, but LLVM 18 does not accept the
     # LLVM 23 BasicBlock iterator overload here. No version detection.
     for filename in (
         "default-phi-alloca-insertion.patch",
         "fcmp-basicblock-reference.patch",
+        "windows-host-import-library.patch",
     ):
         patch = repo / "patches/obfuscator-llvm" / filename
         if not patch.is_file():
@@ -87,6 +166,11 @@ def build_plugin(repo: Path, cxx: Path, root: Path) -> Path:
         "cmake", "-S", str(source_dir), "-B", str(build_dir), "-G", "Ninja",
         "-DLLVM_DIR=" + str(llvm_dir), "-DCMAKE_BUILD_TYPE=Release",
         "-DBUILD_DUMMY=OFF", "-DCMAKE_CXX_COMPILER=" + str(cxx)]
+    if host_import_library is not None:
+        command += [
+            "-DCMAKE_C_COMPILER=" + str(cxx.with_name(cxx.name.replace("clang++", "clang"))),
+            "-DLLVM_OMIT_EXPORTS_FROM_CONFIG=ON",
+            "-DQIGAO_LLVM_HOST_IMPORT_LIBRARY=" + str(host_import_library)]
     if sys.platform == "darwin":
         sdk = os.environ.get("SDKROOT", "")
         if not sdk:
@@ -94,9 +178,9 @@ def build_plugin(repo: Path, cxx: Path, root: Path) -> Path:
         command += [
             "-DCMAKE_OSX_SYSROOT=" + sdk,
             "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-undefined,dynamic_lookup"]
-    run(command, cwd=root)
+    run(command, cwd=root, stream=True)
     run(["cmake", "--build", str(build_dir), "--target", "LLVMObfuscator",
-         "--parallel", "2"], cwd=root)
+         "--parallel", "2"], cwd=root, stream=True)
     extension = ".dll" if os.name == "nt" else (
         ".dylib" if sys.platform == "darwin" else ".so")
     plugins = sorted(p for p in build_dir.rglob("*") if p.is_file()
@@ -123,6 +207,7 @@ def main() -> int:
     parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--compiler-cxx", type=Path, required=True)
     parser.add_argument("--plugin-path", default="")
+    parser.add_argument("--windows-toolchain-root", type=Path)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--seed", required=True)
     parser.add_argument("--github-env", type=Path, required=True)
@@ -139,7 +224,9 @@ def main() -> int:
             if root.exists():
                 raise SetupError("Source build root must be fresh")
             root.mkdir(parents=True)
-            plugin = build_plugin(repo, args.compiler_cxx.resolve(), root)
+            plugin = build_plugin(
+                repo, args.compiler_cxx.resolve(), root,
+                args.windows_toolchain_root.resolve() if args.windows_toolchain_root else None)
         cmake = repo / "cmake/QigaoCompilerObfuscation.cmake"
         launcher = repo / "scripts/obfuscator-clang-launcher.py"
         if not cmake.is_file() or not launcher.is_file():

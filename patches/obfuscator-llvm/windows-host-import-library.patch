@@ -1,0 +1,16 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -38,6 +38,12 @@
+ 
+ add_library(LLVMObfuscator SHARED Plugin.cpp)
+ 
++# MinGW plugins resolve LLVM symbols through the compiler's existing DLL.
++# Never link a second static LLVM runtime into the plugin.
++if(WIN32 AND QIGAO_LLVM_HOST_IMPORT_LIBRARY)
++  target_link_libraries(LLVMObfuscator PRIVATE "${QIGAO_LLVM_HOST_IMPORT_LIBRARY}")
++endif()
++
+ target_include_directories(LLVMObfuscator PRIVATE ${CMAKE_SOURCE_DIR})
+ target_include_directories(LLVMObfuscator PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+ 
