@@ -398,30 +398,49 @@ jobs:
           }
 
   windows-llvm-mingw:
-    name: Windows x64 llvm-mingw dependency cache producer
+    name: Windows x64 llvm-mingw local ABI producer / curl-only transport
     if: github.event_name == 'workflow_dispatch' && inputs.warm_llvm_mingw == true
     runs-on: windows-2025
+    env:
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/llvm-mingw-x64-local-cache
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - id: llvm
         uses: ./.github/actions/setup-llvm-mingw
         with:
           version: "20261020"
           target: x64
           build-type: toolchain-only
-      - uses: ./.github/actions/setup-vcpkg-cache
-        with:
-          mode: readwrite
-      - name: Install shared package build tools
+      - name: Install native dependency build tools
         shell: pwsh
         run: choco install nasm ninja strawberryperl -y --no-progress
-      - name: Produce real x64 llvm-mingw dependency ABI packages
+      - name: Bootstrap canonical vcpkg without Mono or NuGet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & python scripts/setup-vcpkg-curl-cache.py "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { throw 'curl-only vcpkg bootstrap failed' }
+      - name: Compile actual x64 llvm-mingw dependencies into local write-only ABI cache
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $triplet = 'qigao-x64-windows-llvm-mingw'
+          $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,write"
           & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$env:GITHUB_WORKSPACE" "--triplet=$triplet" "--host-triplet=$triplet"
-          if ($LASTEXITCODE -ne 0) { throw 'llvm-mingw dependency build failed; no MSVC fallback' }
+          if ($LASTEXITCODE -ne 0) { throw 'llvm-mingw native dependency compilation failed; no MSVC fallback' }
+          $packages = @(Get-ChildItem -LiteralPath $env:VCPKG_BINARY_CACHE -Filter '*.zip' -File -Recurse)
+          if ($packages.Count -lt 1) { throw 'No new local MinGW dependency ABI packages produced' }
+          Write-Host "MinGW local ABI artifacts: $($packages.Count)"
+      - name: Retain local ABI packages for separately approved publication
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-mingw-x64-native-abi-${{ github.run_id }}
+          path: build/llvm-mingw-x64-local-cache/
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     name: macOS host

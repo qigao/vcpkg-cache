@@ -16,3 +16,9 @@ These must produce separate package ABI records; historical MSVC
 packages cannot become MinGW binaries by renaming a cache key.
 Neither ordinary dependency compilation nor static linkage
 retroactively applies obfuscator-llvm to precompiled code.
+
+Windows llvm-mingw packages are generated through the repository's curl-only
+bootstrap into a local write-only ABI files cache. The optional producer
+preserves the resulting ZIPs as short-retention workflow artifacts; it does
+**not** invoke Mono/nuget.exe or automatically publish immutable packages.
+Any remote upload must go through a separately approved curl-native publisher.

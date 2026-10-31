@@ -18,8 +18,14 @@ the selected triplet. Compiler tracking remains enabled.
 Old MSVC cache versions must not be reused or overwritten.
 
 `warm-cache.yml` has an explicit `workflow_dispatch` opt-in
-`warm_llvm_mingw=true` for *real Windows x64 dependency production*.
+`warm_llvm_mingw=true` for *real Windows x64 dependency production into a local write-only files cache*.
 This is not a new workflow or Clang validation CI. The ARM64 triplet
 is available, but it is not automatically produced by an x64 runner.
 Third-party packages are not implicitly obfuscated; protect sensitive
 first-party source during its actual compilation.
+
+Windows llvm-mingw packages are generated through the repository's curl-only
+bootstrap into a local write-only ABI files cache. The optional producer
+preserves the resulting ZIPs as short-retention workflow artifacts; it does
+**not** invoke Mono/nuget.exe or automatically publish immutable packages.
+Any remote upload must go through a separately approved curl-native publisher.
