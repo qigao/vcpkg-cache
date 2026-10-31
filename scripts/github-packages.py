@@ -291,6 +291,40 @@ def extract_package(nupkg, destination):
                 (Path(destination) / entry.filename).chmod(mode & 0o777)
 
 
+def reject_missing_exact_archive(feed, package_id, version):
+    """Classify an actual archive HTTP 404 with the SAME authenticated feed.
+
+    NuGet package-download 404 may mean an unlisted immutable ABI, a
+    registry visibility/authorization failure, or an inconsistency between
+    advertised version metadata and the archive endpoint. Neither case
+    permits a source rebuild, substitute ABI, second credential, or a silent
+    success. Probe only the single failed package's version metadata; never
+    query every package or introduce a separate CI preflight.
+    """
+    try:
+        visible_versions = feed.versions(package_id)
+    except Exception as error:
+        raise ValueError(
+            f"exact NuGet archive returned HTTP 404: {package_id}/{version}; "
+            "the same credential also could not read its NuGet V3 version "
+            "index. Package visibility/Actions access or registry availability "
+            "is unverified; do not assume the immutable ABI was unpublished"
+        ) from error
+    if version.lower() in {value.lower() for value in visible_versions}:
+        raise ValueError(
+            f"exact NuGet archive returned HTTP 404: {package_id}/{version}, "
+            "but the SAME authenticated feed advertises this precise version. "
+            "The registry's archive delivery or package read authorization "
+            "is inconsistent; never rebuild or switch ABI"
+        )
+    raise ValueError(
+        f"exact NuGet archive returned HTTP 404: {package_id}/{version}, "
+        "and the SAME credential's NuGet V3 package index does not list that "
+        "version. Verify immutable package publication AND Actions package "
+        "access; 404 alone does not distinguish removal from denied access"
+    )
+
+
 def restore_cache(feed, config, cache):
     root = ET.parse(config).getroot()
     if root.tag != "packages":
@@ -304,8 +338,11 @@ def restore_cache(feed, config, cache):
             package_id, version = item.attrib["id"], item.attrib["version"]
             path = Path(temporary) / "package.nupkg"
             if not feed.package(package_id, version, path, allow_not_found=True):
-                misses += 1
-                continue
+                # Stop at the first exact miss. Historically all 15 packages
+                # were reported missing when one workflow GITHUB_TOKEN could
+                # not read ANY archives; that is not evidence of 15 deleted
+                # immutable packages. Keep the same token and no fallback.
+                reject_missing_exact_archive(feed, package_id, version)
             cache_package(path, package_id, version, cache)
             restored += 1
     print(
