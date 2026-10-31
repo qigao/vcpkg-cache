@@ -143,8 +143,8 @@ class ExactArchive404Classification(unittest.TestCase):
                         f"<version>{version}</version></metadata></package>")
                     archive.writestr(
                         "CONTROL",
-                        f"Package: {name}\\nArchitecture: {architecture}\\nAbi: {abi}\\n")
-                    archive.writestr("BUILD_INFO", "test: synthetic native package\\n")
+                        f"Package: {name}\nArchitecture: {architecture}\nAbi: {abi}\n")
+                    archive.writestr("BUILD_INFO", "test: synthetic native package\n")
                     archive.writestr(f"include/{name}.h", name)
                 return True
 
