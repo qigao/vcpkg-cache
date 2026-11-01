@@ -764,7 +764,7 @@ jobs:
           fi
 
   crypto-installed-interop:
-    name: Salts::Crypto consumer / GmSSL port16 OpenSSL3 interop
+    name: Salts::Crypto consumer / GmSSL port17 OpenSSL3 interop
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -782,16 +782,16 @@ jobs:
           manifest-root: cache-contracts/optional-feature
           triplet: x64-linux
           host-triplet: x64-linux
-      - name: Install port16 solely from the candidate vcpkg overlay
+      - name: Install port17 solely from the candidate vcpkg overlay
         shell: bash
         run: |
           set -euo pipefail
-          manifest="$RUNNER_TEMP/gmssl-crypto15-manifest"
-          installed="$RUNNER_TEMP/gmssl-crypto15-installed"
+          manifest="$RUNNER_TEMP/gmssl-crypto17-manifest"
+          installed="$RUNNER_TEMP/gmssl-crypto17-installed"
           mkdir -p "$manifest"
           cat > "$manifest/vcpkg.json" <<'EOF'
           {
-            "name": "gmssl-port16-crypto-consumer",
+            "name": "gmssl-port17-crypto-consumer",
             "version-string": "1",
             "dependencies": ["gmssl"]
           }
@@ -800,7 +800,7 @@ jobs:
           import json
           from pathlib import Path
           m = json.loads(Path("ports/gmssl/vcpkg.json").read_text())
-          assert (m["name"], m["version"], m["port-version"]) == ("gmssl", "3.2.0", 16)
+          assert (m["name"], m["version"], m["port-version"]) == ("gmssl", "3.2.0", 17)
           PY
           VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$manifest" \
@@ -817,37 +817,37 @@ jobs:
         run: |
           set -euo pipefail
           source="$GITHUB_WORKSPACE/_crypto-consumer"
-          prefix="$RUNNER_TEMP/crypto15-installed"
-          cmake -S "$source" -B build-crypto15 -G Ninja \
+          prefix="$RUNNER_TEMP/crypto17-installed"
+          cmake -S "$source" -B build-crypto17 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
             "-DCRYPTO_GMSSL_ROOT=$CRYPTO_TEST_GMSSL_ROOT"
-          cmake --build build-crypto15 --parallel 2
-          ctest --test-dir build-crypto15 --no-tests=error --output-on-failure
-          cmake --install build-crypto15 --prefix "$prefix"
+          cmake --build build-crypto17 --parallel 2
+          ctest --test-dir build-crypto17 --no-tests=error --output-on-failure
+          cmake --install build-crypto17 --prefix "$prefix"
           python3 "$source/tools/audit_static_crypto.py" \
-            --prefix "$prefix" --report build-crypto15/static-audit.json
+            --prefix "$prefix" --report build-crypto17/static-audit.json
 
-          cmake -S "$source/tests/owner" -B build-crypto-owner15 -G Ninja \
+          cmake -S "$source/tests/owner" -B build-crypto-owner17 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix"
-          cmake --build build-crypto-owner15 --parallel 2
-          ctest --test-dir build-crypto-owner15 --no-tests=error --output-on-failure
+          cmake --build build-crypto-owner17 --parallel 2
+          ctest --test-dir build-crypto-owner17 --no-tests=error --output-on-failure
 
-          cmake -S "$source/tests/sdk" -B build-crypto-sdk15 -G Ninja \
+          cmake -S "$source/tests/sdk" -B build-crypto-sdk17 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix" \
             -DCRYPTO_SDK_ENABLE_CIPHER_BIO=ON \
             -DCRYPTO_SDK_ENABLE_OPENSSL_PEER=ON \
             -DCRYPTO_SDK_ENABLE_INDEPENDENT_EXPORTER=ON \
             "-DCRYPTO_TEST_FIXTURES=$source/tests/fixtures"
-          cmake --build build-crypto-sdk15 --parallel 2
-          ctest --test-dir build-crypto-sdk15 --no-tests=error --output-on-failure
+          cmake --build build-crypto-sdk17 --parallel 2
+          ctest --test-dir build-crypto-sdk17 --no-tests=error --output-on-failure
       - name: Qualify installed Crypto with independent OpenSSL3 TLS/HRR and negative peers
         shell: bash
         run: |
           set -euo pipefail
           openssl version | grep -q '^OpenSSL 3[.]'
           source="$GITHUB_WORKSPACE/_crypto-consumer"
-          sdk="$GITHUB_WORKSPACE/build-crypto-sdk15"
-          work="$RUNNER_TEMP/gmssl-port16-crypto-peer"
+          sdk="$GITHUB_WORKSPACE/build-crypto-sdk17"
+          work="$RUNNER_TEMP/gmssl-port17-crypto-peer"
           bash "$source/tools/qualify_crypto_shared_openssl.sh" \
             "$sdk/crypto_sdk_openssl_client" "$work" 9740
           bash "$source/tools/qualify_crypto_exporter_openssl.sh" \
@@ -874,10 +874,10 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gmssl-port16-crypto-installed-evidence
+          name: gmssl-port17-crypto-installed-evidence
           if-no-files-found: warn
           path: |
-            build-crypto15/static-audit.json
-            build-crypto15/Testing/Temporary/LastTest.log
-            build-crypto-owner15/Testing/Temporary/LastTest.log
-            build-crypto-sdk15/Testing/Temporary/LastTest.log
+            build-crypto17/static-audit.json
+            build-crypto17/Testing/Temporary/LastTest.log
+            build-crypto-owner17/Testing/Temporary/LastTest.log
+            build-crypto-sdk17/Testing/Temporary/LastTest.log
