@@ -11,7 +11,7 @@ def policy_errors(text):
     # These assertions deliberately accept only this workflow's explicit job
     # layout. They are not a general YAML parser; GitHub still validates YAML.
     jobs = {}
-    for name in ("linux", "pack", "linux-compatibility", "publish"):
+    for name in ("linux", "macos", "windows", "pack", "linux-compatibility", "publish"):
         match = re.search(r"^  " + re.escape(name) + r":\n(.*?)(?=^  [\w-]+:|\Z)",
                           text, flags=re.M | re.S)
         if not match:
@@ -25,6 +25,16 @@ def policy_errors(text):
 
     require("linux", "runs-on: ubuntu-22.04")
     require("linux", "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++")
+    for line in (
+        "- {runner: macos-15-intel, arch: x86_64, rid: macos-x64}",
+        "- {runner: macos-15, arch: arm64, rid: macos-arm64}",
+    ):
+        require("macos", line)
+    for line in (
+        "- {runner: windows-2025, target: x64, rid: windows-x64}",
+        "- {runner: windows-11-arm, target: arm64, rid: windows-arm64}",
+    ):
+        require("windows", line)
     require("pack", "needs: [linux, linux-arm64, macos, windows]")
     require("linux-compatibility", "needs: pack")
     require("linux-compatibility", "os: [ubuntu-22.04, ubuntu-24.04]")
@@ -63,6 +73,8 @@ class WorkflowTests(unittest.TestCase):
         for before, after in (
             ("needs: [pack, linux-compatibility]", "needs: [pack]"),
             ("os: [ubuntu-22.04, ubuntu-24.04]", "os: [ubuntu-24.04]"),
+            ("- {runner: macos-15-intel, arch: x86_64, rid: macos-x64}", ""),
+            ("- {runner: windows-11-arm, target: arm64, rid: windows-arm64}", ""),
             ("if: github.event_name == 'workflow_dispatch' && inputs.publish == true", "if: always()"),
         ):
             with self.subTest(before=before):

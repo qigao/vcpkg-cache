@@ -354,7 +354,7 @@ def restore_cache(feed, config, cache):
 RE2C_HOSTS = {
     ("Linux", "X64"): "linux-x64", ("Linux", "ARM64"): "linux-arm64",
     ("macOS", "X64"): "macos-x64", ("macOS", "ARM64"): "macos-arm64",
-    ("Windows", "X64"): "windows-x64",
+    ("Windows", "X64"): "windows-x64", ("Windows", "ARM64"): "windows-arm64",
 }
 
 
@@ -413,7 +413,7 @@ def re2c_package_members(archive, version, rid):
     # Validate all included host payloads, and require the selected host. A
     # missing RID must not select another architecture or a system executable.
     for host in payload_rids | {rid}:
-        binary = "re2c.exe" if host == "windows-x64" else "re2c"
+        binary = "re2c.exe" if host.startswith("windows-") else "re2c"
         for suffix in (f"bin/{binary}", "share/re2c/stdlib/syntax/c",
                        "share/re2c/stdlib/unicode_categories.re",
                        "share/re2c/stdlib/unicode_properties.re"):
@@ -456,7 +456,7 @@ def restore_re2c(feed, destination, version, expected_sha256):
                 if mode and not entry.is_dir():
                     (stage / "package" / entry.filename).chmod(mode & 0o777)
         staged_root = stage / "package" / "tools" / rid
-        exe = staged_root / "bin" / ("re2c.exe" if rid == "windows-x64" else "re2c")
+        exe = staged_root / "bin" / ("re2c.exe" if rid.startswith("windows-") else "re2c")
         exe.chmod(exe.stat().st_mode | 0o111)
         subprocess.run([str(exe), "--version"], check=True)
         # No destination publication or environment change on verification or

@@ -24,7 +24,7 @@ permissions:
 env:
   # Upstream re2c 4.6. Never let a moved tag silently change a host package.
   RE2C_UPSTREAM_COMMIT: "e485c5d572ab8a9f895b2a3c98e5239bf59254c8"
-  RE2C_PACKAGE_VERSION: "4.6.5"
+  RE2C_PACKAGE_VERSION: "4.6.6"
 
 jobs:
   linux:
@@ -99,8 +99,14 @@ jobs:
           if-no-files-found: error
 
   macos:
-    name: macOS
-    runs-on: macos-15
+    name: macOS ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: macos-15-intel, arch: x86_64, rid: macos-x64}
+          - {runner: macos-15, arch: arm64, rid: macos-arm64}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch exact re2c 4.6 source
@@ -128,25 +134,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$(uname -m)" = "${{ matrix.arch }}"
           cmake --build build/re2c --parallel 2
           build/re2c/re2c --version
-          case "$RUNNER_ARCH" in
-            X64) rid=macos-x64 ;;
-            ARM64) rid=macos-arm64 ;;
-            *) echo "unsupported RUNNER_ARCH=$RUNNER_ARCH" >&2; exit 1 ;;
-          esac
+          rid="${{ matrix.rid }}"
           mkdir -p "stage/package-tools/$rid/bin" "stage/package-tools/$rid/share/re2c/stdlib"
           cp build/re2c/re2c "stage/package-tools/$rid/bin/re2c"
           cp -a upstream/re2c/include/. "stage/package-tools/$rid/share/re2c/stdlib/"
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-binary-host-macos
+          name: re2c-binary-host-${{ matrix.rid }}
           path: stage/package-tools
           if-no-files-found: error
 
   windows:
-    name: Windows x64
-    runs-on: windows-latest
+    name: Windows ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-2025, target: x64, rid: windows-x64}
+          - {runner: windows-11-arm, target: arm64, rid: windows-arm64}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch exact re2c 4.6 source
@@ -159,7 +168,7 @@ jobs:
       - uses: ./.github/actions/setup-llvm-mingw
         with:
           version: "20261020"
-          target: x64
+          target: ${{ matrix.target }}
           build-type: toolchain-only
       - name: Install Ninja for the llvm-mingw native build
         shell: pwsh
@@ -178,13 +187,14 @@ jobs:
         run: |
           cmake --build build/re2c --config Release --parallel 2
           & ".\build\re2c\re2c.exe" --version
-          New-Item -ItemType Directory -Force -Path stage\package-tools\windows-x64\bin | Out-Null
-          New-Item -ItemType Directory -Force -Path stage\package-tools\windows-x64\share\re2c\stdlib | Out-Null
-          Copy-Item ".\build\re2c\re2c.exe" ".\stage\package-tools\windows-x64\bin\re2c.exe"
-          Copy-Item ".\upstream\re2c\include\*" ".\stage\package-tools\windows-x64\share\re2c\stdlib" -Recurse
+          $root = "stage\package-tools\${{ matrix.rid }}"
+          New-Item -ItemType Directory -Force -Path "$root\bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root\share\re2c\stdlib" | Out-Null
+          Copy-Item ".\build\re2c\re2c.exe" "$root\bin\re2c.exe"
+          Copy-Item ".\upstream\re2c\include\*" "$root\share\re2c\stdlib" -Recurse
       - uses: actions/upload-artifact@v4
         with:
-          name: re2c-binary-host-windows-x64
+          name: re2c-binary-host-${{ matrix.rid }}
           path: stage/package-tools
           if-no-files-found: error
 
@@ -203,9 +213,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for rid in linux-x64 linux-arm64 macos-arm64 windows-x64; do
+          for rid in linux-x64 linux-arm64 macos-x64 macos-arm64 windows-x64 windows-arm64; do
             exe=re2c
-            if [ "$rid" = windows-x64 ]; then exe=re2c.exe; fi
+            if [[ "$rid" == windows-* ]]; then exe=re2c.exe; fi
             test -f "package/tools/$rid/bin/$exe"
             for data in unicode_categories.re unicode_properties.re syntax/c; do
               test -f "package/tools/$rid/share/re2c/stdlib/$data"

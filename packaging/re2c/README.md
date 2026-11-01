@@ -10,11 +10,13 @@ C/C++ CI pipelines.
 - `tools/linux-x64/bin/re2c` plus `tools/linux-x64/share/re2c/stdlib/`
 - `tools/linux-arm64/bin/re2c` plus `tools/linux-arm64/share/re2c/stdlib/`
 - `tools/windows-x64/bin/re2c.exe` plus `tools/windows-x64/share/re2c/stdlib/`
+- `tools/windows-arm64/bin/re2c.exe` plus `tools/windows-arm64/share/re2c/stdlib/`
+- `tools/macos-x64/bin/re2c` plus `tools/macos-x64/share/re2c/stdlib/`
 - `tools/macos-arm64/bin/re2c` plus `tools/macos-arm64/share/re2c/stdlib/`
 
-These are the four host RIDs in the published 4.6.4 package. The producer checks
-that every RID retains its executable, both Unicode tables and the C syntax
-file. macOS x64 is not present; an ARM64 executable is not an x64 substitute.
+The 4.6.6 producer requires all six product CI host RIDs. Every RID retains its
+native executable, both Unicode tables and the C syntax file; one architecture
+is never substituted for another.
 
 Use the executable matching the build host. NuGet/Actions ZIP extraction may not preserve
 Unix executable bits, so Linux/macOS consumers run `chmod +x` on the restored binary.
@@ -56,6 +58,6 @@ not themselves evidence of a successful 22.04/24.04 run or a published package.
 
 Upstream project: https://github.com/skvadrik/re2c
 
-Package version: 4.6.5 (upstream re2c 4.6; packaging revision 5)
+Package version: 4.6.6 (upstream re2c 4.6; packaging revision 6)
 
 Upstream source commit: `e485c5d572ab8a9f895b2a3c98e5239bf59254c8`
