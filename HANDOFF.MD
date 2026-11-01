@@ -13,3 +13,7 @@
   the staged executable with a system-only PATH before packing. The immutable
   4.6.6 package fails clean-reader execution with `0xC0000135`; never republish
   different bytes under that version.
+- The published self-contained six-RID 4.6.7 package is immutable and locked by
+  full NUPKG SHA-256
+  `fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305`.
+  Producer run: `41263215892`; do not substitute an Actions artifact ZIP digest.

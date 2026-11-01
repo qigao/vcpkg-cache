@@ -5,6 +5,10 @@ import unittest
 
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/re2c-tools-package.yml"
+READER_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/curl-only-github-packages.yml"
+READER_ACTION = Path(__file__).resolve().parents[2] / ".github/actions/setup-re2c-tools/action.yml"
+LOCK_VERSION = "4.6.7"
+LOCK_SHA256 = "fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305"
 
 
 def policy_errors(text):
@@ -96,6 +100,18 @@ class WorkflowTests(unittest.TestCase):
     def test_unchecked_artifact_is_rejected(self):
         text = WORKFLOW.read_text()
         self.assertTrue(policy_errors(text.replace("sha256sum --check dist/SHA256SUMS", "true")))
+
+    def test_default_reader_lock_covers_every_product_host(self):
+        workflow = READER_WORKFLOW.read_text(encoding="utf-8")
+        action = READER_ACTION.read_text(encoding="utf-8")
+        self.assertIn(
+            "os: [ubuntu-22.04, ubuntu-24.04, macos-15-intel, macos-15, "
+            "windows-2025, windows-11-arm]",
+            workflow,
+        )
+        for text in (workflow, action):
+            self.assertIn(LOCK_VERSION, text)
+            self.assertIn(LOCK_SHA256, text)
 
 
 if __name__ == "__main__":
