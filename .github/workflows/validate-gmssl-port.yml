@@ -552,22 +552,29 @@ jobs:
 
 
   windows:
-    name: GmSSL / windows-2025 v145
+    name: GmSSL / windows-2025 LLVM-MinGW
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap pinned curl-only vcpkg for source-build Windows v145
+      - name: Use canonical Windows LLVM-MinGW (no MSVC toolchain)
+        id: llvm
+        uses: ./.github/actions/setup-llvm-mingw
+        with:
+          target: x64
+          build-type: toolchain-only
+          obfuscator: "false"
+      - name: Bootstrap pinned curl-only vcpkg for source-build Windows LLVM-MinGW
         uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
           manifest-root: cache-contracts/optional-feature
-          triplet: qigao-x64-windows-v145
-          host-triplet: qigao-x64-windows-v145
+          triplet: qigao-x64-windows-llvm-mingw
+          host-triplet: qigao-x64-windows-llvm-mingw
       - name: Build GmSSL overlay
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $triplet = "qigao-x64-windows-v145"
+          $triplet = "qigao-x64-windows-llvm-mingw"
           $manifest = Join-Path $env:RUNNER_TEMP "gmssl-manifest"
           $install = Join-Path $env:RUNNER_TEMP "gmssl-install"
           New-Item -ItemType Directory -Force -Path $manifest | Out-Null
@@ -583,13 +590,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "GmSSL vcpkg install failed" }
           $root = Join-Path $install $triplet
           if (-not (Test-Path (Join-Path $root "include\gmssl\tls.h"))) { throw "tls.h missing" }
-          if (-not (Test-Path (Join-Path $root "lib\gmssl.lib"))) { throw "gmssl.lib missing" }
+          if (-not (Test-Path (Join-Path $root "lib\libgmssl.a"))) { throw "libgmssl.a missing" }
           if (Test-Path (Join-Path $root "bin\gmssl.dll")) { throw "GmSSL provider must be packaged statically" }
       - name: Compile and link consumer
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $triplet = "qigao-x64-windows-v145"
+          $triplet = "qigao-x64-windows-llvm-mingw"
           $root = Join-Path (Join-Path $env:RUNNER_TEMP "gmssl-install") $triplet
           $src = Join-Path $env:RUNNER_TEMP "gmssl-consumer-src"
           $build = Join-Path $env:RUNNER_TEMP "gmssl-consumer-build"
@@ -618,82 +625,85 @@ jobs:
           add_executable(gmssl-consumer main.c)
           target_link_libraries(gmssl-consumer PRIVATE GmSSL::GmSSL)
           '@ | Set-Content -LiteralPath (Join-Path $src "CMakeLists.txt") -Encoding ascii
-          cmake -S $src -B $build "-DCMAKE_PREFIX_PATH=$root" -A x64 -T v145
+          cmake -S $src -B $build -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_PREFIX_PATH=$root" "-DCMAKE_TOOLCHAIN_FILE=${{ steps.llvm.outputs.toolchain-file }}"
           if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer configure failed" }
           cmake --build $build --config Release
           if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer build failed" }
           if (Test-Path (Join-Path $root "bin\gmssl.dll")) { throw "unexpected GmSSL runtime DLL" }
-          & (Join-Path $build "Release\gmssl-consumer.exe")
+          & (Join-Path $build "gmssl-consumer.exe")
           if ($LASTEXITCODE -ne 0) { throw "static GmSSL consumer failed without provider runtime on PATH" }
       - name: Verify TLS 1.2 ALPN wire contract
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $triplet = "qigao-x64-windows-v145"
+          $triplet = "qigao-x64-windows-llvm-mingw"
           $root = Join-Path (Join-Path $env:RUNNER_TEMP "gmssl-install") $triplet
           $build = Join-Path $env:RUNNER_TEMP "gmssl-tls12-alpn-build"
-          cmake -S ports/gmssl/tests -B $build "-DCMAKE_PREFIX_PATH=$root" -A x64 -T v145
+          cmake -S ports/gmssl/tests -B $build -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_PREFIX_PATH=$root" "-DCMAKE_TOOLCHAIN_FILE=${{ steps.llvm.outputs.toolchain-file }}"
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN contract configure failed" }
           cmake --build $build --config Release
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN contract build failed" }
           $env:PATH = (Join-Path $root "bin") + ";" + $env:PATH
-          & (Join-Path $build "Release\gmssl-des-cbc-contract.exe")
+          & (Join-Path $build "gmssl-des-cbc-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "DES-CBC compatibility contract failed" }
-          & (Join-Path $build "Release\gmssl-tls12-alpn-contract.exe")
+          & (Join-Path $build "gmssl-tls12-alpn-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ALPN wire contract failed" }
-          & (Join-Path $build "Release\gmssl-tls-version-range-contract.exe")
+          & (Join-Path $build "gmssl-tls-version-range-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS version-range contract failed" }
-          & (Join-Path $build "Release\gmssl-tls-version-range-dispatch-contract.exe")
+          & (Join-Path $build "gmssl-tls-version-range-dispatch-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS version-range dispatch contract failed" }
-          & (Join-Path $build "Release\gmssl-tls-version-range-server-dispatch-contract.exe")
+          & (Join-Path $build "gmssl-tls-version-range-server-dispatch-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS server version-range dispatch contract failed" }
-          & (Join-Path $build "Release\gmssl-rsa-public-contract.exe")
+          & (Join-Path $build "gmssl-rsa-public-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA public operation contract failed" }
-          & (Join-Path $build "Release\gmssl-rsa-signature-contract.exe")
+          & (Join-Path $build "gmssl-rsa-signature-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA signature verification contract failed" }
-          & (Join-Path $build "Release\gmssl-x509-rsa-contract.exe")
+          & (Join-Path $build "gmssl-x509-rsa-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "X.509 RSA verification contract failed" }
-          & (Join-Path $build "Release\gmssl-tls-exporter-contract.exe")
+          & (Join-Path $build "gmssl-tls-exporter-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS exporter contract failed" }
-          & (Join-Path $build "Release\gmssl-tls13-rsa-pss-contract.exe")
+          & (Join-Path $build "gmssl-tls13-rsa-pss-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.3 RSA-PSS contract failed" }
-          & (Join-Path $build "Release\gmssl-rsa-private-contract.exe")
+          & (Join-Path $build "gmssl-rsa-private-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA private parser contract failed" }
-          & (Join-Path $build "Release\gmssl-rsa-private-op-contract.exe")
+          & (Join-Path $build "gmssl-rsa-private-op-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA private operation contract failed" }
-          & (Join-Path $build "Release\gmssl-rsa-pkcs8-contract.exe")
+          & (Join-Path $build "gmssl-rsa-pkcs8-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA PKCS8 identity contract failed" }
-          & (Join-Path $build "Release\gmssl-rsa-encrypted-pkcs8-contract.exe")
+          & (Join-Path $build "gmssl-rsa-encrypted-pkcs8-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "encrypted RSA PKCS8 key_password contract failed" }
-          & (Join-Path $build "Release\gmssl-rsa-private-signatures-contract.exe")
+          & (Join-Path $build "gmssl-rsa-private-signatures-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "RSA private signing contract failed" }
-          & (Join-Path $build "Release\gmssl-tls-inspection-contract.exe")
+          & (Join-Path $build "gmssl-tls-inspection-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS inspection contract failed" }
-          & (Join-Path $build "Release\gmssl-tls12-ecdhe-rsa-contract.exe")
+          & (Join-Path $build "gmssl-tls12-ecdhe-rsa-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 ECDHE_RSA contract failed" }
-          & (Join-Path $build "Release\gmssl-x509-basic-constraints-contract.exe")
+          & (Join-Path $build "gmssl-x509-basic-constraints-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "X.509 BasicConstraints contract failed" }
-          & (Join-Path $build "Release\gmssl-tls-cleanup-contract.exe")
+          & (Join-Path $build "gmssl-tls-cleanup-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "TLS cleanup contract failed" }
-          & (Join-Path $build "Release\gmssl-p256-plain-pkcs8-contract.exe")
+          & (Join-Path $build "gmssl-p256-plain-pkcs8-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "P-256 plain PKCS8 identity contract failed" }
-          & (Join-Path $build "Release\gmssl-p256-ecdsa-der-contract.exe")
+          & (Join-Path $build "gmssl-p256-ecdsa-der-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "P-256 ECDSA DER scalar padding contract failed" }
-          & (Join-Path $build "Release\gmssl-tls13-external-io-contract.exe")
+          & (Join-Path $build "gmssl-tls13-external-io-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "callback-only TLS 1.3 external-I/O contract failed" }
-          & (Join-Path $build "Release\gmssl-tls12-external-io-contract.exe")
+          & (Join-Path $build "gmssl-tls12-external-io-contract.exe")
           if ($LASTEXITCODE -ne 0) { throw "callback-only TLS 1.2 external-I/O contract failed" }
-          & (Join-Path $build "Release\gmssl-tls13-external-io-contract.exe") --no-sni
+          & (Join-Path $build "gmssl-tls13-external-io-contract.exe") --no-sni
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.3 no-SNI contract failed" }
-          & (Join-Path $build "Release\gmssl-tls12-external-io-contract.exe") --no-sni
+          & (Join-Path $build "gmssl-tls12-external-io-contract.exe") --no-sni
           if ($LASTEXITCODE -ne 0) { throw "TLS 1.2 no-SNI contract failed" }
-          cmake --build $build --config Debug --target gmssl-tls13-external-io-contract gmssl-tls12-external-io-contract
+          $debugBuild = Join-Path $env:RUNNER_TEMP "gmssl-tls12-alpn-debug"
+          cmake -S ports/gmssl/tests -B $debugBuild -G Ninja "-DCMAKE_BUILD_TYPE=Debug" "-DCMAKE_PREFIX_PATH=$root" "-DCMAKE_TOOLCHAIN_FILE=${{ steps.llvm.outputs.toolchain-file }}"
+          if ($LASTEXITCODE -ne 0) { throw "Debug external-I/O contract configure failed" }
+          cmake --build $debugBuild --target gmssl-tls13-external-io-contract gmssl-tls12-external-io-contract
           if ($LASTEXITCODE -ne 0) { throw "Debug external-I/O contract build failed" }
-          & (Join-Path $build "Debug\gmssl-tls13-external-io-contract.exe") --no-sni
+          & (Join-Path $debugBuild "gmssl-tls13-external-io-contract.exe") --no-sni
           if ($LASTEXITCODE -ne 0) { throw "Debug TLS 1.3 no-SNI contract failed" }
-          & (Join-Path $build "Debug\gmssl-tls12-external-io-contract.exe") --no-sni
+          & (Join-Path $debugBuild "gmssl-tls12-external-io-contract.exe") --no-sni
           if ($LASTEXITCODE -ne 0) { throw "Debug TLS 1.2 no-SNI contract failed" }
-          & (Join-Path $build "Debug\gmssl-tls13-external-io-contract.exe") --no-sni --request-client
+          & (Join-Path $debugBuild "gmssl-tls13-external-io-contract.exe") --no-sni --request-client
           if ($LASTEXITCODE -ne 0) { throw "Debug TLS 1.3 optional client identity contract failed" }
 
 
@@ -754,7 +764,7 @@ jobs:
           fi
 
   crypto-installed-interop:
-    name: Salts::Crypto consumer / GmSSL port15 OpenSSL3 interop
+    name: Salts::Crypto consumer / GmSSL port16 OpenSSL3 interop
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -772,7 +782,7 @@ jobs:
           manifest-root: cache-contracts/optional-feature
           triplet: x64-linux
           host-triplet: x64-linux
-      - name: Install port15 solely from the candidate vcpkg overlay
+      - name: Install port16 solely from the candidate vcpkg overlay
         shell: bash
         run: |
           set -euo pipefail
@@ -781,7 +791,7 @@ jobs:
           mkdir -p "$manifest"
           cat > "$manifest/vcpkg.json" <<'EOF'
           {
-            "name": "gmssl-port15-crypto-consumer",
+            "name": "gmssl-port16-crypto-consumer",
             "version-string": "1",
             "dependencies": ["gmssl"]
           }
@@ -790,7 +800,7 @@ jobs:
           import json
           from pathlib import Path
           m = json.loads(Path("ports/gmssl/vcpkg.json").read_text())
-          assert (m["name"], m["version"], m["port-version"]) == ("gmssl", "3.2.0", 15)
+          assert (m["name"], m["version"], m["port-version"]) == ("gmssl", "3.2.0", 16)
           PY
           VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
             "--x-manifest-root=$manifest" \
@@ -837,7 +847,7 @@ jobs:
           openssl version | grep -q '^OpenSSL 3[.]'
           source="$GITHUB_WORKSPACE/_crypto-consumer"
           sdk="$GITHUB_WORKSPACE/build-crypto-sdk15"
-          work="$RUNNER_TEMP/gmssl-port15-crypto-peer"
+          work="$RUNNER_TEMP/gmssl-port16-crypto-peer"
           bash "$source/tools/qualify_crypto_shared_openssl.sh" \
             "$sdk/crypto_sdk_openssl_client" "$work" 9740
           bash "$source/tools/qualify_crypto_exporter_openssl.sh" \
@@ -864,7 +874,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gmssl-port15-crypto-installed-evidence
+          name: gmssl-port16-crypto-installed-evidence
           if-no-files-found: warn
           path: |
             build-crypto15/static-audit.json
