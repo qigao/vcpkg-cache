@@ -225,7 +225,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, macos-15, windows-2025]
+        os: [ubuntu-22.04, ubuntu-24.04, macos-15-intel, macos-15, windows-2025, windows-11-arm]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-re2c-tools
@@ -233,8 +233,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:RE2C_ROOT -or $env:RE2C_PACKAGE_VERSION -ne '4.6.5' -or
-              $env:RE2C_PACKAGE_SHA256 -ne 'dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed') {
+          if (-not $env:RE2C_ROOT -or $env:RE2C_PACKAGE_VERSION -ne '4.6.7' -or
+              $env:RE2C_PACKAGE_SHA256 -ne 'fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305') {
             throw 'Missing or incorrect verified re2c package version/SHA-256'
           }
           $exe = Join-Path $env:RE2C_ROOT ('bin/re2c' + $(if ($IsWindows) { '.exe' } else { '' }))
