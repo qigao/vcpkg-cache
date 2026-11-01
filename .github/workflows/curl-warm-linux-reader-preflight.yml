@@ -32,6 +32,10 @@ jobs:
     name: Linux x64 official immutable ABI from fresh local files L1
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # Derive the very same clang-native package ABI as warm-cache.yml.
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
         with:

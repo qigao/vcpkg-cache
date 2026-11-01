@@ -164,6 +164,10 @@ jobs:
   linux_arm64:
     name: Contract / ubuntu-24.04-arm
     runs-on: ubuntu-24.04-arm
+    # Match the actual native ARM64 cache producer's compiler ABI inputs.
+    env:
+      CC: clang
+      CXX: clang++
     outputs:
       revision: ${{ steps.cache.outputs.cache_revision }}
       contract: ${{ steps.cache.outputs.contract_version }}
@@ -242,6 +246,10 @@ jobs:
             "builtin-baseline": "$baseline"
           }
           EOF
+          # The ARM64 producer unsets FORCE_SYSTEM_BINARIES before the real
+          # install; keeping it here changes the CMake/tool ABI identity.
+          # Keep the same downloaded host tools and fail on any missing ABI.
+          unset VCPKG_FORCE_SYSTEM_BINARIES
           # Resolve the exact source-owned arm64 manifest and its host
           # closure over curl NuGet V3; no NuGet/Mono provider is consulted.
           GH_TOKEN="${{ github.token }}" python3 scripts/restore-manifest-cache.py \
