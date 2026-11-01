@@ -53,8 +53,8 @@ The original 4.6.4 package was produced on Ubuntu 24.04 with GCC 13.3.0 in
 Its NuGet SHA256 is
 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`.
 Its Linux x64 executable requires `GLIBCXX_3.4.32`; it is a concrete negative
-input for the new compatibility gate. The version 4.6.5 workflow changes are
-not themselves evidence of a successful 22.04/24.04 run or a published package.
+input for the compatibility gate. The published 4.6.6 package and receipt are
+documented in the repository README.
 
 Upstream project: https://github.com/skvadrik/re2c
 

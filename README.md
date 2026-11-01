@@ -144,8 +144,8 @@ Product-specific dependency closures and binary-cache producers belong in the pr
 The curl reader's default published package lock is:
 
 ```text
-version: 4.6.5
-sha256: dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
+version: 4.6.6
+sha256: 9f5207934a16124345e43d9b286cbbdd53a3816fcb8cf20d755ff30012597aaf
 ```
 
 Consumers restore it with:
@@ -153,8 +153,8 @@ Consumers restore it with:
 ```yaml
 - uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@PINNED_COMMIT
   with:
-    version: "4.6.5"
-    sha256: "dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed"
+    version: "4.6.6"
+    sha256: "9f5207934a16124345e43d9b286cbbdd53a3816fcb8cf20d755ff30012597aaf"
 ```
 
 Omitting both inputs selects the same explicit published lock. Overrides must
@@ -166,13 +166,12 @@ Unicode data before extracting or executing payloads. Only a successful
 `--version` run publishes `RE2C_ROOT`, `RE2C_PACKAGE_VERSION`,
 `RE2C_PACKAGE_SHA256` and the binary search path. Use a fresh destination.
 
-The 4.6.5 archive was published from
-[producer commit 4864033d4e4bc70d182df6a33695582ec6fcc968](https://github.com/qigao/vcpkg-cache/commit/4864033d4e4bc70d182df6a33695582ec6fcc968)
-in [run 40852170873](https://github.com/qigao/vcpkg-cache/actions/runs/40852170873).
+The 4.6.6 archive was published from
+[producer commit 394e1f80a89d01c856eba8ab9b89d4ab57acdbdc](https://github.com/qigao/vcpkg-cache/commit/394e1f80a89d01c856eba8ab9b89d4ab57acdbdc)
+in [run 41262313227](https://github.com/qigao/vcpkg-cache/actions/runs/41262313227).
 Its actual Ubuntu 22.04 and 24.04 verification receipts and the successful
 publisher agree on the digest above. The curl reader matrix now also includes
-Ubuntu 22.04, alongside Ubuntu 24.04, macOS 15 and Windows 2025, to check the
-published feed package on the previously failing host.
+Linux, macOS and Windows x64/ARM64 hosts to check every published payload.
 
 For historical comparison, the 4.6.4 package
 (`9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`)
@@ -185,8 +184,8 @@ The direct CLI requires both arguments, with no implicit version selection:
 
 ```sh
 python scripts/github-packages.py re2c "$RUNNER_TEMP/qigao-re2c-binary" \
-  --version 4.6.5 \
-  --sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
+  --version 4.6.6 \
+  --sha256 9f5207934a16124345e43d9b286cbbdd53a3816fcb8cf20d755ff30012597aaf
 ```
 
 ## Workflows
