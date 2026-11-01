@@ -427,8 +427,10 @@ jobs:
           llvm="$(brew --prefix llvm@18)"
           echo "CC=$llvm/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=$llvm/bin/clang++" >> "$GITHUB_ENV"
-          echo "AR=$llvm/bin/llvm-ar" >> "$GITHUB_ENV"
-          echo "RANLIB=$llvm/bin/llvm-ranlib" >> "$GITHUB_ENV"
+          # Meson/pkgconf passes Darwin's -c ranlib flag; LLVM ranlib rejects it.
+          # Keep Clang as the compiler, but use the matching Apple archive tools.
+          echo "AR=/usr/bin/ar" >> "$GITHUB_ENV"
+          echo "RANLIB=/usr/bin/ranlib" >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
@@ -739,9 +741,8 @@ jobs:
   android:
     name: Android arm64
     runs-on: ubuntu-24.04
-    env:
-      CC: clang
-      CXX: clang++
+    # Do not override the NDK target compiler with the Linux host clang.
+    # vcpkg's arm64-android toolchain selects Android LLVM/Clang for ports.
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
