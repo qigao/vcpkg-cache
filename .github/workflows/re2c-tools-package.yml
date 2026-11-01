@@ -24,7 +24,7 @@ permissions:
 env:
   # Upstream re2c 4.6. Never let a moved tag silently change a host package.
   RE2C_UPSTREAM_COMMIT: "e485c5d572ab8a9f895b2a3c98e5239bf59254c8"
-  RE2C_PACKAGE_VERSION: "4.6.6"
+  RE2C_PACKAGE_VERSION: "4.6.7"
 
 jobs:
   linux:
@@ -178,6 +178,7 @@ jobs:
         run: |
           cmake -S upstream/re2c -B build/re2c -G Ninja `
             '-DCMAKE_BUILD_TYPE=Release' "-DCMAKE_TOOLCHAIN_FILE=$env:LLVM_MINGW_TOOLCHAIN_FILE" `
+            '-DCMAKE_EXE_LINKER_FLAGS=-static' `
             -DRE2C_BUILD_RE2D=OFF -DRE2C_BUILD_RE2GO=OFF -DRE2C_BUILD_RE2HS=OFF `
             -DRE2C_BUILD_RE2JAVA=OFF -DRE2C_BUILD_RE2JS=OFF -DRE2C_BUILD_RE2OCAML=OFF `
             -DRE2C_BUILD_RE2PY=OFF -DRE2C_BUILD_RE2RUST=OFF -DRE2C_BUILD_RE2SWIFT=OFF `
@@ -192,6 +193,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$root\share\re2c\stdlib" | Out-Null
           Copy-Item ".\build\re2c\re2c.exe" "$root\bin\re2c.exe"
           Copy-Item ".\upstream\re2c\include\*" "$root\share\re2c\stdlib" -Recurse
+          $buildPath = $env:PATH
+          try {
+            $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+            & "$root\bin\re2c.exe" --version
+            if ($LASTEXITCODE -ne 0) { throw 'Staged re2c is not self-contained' }
+          } finally {
+            $env:PATH = $buildPath
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: re2c-binary-host-${{ matrix.rid }}
