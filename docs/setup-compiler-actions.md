@@ -3,7 +3,7 @@
 Both existing compiler Actions expose **one** switch:
 
 ```yaml
-- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@PINNED_COMMIT
+- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@v0.1.0
   with:
     build-type: Release
     obfuscator: "true"
