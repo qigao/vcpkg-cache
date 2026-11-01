@@ -33,6 +33,9 @@ def policy_errors(text):
     for line in (
         "- {runner: windows-2025, target: x64, rid: windows-x64}",
         "- {runner: windows-11-arm, target: arm64, rid: windows-arm64}",
+        "'-DCMAKE_EXE_LINKER_FLAGS=-static' `",
+        '$env:PATH = "$env:SystemRoot\\System32;$env:SystemRoot"',
+        '& "$root\\bin\\re2c.exe" --version',
     ):
         require("windows", line)
     require("pack", "needs: [linux, linux-arm64, macos, windows]")
@@ -75,6 +78,8 @@ class WorkflowTests(unittest.TestCase):
             ("os: [ubuntu-22.04, ubuntu-24.04]", "os: [ubuntu-24.04]"),
             ("- {runner: macos-15-intel, arch: x86_64, rid: macos-x64}", ""),
             ("- {runner: windows-11-arm, target: arm64, rid: windows-arm64}", ""),
+            ("'-DCMAKE_EXE_LINKER_FLAGS=-static' `", ""),
+            ('$env:PATH = "$env:SystemRoot\\System32;$env:SystemRoot"', ""),
             ("if: github.event_name == 'workflow_dispatch' && inputs.publish == true", "if: always()"),
         ):
             with self.subTest(before=before):

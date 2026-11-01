@@ -53,11 +53,14 @@ The original 4.6.4 package was produced on Ubuntu 24.04 with GCC 13.3.0 in
 Its NuGet SHA256 is
 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`.
 Its Linux x64 executable requires `GLIBCXX_3.4.32`; it is a concrete negative
-input for the new compatibility gate. The version 4.6.5 workflow changes are
-not themselves evidence of a successful 22.04/24.04 run or a published package.
+input for the new compatibility gate. The immutable 4.6.6 package added all six
+host RIDs, but its Windows binaries require llvm-mingw runtime DLLs that were
+present only on the producer PATH. Version 4.6.7 links the Windows runtime
+statically and executes the staged binary with a system-only PATH before
+packing.
 
 Upstream project: https://github.com/skvadrik/re2c
 
-Package version: 4.6.6 (upstream re2c 4.6; packaging revision 6)
+Package version: 4.6.7 (upstream re2c 4.6; packaging revision 7)
 
 Upstream source commit: `e485c5d572ab8a9f895b2a3c98e5239bf59254c8`
