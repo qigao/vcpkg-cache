@@ -111,6 +111,8 @@ jobs:
           test ! -e ports/boringssl
           test ! -e versions/b-/boringssl.json
           test ! -e .github/workflows/validate-boringssl-no-go.yml
-          grep -Fq 'REF d88d90dfd81df2320e6d47a92ad58c1eac9e0a17' \
+          grep -Fq 'REF 720abc55eca41cc7f676d0b5dbb38e8605d091b9' \
             ports/gmssl/portfile.cmake
+          grep -Fq 'URL "https://github.com/qigao/salts-core.git"' ports/gmssl/portfile.cmake
+          grep -Fq 'GMSSL_CRYPTO_REPO}/crypto/gmssl-extensions' ports/gmssl/portfile.cmake
           printf 'gmssl registry tree=%s\n' "$VERSION_TREE"

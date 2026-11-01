@@ -208,6 +208,68 @@ function(gmssl_replace_once file_path search_text replacement_text)
     file(WRITE "${file_path}" "${_gmssl_replace_prefix}${replacement_text}${_gmssl_replace_suffix}")
 endfunction()
 
+# Preserve the previously qualified RFC 5746 initial TLS 1.2 signaling
+# for an explicit TLS1.2/1.3 range, and REJECT TLS1.3-only/TLCP contexts.
+# This is copied from the former exact SaltsCore native owner; it does not
+# enable application renegotiation. CNet's genuine CA/SAN runtime gate
+# requires this guard before choosing a protocol within the range.
+gmssl_replace_once(
+    "${_gmssl_tls12_c}"
+[==[
+int tls12_ctx_set_renegotiation_info(TLS_CTX *ctx, int enable)
+{
+	if (!ctx || ctx->protocol != TLS_protocol_tls12) {
+		error_print();
+		return -1;
+	}
+	ctx->renegotiation_info = enable ? 1 : 0;
+	return 1;
+}
+
+int tls12_ctx_set_empty_renegotiation_info_scsv(TLS_CTX *ctx, int enable)
+{
+	if (!ctx || ctx->protocol != TLS_protocol_tls12) {
+		error_print();
+		return -1;
+	}
+	ctx->empty_renegotiation_info_scsv = enable ? 1 : 0;
+	return 1;
+}
+]==]
+[==[
+/* Only an initial TLS1.2 handshake (including a TLS12/13 range)
+ * may emit RFC 5746 secure_renegotiation signaling. TLS1.3-only and TLCP
+ * contexts cannot borrow this protocol-specific extension. */
+static int tls12_ctx_accepts_secure_hello(const TLS_CTX *ctx)
+{
+	return ctx && (ctx->protocol == TLS_protocol_tls12
+		|| (ctx->protocol == TLS_protocol_tls13
+			&& ctx->min_protocol == TLS_protocol_tls12
+			&& ctx->max_protocol == TLS_protocol_tls13));
+}
+
+int tls12_ctx_set_renegotiation_info(TLS_CTX *ctx, int enable)
+{
+	if (!tls12_ctx_accepts_secure_hello(ctx)) {
+		error_print();
+		return -1;
+	}
+	ctx->renegotiation_info = enable ? 1 : 0;
+	return 1;
+}
+
+int tls12_ctx_set_empty_renegotiation_info_scsv(TLS_CTX *ctx, int enable)
+{
+	if (!tls12_ctx_accepts_secure_hello(ctx)) {
+		error_print();
+		return -1;
+	}
+	ctx->empty_renegotiation_info_scsv = enable ? 1 : 0;
+	return 1;
+}
+]==]
+)
+
 # TLS 1.2 client: advertise configured ALPN protocols in ClientHello.
 gmssl_replace_once(
     "${_gmssl_tls12_c}"

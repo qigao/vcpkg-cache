@@ -21,17 +21,17 @@ vcpkg_replace_string(
     "add_library(gmssl STATIC \${src})"
 )
 
-# Native C/H extensions live solely in qigao/crypto.
-# This is a pinned SOURCE-ONLY fetch, not a second GmSSL package dependency.
-# vcpkg builds these same sources once into its GmSSL static archive; the
-# installed Salts::Crypto later embeds that archive, without rebuilding them.
+# Extensions are source-owned by qigao/salts-core/crypto/gmssl-extensions.
+# Fetch their exact immutable source commit only; vcpkg builds them exactly
+# once into this one static GmSSL archive. Downstream Salts::Crypto LINKS the
+# installed GmSSL target and MUST NOT compile a duplicate native source tree.
 vcpkg_from_git(
     OUT_SOURCE_PATH GMSSL_CRYPTO_REPO
-    URL "https://github.com/qigao/crypto.git"
-    REF d88d90dfd81df2320e6d47a92ad58c1eac9e0a17
+    URL "https://github.com/qigao/salts-core.git"
+    REF 720abc55eca41cc7f676d0b5dbb38e8605d091b9
 )
 set(GMSSL_CRYPTO_EXTENSIONS_SOURCE
-    "${GMSSL_CRYPTO_REPO}/vendor/gmssl-extensions")
+    "${GMSSL_CRYPTO_REPO}/crypto/gmssl-extensions")
 foreach(_gmssl_extension IN ITEMS
     src/aes_key_wrap.c
     src/des.c
