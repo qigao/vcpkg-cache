@@ -23,7 +23,10 @@ UNICODE_SHA256 = {
     "unicode_properties.re": "56b5f16e4e516a598125760ee7f4fae60a5db6727b8cf3dfb5f020152ef2aa21",
     "unicode_categories.re": "3d0a319806e42a7b476f9d474c104f7e734c42eeab8fb36b2b82591cd55b0689",
 }
-HOST_RIDS = ("linux-arm64", "linux-x64", "macos-arm64", "windows-x64")
+HOST_RIDS = (
+    "linux-arm64", "linux-x64", "macos-arm64", "macos-x64",
+    "windows-arm64", "windows-x64",
+)
 
 
 def digest(path):
@@ -35,9 +38,9 @@ def package_layout(archive):
     rids = sorted({name.split("/")[1] for name in names
                    if name.startswith("tools/") and len(name.split("/")) > 2})
     if tuple(rids) != HOST_RIDS:
-        raise ValueError(f"host RID set differs from the original published package: {rids}")
+        raise ValueError(f"host RID set differs from the admitted package contract: {rids}")
     for rid in rids:
-        executable = "re2c.exe" if rid == "windows-x64" else "re2c"
+        executable = "re2c.exe" if rid.startswith("windows-") else "re2c"
         required = [f"tools/{rid}/bin/{executable}"]
         required += [f"tools/{rid}/share/re2c/stdlib/{name}" for name in
                      (*UNICODE_SHA256, "syntax/c")]

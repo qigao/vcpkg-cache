@@ -19,7 +19,7 @@ class LinuxCompatibilityTests(unittest.TestCase):
         stream = io.BytesIO()
         with zipfile.ZipFile(stream, "w") as archive:
             for rid in HOST_RIDS:
-                executable = "re2c.exe" if rid == "windows-x64" else "re2c"
+                executable = "re2c.exe" if rid.startswith("windows-") else "re2c"
                 names = [f"tools/{rid}/bin/{executable}"]
                 names += [f"tools/{rid}/share/re2c/stdlib/{name}"
                           for name in (*UNICODE_SHA256, "syntax/c")]
@@ -30,17 +30,17 @@ class LinuxCompatibilityTests(unittest.TestCase):
                 archive.writestr(extra, b"fixture")
         return zipfile.ZipFile(stream)
 
-    def test_all_four_original_hosts_are_required(self):
+    def test_all_six_product_hosts_are_required(self):
         with self.archive() as archive:
             self.assertEqual(tuple(package_layout(archive)), HOST_RIDS)
-        for name in ("tools/macos-arm64/bin/re2c",
+        for name in ("tools/macos-x64/bin/re2c",
                      "tools/linux-arm64/share/re2c/stdlib/unicode_properties.re",
-                     "tools/windows-x64/share/re2c/stdlib/syntax/c"):
+                     "tools/windows-arm64/share/re2c/stdlib/syntax/c"):
             with self.archive(omitted=name) as archive, self.assertRaisesRegex(ValueError, "missing"):
                 package_layout(archive)
 
     def test_unreviewed_host_set_change_fails(self):
-        with self.archive(extra="tools/macos-x64/bin/re2c") as archive:
+        with self.archive(extra="tools/freebsd-x64/bin/re2c") as archive:
             with self.assertRaisesRegex(ValueError, "host RID set differs"):
                 package_layout(archive)
 
