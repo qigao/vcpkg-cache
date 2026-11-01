@@ -6,6 +6,8 @@ vcpkg_from_github(
     REF 5c7b7bad26808e6b40ac3b3d0075466e27738a9d
     SHA512 2dcc3b4a7d9af46d70aa560cbfa2a24919b039b847f9ffbf183548e26093d2c288afa2aaccc1a5d90237fc1b31ae5e1fa4e132d2c656f0a65a2faeb5d09f775c
     HEAD_REF dev
+    PATCHES
+        cmake-cxx-language-guard.patch
 )
 
 vcpkg_cmake_configure(
