@@ -1,0 +1,13 @@
+diff --git a/build/cmake/CMakeModules/AddZstdCompilationFlags.cmake b/build/cmake/CMakeModules/AddZstdCompilationFlags.cmake
+index 39d05dc7b..8b18bfcca 100644
+--- a/build/cmake/CMakeModules/AddZstdCompilationFlags.cmake
++++ b/build/cmake/CMakeModules/AddZstdCompilationFlags.cmake
+@@ -23,7 +23,7 @@ function(EnableCompilerFlag _flag _C _CXX _LD)
+             set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_flag}" PARENT_SCOPE)
+         endif ()
+     endif ()
+-    if (_CXX AND CMAKE_CXX_COMPILER)
++    if (_CXX AND CMAKE_CXX_COMPILER_LOADED)
+         CHECK_CXX_COMPILER_FLAG(${_flag} CXX_FLAG_${varname})
+         if (CXX_FLAG_${varname})
+             set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_flag}" PARENT_SCOPE)
