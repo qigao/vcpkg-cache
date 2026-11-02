@@ -9,11 +9,17 @@ vcpkg_from_github(
 
 # Upstream uses a make-based configure, not Autoconf. It accepts --prefix and
 # --host, but not the helper's default Autoconf path/library switches.
+set(platform_options)
+if(VCPKG_TARGET_IS_OSX)
+    # Leave room for vcpkg to rewrite Mach-O load commands after installation.
+    list(APPEND platform_options "EXTRA_LDFLAGS=-Wl,-headerpad_max_install_names")
+endif()
 vcpkg_make_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     DISABLE_DEFAULT_OPTIONS
     LANGUAGES C
     OPTIONS
+        ${platform_options}
         "--prefix=${CURRENT_INSTALLED_DIR}"
         "--version=${VERSION}"
         --enable-release

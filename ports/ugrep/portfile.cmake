@@ -20,6 +20,9 @@ else()
     # explicitly so installed system libraries cannot change the cached feature set.
     vcpkg_make_configure(
         SOURCE_PATH "${SOURCE_PATH}"
+        # Upstream install-exec-hook reads bin/ugrep+ and bin/ug+ relative
+        # to the build directory. Its out-of-tree install loses these files.
+        COPY_SOURCE
         DISABLE_DEFAULT_OPTIONS
         OPTIONS
             "--prefix=${CURRENT_INSTALLED_DIR}"
