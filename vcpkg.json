@@ -2,46 +2,18 @@
   "name": "qigao-vcpkg-cache",
   "version-string": "1",
   "description": "Warm-up manifest for shared qigao third-party vcpkg binary packages.",
+  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01",
   "dependencies": [
-    {
-      "name": "pkgconf",
-      "host": true
-    },
-    "simde",
-    "zlib",
-    "zstd",
     "aklomp-base64",
+    {
+      "name": "bfs",
+      "platform": "native & (linux | osx)"
+    },
     "c-ares",
-    "libuv",
-    "kcp",
-    "gmssl",
-    "miniaudio",
-    "lua",
-    {
-      "name": "zeromq",
-      "default-features": false
-    },
-    "libusb",
-    "llhttp",
-    "tree-sitter",
-    "tree-sitter-c",
     "catch2",
-    "xxhash",
     "cxxopts",
-    "stb",
-    {
-      "name": "sqlite3",
-      "features": [
-        "fts5"
-      ]
-    },
-    "tiny-aes-c",
-    "tre",
-    {
-      "name": "mir-jit",
-      "platform": "linux | osx | android | (windows & x64)"
-    },
-    "quickjs-ng",
+    "gmssl",
+    "kcp",
     {
       "name": "libpq",
       "default-features": false,
@@ -49,8 +21,43 @@
         "zstd"
       ],
       "platform": "linux | windows"
-    }
-  ],
-  "builtin-baseline": "b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01",
-  "overrides": []
+    },
+    "libusb",
+    "libuv",
+    "llhttp",
+    "lua",
+    "miniaudio",
+    {
+      "name": "mir-jit",
+      "platform": "linux | osx | android | (windows & x64)"
+    },
+    "pcre2",
+    {
+      "name": "pkgconf",
+      "host": true
+    },
+    "quickjs-ng",
+    "simde",
+    {
+      "name": "sqlite3",
+      "features": [
+        "fts5"
+      ]
+    },
+    "stb",
+    "tiny-aes-c",
+    "tree-sitter",
+    "tree-sitter-c",
+    {
+      "name": "ugrep",
+      "platform": "native & (linux | osx | (windows & !uwp & !mingw & (x86 | x64)))"
+    },
+    "xxhash",
+    {
+      "name": "zeromq",
+      "default-features": false
+    },
+    "zlib",
+    "zstd"
+  ]
 }

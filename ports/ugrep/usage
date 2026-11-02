@@ -1,0 +1,11 @@
+ugrep installs command-line tools, not a linkable library:
+
+    <installed-prefix>/tools/ugrep/ugrep[.exe]
+    <installed-prefix>/tools/ugrep/ugrep-indexer[.exe]
+
+PCRE2 is required for -P. This port builds without optional compression libraries,
+Boost.Regex, ug aliases, or shell wrappers. Native Linux/macOS and Windows MSVC
+x86/x64 are supported; cross compilation and UWP/MinGW are not supported.
+
+For build-time use, declare { "name": "ugrep", "host": true } in your manifest
+and locate the executable under the host installed prefix.

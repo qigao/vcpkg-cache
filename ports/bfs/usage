@@ -1,0 +1,11 @@
+bfs installs a command-line tool, not a linkable library:
+
+    <installed-prefix>/tools/bfs/bfs
+
+Only native Linux and macOS are supported. This port explicitly disables optional
+libacl, libcap, libselinux, liburing, and Oniguruma integrations; unavailable
+features are governed by upstream bfs behavior. The portable POSIX regex backend
+is not the application's PCRE2 backend.
+
+For build-time use, declare { "name": "bfs", "host": true } in your manifest
+on a supported host and locate the executable under the host installed prefix.

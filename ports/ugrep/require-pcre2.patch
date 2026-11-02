@@ -1,0 +1,12 @@
+diff --git a/configure b/configure
+--- a/configure
++++ b/configure
+@@ -9834,7 +9834,7 @@
+     #
+     # If either header or library was not found, action-if-not-found
+     #
+-    echo "recommended PCRE2 library not found: checking for Boost.Regex"
++    as_fn_error $? "vcpkg ugrep requires PCRE2; refusing a reduced feature build" "$LINENO" 5
+   fi
+ fi
+ 

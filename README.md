@@ -75,9 +75,28 @@ Bootstrap or identity failures stop setup before dependency restoration.
 - `wabt`
 - [`wtl`](ports/wtl/vcpkg.json) — full upstream WTL 10.0.10320 headers/Samples/AppWizard, immutable GitHub release SHA512; no dependency on Microsoft's `atl` vcpkg detection port. Applications link their own `OpenATL::ATL` source-tree target. This header-only port does **not** install an OpenATL SDK.
 - [`tre`](ports/tre/README.md) (static regex and approximate matching)
+- `ugrep` 7.8.5 (CLI tools, PCRE2 enabled; native Linux/macOS and Windows MSVC x86/x64)
+- `bfs` 4.1.5 (POSIX find CLI; native Linux/macOS)
 - `mir-jit` (static MIR core/generator; Linux, macOS, Android and Windows x64)
 
 A product may depend on these ports, but the product still owns its manifest and version-selection policy.
+
+The generic warm set includes builtin `pcre2` (10.46 at the pinned baseline,
+including its platform-default JIT feature). The search-tool overlays pin source
+archives with SHA512 checksums and install executables under `tools/<port>`;
+they do not export application libraries. `ugrep` requires PCRE2 for `-P` and
+omits optional compression libraries. `bfs` disables optional third-party
+integrations to keep the cached feature set independent of host packages.
+Cross builds skip both tools. Build-time consumers declare tools with
+`"host": true`; neither tool replaces a product's filesystem/index lifecycle.
+TRE is no longer in the generic warm manifest; its existing overlay remains
+available to products that still declare it.
+
+Changes to this manifest or `ports/` on `master` automatically trigger
+`warm-cache.yml`: the generic Linux x64 and macOS jobs install these dependencies
+and produce cache packages. The current Windows warm workflow targets
+LLVM-MinGW; it does not build the MSVC-only Windows ugrep adapter. The existing
+versioned `v0.1.0` source release does not acquire new overlays retroactively.
 
 The MIR port keeps its pinned upstream source and executable-memory budget
 patch on Windows x64. Windows cache jobs warm both the root manifest and the

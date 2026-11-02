@@ -1,0 +1,21 @@
+{
+  "name": "ugrep",
+  "version": "7.8.5",
+  "description": "Unicode-aware grep command-line tools with PCRE2 support.",
+  "homepage": "https://github.com/Genivia/ugrep",
+  "license": "BSD-3-Clause",
+  "supports": "native & (linux | osx | (windows & !uwp & !mingw & (x86 | x64)))",
+  "dependencies": [
+    "pcre2",
+    {
+      "name": "vcpkg-cmake",
+      "host": true,
+      "platform": "windows"
+    },
+    {
+      "name": "vcpkg-make",
+      "host": true,
+      "platform": "!windows"
+    }
+  ]
+}
