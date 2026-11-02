@@ -1,11 +1,16 @@
 # Curl-only GitHub Packages for native vcpkg consumers
 
-Candidate replacement for the old shared setup-vcpkg-cache action.
+The shared `setup-vcpkg-curl-cache` action is the native package download owner.
+The former Mono/NuGet setup action has been removed.
 
 ## Invariants
 
-- Mono, nuget.exe, dotnet restore and the vcpkg NuGet provider are never invoked by the new transport.
+- CI must not install or execute Mono. Native package downloads use curl;
+  nuget.exe, dotnet restore and the vcpkg NuGet provider are not download paths.
 - The canonical vcpkg tool, scripts, overlay ports and ABI contract remain pinned by this repository.
+- Compiler archives, native Windows pkgconf and the Windows vcpkg executable
+  share the curl downloader with host allowlists, bounded transfers and SHA256
+  verification. Unix vcpkg bootstrap also uses curl.
 - A product supplies its OWN vcpkg.json, target triplet and host triplet; infrastructure does not select product dependencies.
 - The original vcpkg binary graph is resolved via --dry-run and --x-write-nuget-packages-config before HTTP download.
 - GitHub Packages NuGet V3 index and exact package version are read with authenticated curl; strict package ID, CONTROL ABI, BUILD_INFO and archive member checks precede materialization.
@@ -15,16 +20,25 @@ Candidate replacement for the old shared setup-vcpkg-cache action.
 ## Usage
 
 Required workflow permissions: contents: read and packages: read.
-Add uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@PINNED_SHA
+Add uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
 with mode: read, triplet: x64-linux, host-triplet: x64-linux; manifest-root defaults to the repository root.
+Replace `CURL_ONLY_RELEASE` with a published infrastructure version containing
+this change. Candidate PR validation can pin its exact commit; this change
+does not publish a new version or rewrite the immutable `v0.1.0` tag.
 
 Setup exports VCPKG_ROOT, VCPKG_BINARY_SOURCES, VCPKG_BINARY_CACHE,
 VCPKG_CACHE_REPOSITORY_ROOT, QIGAO_VCPKG_TOOLCHAIN_FILE and canonical
 identity outputs. The binary source is the local files provider only.
 
+The cache-contract revision includes the canonical curl action and its
+bootstrap, manifest resolver and package transport scripts. Their content
+changes produce a new revision, including this migration from the legacy
+action. Consumers must use that identity and its exact package ABIs; the
+action must not substitute an older cache identity or fall back on a miss.
+
 ## Windows pkg-config
 
-Both shared vcpkg setup actions prepare native pkgconf 3.0.7 from the
+The shared curl setup action prepares native pkgconf 3.0.7 from the
 [`pkgconf` 3.0.7.post0 wheels](https://pypi.org/project/pkgconf/3.0.7.post0/),
 built by [pypackaging-native](https://github.com/pypackaging-native/pkgconf-pypi).
 The Windows x64 and ARM64 downloads are about 65 KB and 59 KB. Setup verifies
@@ -98,9 +112,16 @@ are downloaded using their authenticated NuGet V3 metadata and URL; publicly
 released standalone tools are downloaded using immutable GitHub Release assets
 and SHA256 verification.
 
-## Migration admission
+## Downstream migration
 
-Do not remove the old Mono/NuGet setup action or change production defaults
-until all downstream consumers that use it have been migrated and their exact
-CI head is green. Native package publishing requires a separate explicit
-curl-only upload phase and verified immutable package provenance.
+The no-Mono requirement applies to every active CI workflow and composite
+action. There is no legacy caller allowance. Downstream repositories pinned to
+older source versions must move to a released version of the curl-only action
+and provide their actual manifest, target triplet and host triplet; changing
+this repository does not rewrite their existing immutable pins.
+
+Native package publishing remains a separate explicit curl-only upload phase
+with verified immutable package provenance. Source-only jobs can call
+`scripts/setup-vcpkg-curl-cache.py` to bootstrap the same canonical tools and
+local files cache, then build their own manifest with binary caches explicitly
+disabled. They must not manufacture an empty manifest to bypass restoration.

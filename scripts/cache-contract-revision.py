@@ -15,10 +15,13 @@ def contract_files(root: pathlib.Path) -> list[pathlib.Path]:
 
     for relative in (
         ".gitattributes",
-        ".github/actions/setup-vcpkg-cache/action.yml",
+        ".github/actions/setup-vcpkg-curl-cache/action.yml",
         "cache-contract-version.txt",
         "cmake/QigaoVcpkgToolchain.cmake",
         "scripts/cache-contract-revision.py",
+        "scripts/setup-vcpkg-curl-cache.py",
+        "scripts/restore-manifest-cache.py",
+        "scripts/github-packages.py",
         "scripts/vcpkg-required-commits.py",
         "scripts/windows_pkgconf.py",
         "scripts/setup-compiler-toolchain.py",

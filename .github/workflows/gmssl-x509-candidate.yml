@@ -92,10 +92,14 @@ jobs:
         run: |
           choco install nasm ninja strawberryperl -y --no-progress
           if ($LASTEXITCODE -ne 0) { throw 'missing required host tools' }
-      # Pinned tooling only. The candidate installation below disables ALL binary caches.
-      - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@e678e8c1d0510e89b79e53b1828bfd2cab18ab0e
-        with:
-          mode: read
+      # This source candidate creates its manifest below and disables all binary
+      # caches. Reuse the canonical bootstrap without a package restore phase.
+      - name: Bootstrap canonical native vcpkg without Mono or NuGet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/setup-vcpkg-curl-cache.py $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0) { throw 'Canonical native vcpkg bootstrap failed' }
       - name: Build exact candidate source into an isolated installation (not release acceptance)
         shell: python
         run: |

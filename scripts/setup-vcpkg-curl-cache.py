@@ -2,6 +2,7 @@
 """Bootstrap the canonical shared vcpkg cache using curl-only file restoration."""
 from __future__ import annotations
 
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -9,6 +10,39 @@ import shutil
 import subprocess
 import sys
 import time
+
+
+# Windows' upstream bootstrap invokes tls12-download.exe. Keep the same
+# released executable identity, using the shared curl downloader instead.
+# Digests: https://api.github.com/repos/microsoft/vcpkg-tool/releases/tags/2026-07-27
+WINDOWS_TOOL_VERSION = "2026-07-27-98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8"
+WINDOWS_TOOL_TAG = "2026-07-27"
+WINDOWS_TOOL_ASSETS = {
+    "X64": ("vcpkg.exe", "13b8175e99a884c5ad34249218754b45541a1a63f216e92603aee57a285ac741"),
+    "ARM64": ("vcpkg-arm64.exe", "5e8d7acd0f3049411ad1eacd3af2a946014ed430c27010e384ee1289a8e98cbc"),
+}
+_spec = importlib.util.spec_from_file_location(
+    "qigao_vcpkg_tool_download", Path(__file__).with_name("setup-compiler-toolchain.py"))
+assert _spec and _spec.loader
+downloads = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(downloads)
+
+
+def bootstrap_windows_tool(root: Path, expected_version: str, host_arch: str) -> None:
+    if expected_version != WINDOWS_TOOL_VERSION:
+        raise ValueError("Windows vcpkg tool SHA256 lock does not match the canonical version")
+    if host_arch not in WINDOWS_TOOL_ASSETS:
+        raise ValueError(f"unsupported Windows vcpkg host architecture: {host_arch!r}")
+    metadata = (root / "scripts/vcpkg-tool-metadata.txt").read_text(encoding="utf-8")
+    tags = re.findall(r"^VCPKG_TOOL_RELEASE_TAG=([^\r\n]+)$", metadata, re.MULTILINE)
+    if tags != [WINDOWS_TOOL_TAG]:
+        raise ValueError("pinned vcpkg scripts disagree with the Windows tool release lock")
+    asset, digest = WINDOWS_TOOL_ASSETS[host_arch]
+    downloads.verified_download(
+        f"https://github.com/microsoft/vcpkg-tool/releases/download/{WINDOWS_TOOL_TAG}/{asset}",
+        root / "vcpkg.exe", digest, 16 * 1024 * 1024,
+    )
+    (root / "vcpkg.disable-metrics").touch()
 
 
 def run(*args: str, cwd: Path | None = None) -> str:
@@ -149,7 +183,7 @@ def main() -> int:
         raise ValueError("canonical vcpkg checkout must not use a partial-clone filter")
 
     if os.name == "nt":
-        bootstrap = ["cmd", "/c", str(root / "bootstrap-vcpkg.bat"), "-disableMetrics"]
+        bootstrap_windows_tool(root, expected_tool_version, os.environ.get("RUNNER_ARCH", ""))
     else:
         if os.environ.get("RUNNER_OS") == "Linux" and os.environ.get("RUNNER_ARCH") == "ARM64":
             # Preserve the shared cache producer's ARM64 tool-selection contract.
@@ -162,7 +196,7 @@ def main() -> int:
                 "VCPKG_FORCE_DOWNLOADED_BINARIES": "1",
             })
         bootstrap = ["sh", str(root / "bootstrap-vcpkg.sh"), "-disableMetrics"]
-    subprocess.run(bootstrap, cwd=root, check=True)
+        subprocess.run(bootstrap, cwd=root, check=True)
 
     exe = root / ("vcpkg.exe" if os.name == "nt" else "vcpkg")
     version = run(str(exe), "version").splitlines()[0]
@@ -221,3 +255,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

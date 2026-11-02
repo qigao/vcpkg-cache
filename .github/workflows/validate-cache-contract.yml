@@ -18,12 +18,11 @@ on:
       - "scripts/tests/test_curl_cache_pkgconf.py"
       - "scripts/restore-manifest-cache.py"
       - "cache-contracts/optional-feature/**"
-      - ".github/actions/setup-vcpkg-curl-cache/**"
+      - ".github/actions/**"
       - "scripts/tests/test_curl_cache_legacy_debt.py"
       - "vcpkg.json"
       - "vcpkg-tool-version.txt"
       - "vcpkg-scripts-revision.txt"
-      - ".github/actions/setup-vcpkg-cache/**"
       - ".github/workflows/**"
       - "packaging/**"
       - "manifests/**"
@@ -41,7 +40,7 @@ jobs:
       contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Reject new Mono/NuGet native cache callers before legacy bootstrap
+      - name: Reject Mono installation and legacy NuGet cache callers
         shell: bash
         run: |
           set -euo pipefail
@@ -416,4 +415,3 @@ jobs:
           test "$LINUX_REVISION" = "$MACOS_REVISION"
           test "$LINUX_REVISION" = "$WINDOWS_REVISION"
           printf 'contract=%s\nrevision=%s\n' "$LINUX_CONTRACT" "$LINUX_REVISION"
-
