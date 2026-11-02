@@ -50,13 +50,13 @@ See [release v0.1.0](docs/releases/v0.1.0.md).
 
 ## Shared vcpkg baseline
 
-The generic warm-cache manifest at the repository root uses:
+The reference dependency manifest at the repository root uses:
 
 ```text
 b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 ```
 
-The root `vcpkg.json` is only a generic cache warm set. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product.
+The root `vcpkg.json` is a reference dependency set for infrastructure validation. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product. Products own dependency installation through their normal builds; there is no cache prewarming prerequisite or automatic warm workflow.
 
 The setup action bootstraps the official vcpkg executable from the checkout selected by
 `vcpkg-scripts-revision.txt`, then checks it against `vcpkg-tool-version.txt`.
@@ -81,7 +81,7 @@ Bootstrap or identity failures stop setup before dependency restoration.
 
 A product may depend on these ports, but the product still owns its manifest and version-selection policy.
 
-The generic warm set includes builtin `pcre2` (10.46 at the pinned baseline,
+The reference manifest includes builtin `pcre2` (10.46 at the pinned baseline,
 including its platform-default JIT feature). The search-tool overlays pin source
 archives with SHA512 checksums and install executables under `tools/<port>`;
 they do not export application libraries. `ugrep` requires PCRE2 for `-P` and
@@ -89,7 +89,7 @@ omits optional compression libraries. `bfs` disables optional third-party
 integrations to keep the cached feature set independent of host packages.
 Cross builds skip both tools. Build-time consumers declare tools with
 `"host": true`; neither tool replaces a product's filesystem/index lifecycle.
-TRE is retired in favor of PCRE2 and is no longer in the generic warm manifest.
+TRE is retired in favor of PCRE2 and is no longer in the reference manifest.
 New regex dependencies must use `pcre2`. The proposed TRE API extension,
 frozen-contract qualification and publisher work in #248/#249/#251/#252 are
 cancelled and closed, not accepted as completed publication. The existing
@@ -97,17 +97,14 @@ overlay remains only for historical consumers during migration; immutable
 release tags and old packages are not rewritten. Removing a consumer's TRE
 dependency requires a real PCRE2 API/semantic migration in that consumer.
 
-Changes to this manifest or `ports/` on `master` automatically trigger
-`warm-cache.yml`: the generic Linux x64 and macOS jobs install these dependencies
-and produce cache packages. The current Windows warm workflow targets
-LLVM-MinGW; it does not build the MSVC-only Windows ugrep adapter. The existing
-versioned `v0.1.0` source release does not acquire new overlays retroactively.
+Manifest or port changes do not trigger cache prewarming. Explicit immutable
+package publication, when needed, uses the protected manual curl-only publisher.
+The existing versioned `v0.1.0` source release does not acquire new overlays
+retroactively.
 
 The MIR port keeps its pinned upstream source and executable-memory budget
-patch on Windows x64. Windows cache jobs warm both the root manifest and the
-unversioned MIR dependency graph used by optional-feature consumers such as
-TurboWasm, then verify read-only NuGet restoration. Windows x86 and ARM64
-remain unsupported. Product JIT/runtime tests belong to the consuming product.
+patch on Windows x64. Windows x86 and ARM64 remain unsupported. Product
+JIT/runtime tests belong to the consuming product.
 
 Consumers configure vcpkg with:
 
@@ -126,14 +123,11 @@ The action provides the pinned vcpkg executable/scripts environment, overlay por
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
-The generic `cache-contracts/header-only/vcpkg.json` profile keeps an isolated
-simde dependency graph. The arm64 warm producer installs it before the full SDK
-dependency set, and a fresh runner verifies read-only NuGet restoration with an
-empty L1 cache and `--only-binarycaching`. This profile covers the header-only ABI
-whose tool record is `cmake 0`; warming a larger CMake-dependent graph produces a
-different ABI even when the simde source, features and triplet match. Both graphs
-use the pinned shared tools and their actual ABI hashes. Consumer cache misses
-remain explicit failures.
+The `cache-contracts/header-only/vcpkg.json` profile keeps an isolated simde
+dependency graph for explicit publication and read-only cache contract checks.
+Its exact ABI is derived by vcpkg; it cannot be substituted with an ABI from a
+larger dependency graph. Consumers that explicitly require binary-only restore
+still report missing exact packages as failures.
 
 ## Cache contract identity
 
@@ -233,7 +227,7 @@ python scripts/github-packages.py re2c "$RUNNER_TEMP/qigao-re2c-binary" \
 
 Allowed workflows in this repository are infrastructure workflows only:
 
-- `warm-cache.yml` — produces the generic cross-platform vcpkg binary cache.
+- `curl-only-vcpkg-producer.yml` — explicitly dispatched, protected immutable package publication; no automatic prewarming.
 - `validate-cache-contract.yml` — validates the shared vcpkg contract and cross-platform identity.
 - vcpkg port-specific validation workflows, where the subject is a central overlay port rather than a product.
 - `re2c-tools-package.yml` — builds and publishes `Qigao.Re2c.Binary`.

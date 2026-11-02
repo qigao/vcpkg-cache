@@ -16,15 +16,10 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = ".github/workflows"
 LEGACY_MAX = {
     ".github/workflows/gmssl-x509-candidate.yml": 1,
-    ".github/workflows/turbomedia-media-cache.yml": 1,
-    ".github/workflows/warm-cache.yml": 12,
 }
-LEGACY_WRITE_MAX = {
-    ".github/workflows/turbomedia-media-cache.yml": 1,
-    ".github/workflows/warm-cache.yml": 7,
-}
-LEGACY_TOTAL_MAX = 14
-WRITER_TOTAL_MAX = 8
+LEGACY_WRITE_MAX = {}
+LEGACY_TOTAL_MAX = 1
+WRITER_TOTAL_MAX = 0
 
 USES = re.compile(r'^\s*(?:-\s*)?uses:\s*["\x27]?([^\s"#\x27]+)', re.I)
 OLD = re.compile(
@@ -94,11 +89,11 @@ class NativeCurlOnlyMigrationBudget(unittest.TestCase):
             enforce({}, {".github/workflows/new.yml": 1})
 
     def test_current_legacy_ceiling_cannot_expand(self):
-        path = ".github/workflows/warm-cache.yml"
+        path = ".github/workflows/gmssl-x509-candidate.yml"
         with self.assertRaisesRegex(AssertionError, "Forbidden new Mono"):
             enforce({path: LEGACY_MAX[path] + 1}, {})
         with self.assertRaisesRegex(AssertionError, "Forbidden new native cache writer"):
-            enforce({}, {path: LEGACY_WRITE_MAX[path] + 1})
+            enforce({}, {path: LEGACY_WRITE_MAX.get(path, 0) + 1})
 
     def test_lower_counts_are_allowed_for_incremental_migration(self):
         enforce({path: max(0, count - 1)
