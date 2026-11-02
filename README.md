@@ -74,7 +74,7 @@ Bootstrap or identity failures stop setup before dependency restoration.
 - `zstd`
 - `wabt`
 - [`wtl`](ports/wtl/vcpkg.json) — full upstream WTL 10.0.10320 headers/Samples/AppWizard, immutable GitHub release SHA512; no dependency on Microsoft's `atl` vcpkg detection port. Applications link their own `OpenATL::ATL` source-tree target. This header-only port does **not** install an OpenATL SDK.
-- [`tre`](ports/tre/README.md) (static regex and approximate matching)
+- [`tre`](ports/tre/README.md) (retired for new work; historical compatibility overlay only)
 - `ugrep` 7.8.5 (CLI tools, PCRE2 enabled; native Linux/macOS and Windows MSVC x86/x64)
 - `bfs` 4.1.5 (POSIX find CLI; native Linux/macOS)
 - `mir-jit` (static MIR core/generator; Linux, macOS, Android and Windows x64)
@@ -89,8 +89,13 @@ omits optional compression libraries. `bfs` disables optional third-party
 integrations to keep the cached feature set independent of host packages.
 Cross builds skip both tools. Build-time consumers declare tools with
 `"host": true`; neither tool replaces a product's filesystem/index lifecycle.
-TRE is no longer in the generic warm manifest; its existing overlay remains
-available to products that still declare it.
+TRE is retired in favor of PCRE2 and is no longer in the generic warm manifest.
+New regex dependencies must use `pcre2`. The proposed TRE API extension,
+frozen-contract qualification and publisher work in #248/#249/#251/#252 are
+cancelled and closed, not accepted as completed publication. The existing
+overlay remains only for historical consumers during migration; immutable
+release tags and old packages are not rewritten. Removing a consumer's TRE
+dependency requires a real PCRE2 API/semantic migration in that consumer.
 
 Changes to this manifest or `ports/` on `master` automatically trigger
 `warm-cache.yml`: the generic Linux x64 and macOS jobs install these dependencies
