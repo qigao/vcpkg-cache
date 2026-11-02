@@ -1,0 +1,28 @@
+--- a/ports/vcpkg-make/vcpkg_scripts.cmake
++++ b/ports/vcpkg-make/vcpkg_scripts.cmake
+@@ -56,7 +56,13 @@
+         "PACKAGES"
+     )
+     z_vcpkg_unparsed_args(FATAL_ERROR)
+-    vcpkg_acquire_msys(MSYS_ROOT PACKAGES ${arg_PACKAGES})
++    # Windows uses the shared, pinned native pkg-config. Keep MSYS only
++    # for autotools and shell utilities, without its implicit pkgconf package.
++    if("$ENV{PKG_CONFIG}" STREQUAL "")
++        message(FATAL_ERROR "Native PKG_CONFIG is required by the Windows make toolchain")
++    endif()
++    vcpkg_acquire_msys(MSYS_ROOT NO_DEFAULT_PACKAGES
++        PACKAGES ${arg_PACKAGES} bash coreutils file gawk grep gzip diffutils make sed)
+     cmake_path(CONVERT "$ENV{SystemRoot}" TO_CMAKE_PATH_LIST system_root NORMALIZE)
+     cmake_path(CONVERT "$ENV{LOCALAPPDATA}" TO_CMAKE_PATH_LIST local_app_data NORMALIZE)
+     file(REAL_PATH "${system_root}" system_root)
+--- a/ports/vcpkg-make/vcpkg_make.cmake
++++ b/ports/vcpkg-make/vcpkg_make.cmake
+@@ -155,7 +155,7 @@
+ function(vcpkg_make_setup_win_msys msys_out)
+     list(APPEND msys_require_packages autoconf-wrapper automake-wrapper autoconf-archive binutils libtool make which)
+     vcpkg_insert_msys_into_path(msys PACKAGES ${msys_require_packages})
+-    find_program(PKGCONFIG NAMES pkgconf NAMES_PER_DIR PATHS "${CURRENT_HOST_INSTALLED_DIR}/tools/pkgconf" NO_DEFAULT_PATH)
++    set(PKGCONFIG "$ENV{PKG_CONFIG}" CACHE INTERNAL "Native Windows pkg-config" FORCE)
+     set("${msys_out}" "${msys}" PARENT_SCOPE)
+ endfunction()
+ 
