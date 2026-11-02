@@ -53,10 +53,15 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verified_download(url: str, destination: Path, expected_sha256: str, limit: int) -> None:
+def verified_download(url: str, destination: Path, expected_sha256: str, limit: int, *,
+                      initial_hosts: tuple[str, ...] = ("github.com", "raw.githubusercontent.com"),
+                      redirect_hosts: tuple[str, ...] = (
+                          "github.com", "raw.githubusercontent.com",
+                          "release-assets.githubusercontent.com", "objects.githubusercontent.com",
+                          "github-releases.githubusercontent.com")) -> None:
     ensure(bool(re.fullmatch(r"[0-9a-f]{64}", expected_sha256)), "missing source SHA256")
     parsed = urllib.parse.urlsplit(url)
-    ensure(parsed.scheme == "https" and parsed.hostname in ("github.com", "raw.githubusercontent.com")
+    ensure(parsed.scheme == "https" and parsed.hostname in initial_hosts
            and not parsed.username and not parsed.password and parsed.port in (None, 443),
            "untrusted initial compiler download URL")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -66,10 +71,7 @@ def verified_download(url: str, destination: Path, expected_sha256: str, limit: 
             request = urllib.request.Request(url, headers={"User-Agent": "qigao-vcpkg-cache-compiler-setup/1"})
             with urllib.request.urlopen(request, timeout=60) as response:
                 final = urllib.parse.urlsplit(response.geturl())
-                ensure(final.scheme == "https" and final.hostname in (
-                    "github.com", "raw.githubusercontent.com",
-                    "release-assets.githubusercontent.com", "objects.githubusercontent.com",
-                    "github-releases.githubusercontent.com"),
+                ensure(final.scheme == "https" and final.hostname in redirect_hosts,
                     "untrusted compiler download redirect")
                 length = 0
                 with destination.open("wb") as output:

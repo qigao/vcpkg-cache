@@ -13,6 +13,9 @@ on:
       - "scripts/vcpkg-required-commits.py"
       - "scripts/github-packages.py"
       - "scripts/setup-vcpkg-curl-cache.py"
+      - "scripts/windows_pkgconf.py"
+      - "scripts/setup-compiler-toolchain.py"
+      - "scripts/tests/test_curl_cache_pkgconf.py"
       - "scripts/restore-manifest-cache.py"
       - "cache-contracts/optional-feature/**"
       - ".github/actions/setup-vcpkg-curl-cache/**"
@@ -284,6 +287,11 @@ jobs:
       contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Run native Windows pkgconf unit and integration tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s scripts/tests -p test_curl_cache_pkgconf.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows pkgconf tests failed' }
       - name: Select real LLVM-MinGW UCRT compiler and dependency chainload
         id: llvm
         uses: ./.github/actions/setup-llvm-mingw

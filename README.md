@@ -9,6 +9,8 @@ This repository owns three reusable infrastructure inputs:
 2. **re2c host binaries** — `Qigao.Re2c.Binary` plus its reusable setup action.
 3. **Compiler selection** — Windows uses pinned llvm-mingw/UCRT, Linux/macOS use the runner's native Clang, and obfuscator-llvm has no global LLVM-version restriction. GCC is test-only. There are no Clang verification CI jobs, probes, or synthetic consumer projects. See [compiler setup](docs/setup-compiler-actions.md) and [Release policy](docs/release-obfuscation-toolchains.md).
 
+Both vcpkg setup actions provide a [pinned native Windows pkg-config](docs/curl-only-github-packages.md#windows-pkg-config), avoiding vcpkg's MSYS2 download for pkg-config alone. Consumers must select a commit containing this change; existing action tags and SHA pins remain immutable.
+
 Obfuscation is selected **once at compiler setup**, with
 `obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.
 The action prepares the single upstream eshard/obfuscator-llvm pass and

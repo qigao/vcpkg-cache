@@ -42,6 +42,8 @@ def require_native_curl_owner(infrastructure: Path) -> None:
         "scripts/github-packages.py",
         "scripts/restore-manifest-cache.py",
         "scripts/setup-vcpkg-curl-cache.py",
+        "scripts/windows_pkgconf.py",
+        "scripts/setup-compiler-toolchain.py",
     )
     for name in required:
         if not (infrastructure / name).is_file():
@@ -198,6 +200,9 @@ def main() -> int:
         "VCPKG_BINARY_SOURCES": f"clear;files,{cache.as_posix()},readwrite",
         "VCPKG_NUGET_REPOSITORY": "https://github.com/qigao/vcpkg-cache",
     }
+    if os.name == "nt":
+        from windows_pkgconf import prepare_pkgconf
+        values.update(prepare_pkgconf(temporary))
     append_env(values)
     append_outputs({
         "contract_version": contract,

@@ -4,6 +4,8 @@ on:
     paths:
       - scripts/github-packages.py
       - scripts/setup-vcpkg-curl-cache.py
+      - scripts/windows_pkgconf.py
+      - scripts/setup-compiler-toolchain.py
       - scripts/restore-manifest-cache.py
       - scripts/publish-vcpkg-curl-cache.py
       - scripts/ci/verify-native-publish-target.py

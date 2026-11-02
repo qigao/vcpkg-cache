@@ -18,6 +18,8 @@ NATIVE_FILES = (
     "scripts/github-packages.py",
     "scripts/restore-manifest-cache.py",
     "scripts/setup-vcpkg-curl-cache.py",
+    "scripts/windows_pkgconf.py",
+    "scripts/setup-compiler-toolchain.py",
 )
 
 

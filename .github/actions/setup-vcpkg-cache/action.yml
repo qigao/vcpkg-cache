@@ -281,6 +281,15 @@ runs:
         "VCPKG_TOOL_REVISION=$expectedToolVersion" >> $env:GITHUB_ENV
         "VCPKG_SCRIPTS_REVISION=$scriptsRevision" >> $env:GITHUB_ENV
 
+    - name: Prepare native Windows pkg-config without MSYS2
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $actionRoot = (Resolve-Path (Join-Path '${{ github.action_path }}' '../../..')).Path
+        & python (Join-Path $actionRoot 'scripts/windows_pkgconf.py')
+        if ($LASTEXITCODE -ne 0) { throw 'Native Windows pkgconf setup failed' }
+
     - name: Prewarm canonical NuGet tool on Unix
       if: runner.os != 'Windows'
       shell: bash

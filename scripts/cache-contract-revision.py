@@ -20,6 +20,8 @@ def contract_files(root: pathlib.Path) -> list[pathlib.Path]:
         "cmake/QigaoVcpkgToolchain.cmake",
         "scripts/cache-contract-revision.py",
         "scripts/vcpkg-required-commits.py",
+        "scripts/windows_pkgconf.py",
+        "scripts/setup-compiler-toolchain.py",
         "vcpkg.json",
         "vcpkg-tool-version.txt",
         "vcpkg-scripts-revision.txt",

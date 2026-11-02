@@ -22,6 +22,29 @@ Setup exports VCPKG_ROOT, VCPKG_BINARY_SOURCES, VCPKG_BINARY_CACHE,
 VCPKG_CACHE_REPOSITORY_ROOT, QIGAO_VCPKG_TOOLCHAIN_FILE and canonical
 identity outputs. The binary source is the local files provider only.
 
+## Windows pkg-config
+
+Both shared vcpkg setup actions prepare native pkgconf 3.0.7 from the
+[`pkgconf` 3.0.7.post0 wheels](https://pypi.org/project/pkgconf/3.0.7.post0/),
+built by [pypackaging-native](https://github.com/pypackaging-native/pkgconf-pypi).
+The Windows x64 and ARM64 downloads are about 65 KB and 59 KB. Setup verifies
+both archive and executable SHA256 pins in `scripts/windows_pkgconf.py`, then
+reads only the standalone executable from the ZIP wheel. It invokes neither
+pip nor Windows Installer and installs no Python package or MSYS2 runtime.
+
+Setup selects the runner's host architecture independently of the target
+triplet, exports `PKG_CONFIG` as an absolute native executable path, and
+preserves it through vcpkg's Windows environment filtering using
+`VCPKG_KEEP_ENV_VARS`. Existing retained variables are preserved. The shared
+LLVM-MinGW triplets track `QIGAO_PKGCONF_VERSION` in their package ABI without
+hashing the runner-specific executable path.
+
+This prevents the pinned vcpkg `PKGCONFIG` helper from downloading MSYS2 just
+to obtain pkg-config. A port that explicitly requires Bash, Autotools or other
+MSYS2 utilities still has its own build requirements. Linux and macOS continue
+using their native pkg-config. Existing action SHA pins or tags must be updated
+to a commit containing this change to receive it; published tags are unchanged.
+
 ## Exact re2c host package identity
 
 `setup-re2c-tools` accepts `version` and `sha256` as a pair. With neither
