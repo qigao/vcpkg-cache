@@ -427,8 +427,10 @@ jobs:
           llvm="$(brew --prefix llvm@18)"
           echo "CC=$llvm/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=$llvm/bin/clang++" >> "$GITHUB_ENV"
-          echo "AR=$llvm/bin/llvm-ar" >> "$GITHUB_ENV"
-          echo "RANLIB=$llvm/bin/llvm-ranlib" >> "$GITHUB_ENV"
+          # Meson selects Darwin ar and passes Darwin ranlib's -c switch.
+          # Keep the archive tools paired; llvm-ranlib rejects that switch.
+          echo "AR=/usr/bin/ar" >> "$GITHUB_ENV"
+          echo "RANLIB=/usr/bin/ranlib" >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-vcpkg-cache
         with:
           mode: readwrite
@@ -739,9 +741,8 @@ jobs:
   android:
     name: Android arm64
     runs-on: ubuntu-24.04
-    env:
-      CC: clang
-      CXX: clang++
+    # The Android triplet supplies NDK Clang (target/sysroot/API level).
+    # Host CC/CXX override Autoconf's cross compiler and lose those settings.
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-vcpkg-cache
