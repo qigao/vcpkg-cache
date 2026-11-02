@@ -19,6 +19,10 @@
     "libpq": {
       "baseline": "16.9",
       "port-version": 1
+    },
+    "vcpkg-make": {
+      "baseline": "2025-08-21",
+      "port-version": 1
     }
   }
 }
