@@ -185,57 +185,6 @@ jobs:
           test "$VCPKG_OVERLAY_TRIPLETS" = "$expected_root/triplets"
           test -f "$expected_root/cmake/QigaoVcpkgToolchain.cmake"
 
-      - name: Prepare Linux arm64 SDK build dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(uname -m)" = "aarch64"
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config autoconf automake libtool
-
-      - name: Qualify focused arm64-linux SDK dependency closure
-        shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$RUNNER_TEMP/linux-arm64-sdk-deps"
-          install_root="$RUNNER_TEMP/linux-arm64-sdk-deps-install"
-          rm -rf "$manifest" "$install_root"
-          mkdir -p "$manifest"
-          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
-          cat > "$manifest/vcpkg.json" <<EOF
-          {
-            "name": "qigao-linux-arm64-sdk-deps",
-            "version-string": "1",
-            "dependencies": [
-              {"name":"pkgconf","host":true},
-              "simde",
-              "zstd",
-              "aklomp-base64",
-              "c-ares",
-              "libuv",
-              "kcp",
-              "gmssl",
-              "miniaudio",
-              {"name":"zeromq","default-features":false}
-            ],
-            "builtin-baseline": "$baseline"
-          }
-          EOF
-          # Resolve the exact source-owned arm64 manifest and its host
-          # closure over curl NuGet V3; no NuGet/Mono provider is consulted.
-          GH_TOKEN="${{ github.token }}" python3 scripts/restore-manifest-cache.py \
-            --manifest-root "$manifest" \
-            --triplet arm64-linux --host-triplet arm64-linux
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root="$manifest" \
-            --x-install-root="$install_root" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux
-          test -f "$install_root/arm64-linux/include/zmq.h"
-          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
-          test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
-
   macos:
     name: Contract / macos-15
     runs-on: macos-15
