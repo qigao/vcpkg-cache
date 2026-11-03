@@ -9,8 +9,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import ntpath
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import posixpath
 import re
 import shutil
@@ -148,12 +149,21 @@ def verified_download(url: str, destination: Path, expected_sha256: str, limit: 
     raise AdmissionError(f"verified source download failed: {last_exc}")
 
 
+def windows_reserved(name: str) -> bool:
+    # ntpath is portable on Unix too. Python 3.15 removes pathlib.is_reserved;
+    # retain only the Python 3.12 fallback where ntpath.isreserved is absent.
+    if hasattr(ntpath, "isreserved"):
+        return ntpath.isreserved(name)
+    return PureWindowsPath(name).is_reserved()
+
+
 def safe_path(name: str) -> tuple[str, ...]:
     ensure(bool(name) and not name.startswith(("/", "\\")) and "\\" not in name and
            "\x00" not in name, "unsafe absolute/backslash archive entry")
     parts = name.rstrip("/").split("/")
     ensure(bool(parts) and all(p not in ("", ".", "..") and
-           ":" not in p and not p.endswith((" ", ".")) for p in parts),
+           not any(ord(c) < 32 or c in ':<>"|?*' for c in p) and
+           not p.endswith((" ", ".")) and not windows_reserved(p) for p in parts),
            f"unsafe archive member: {name}")
     return tuple(parts)
 
@@ -184,13 +194,17 @@ def validate_members(members: list[tuple[str, bool, int]]) -> None:
 
 def safe_extract(archive: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=False)
-    if archive.name.endswith(".zip"):
+    if archive.name.endswith((".zip", ".nupkg")):
         with zipfile.ZipFile(archive) as zf:
             descriptors = []
             for entry in zf.infolist():
                 mode = entry.external_attr >> 16
                 ftype = stat.S_IFMT(mode)
                 ensure(ftype in (0, stat.S_IFREG, stat.S_IFDIR), "zip links/devices forbidden")
+                ensure(entry.orig_filename == entry.filename and
+                       not (ftype == stat.S_IFDIR and not entry.is_dir()) and
+                       not (ftype == stat.S_IFREG and entry.is_dir()),
+                       "inconsistent zip member name/type")
                 descriptors.append((entry.filename, entry.is_dir(), entry.file_size))
             validate_members(descriptors)
             for entry in zf.infolist():
@@ -201,6 +215,8 @@ def safe_extract(archive: Path, destination: Path) -> None:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(entry) as source, path.open("xb") as output:
                         shutil.copyfileobj(source, output)
+                    # Preserve execute bits, never setuid or group/world-write bits.
+                    path.chmod(0o644 | ((entry.external_attr >> 16) & 0o111))
     elif archive.name.endswith(".tar.xz"):
         with tarfile.open(archive, "r:xz") as tf:
             members = tf.getmembers()

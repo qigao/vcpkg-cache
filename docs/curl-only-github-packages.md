@@ -21,15 +21,14 @@ The former Mono/NuGet setup action has been removed.
 ## Usage
 
 Required workflow permissions: contents: read and packages: read.
-Add uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
+Add uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.002
 with mode: read, triplet: x64-linux, host-triplet: x64-linux; manifest-root defaults to the repository root.
 For a normal product CMake/vcpkg build, add `restore-packages: "false"`.
 Omit it (or select `"true"`) only when every exact binary-cache package is required.
 Both modes validate the actual manifest and requested features; the product's
 build remains responsible for selecting its own CMake/vcpkg features.
-Replace `CURL_ONLY_RELEASE` with a published infrastructure version containing
-this change. Candidate PR validation can pin its exact commit; this change
-does not publish a new version or rewrite the immutable `v0.1.0` tag.
+`v0.1.002` includes this curl-only transport. Candidate PR validation can pin its
+exact commit; the original `v0.1.0` tag is not rewritten.
 
 Setup exports VCPKG_ROOT, VCPKG_BINARY_SOURCES, VCPKG_BINARY_CACHE,
 VCPKG_CACHE_REPOSITORY_ROOT, QIGAO_VCPKG_TOOLCHAIN_FILE and canonical
@@ -63,22 +62,22 @@ This prevents the pinned vcpkg `PKGCONFIG` helper from downloading MSYS2 just
 to obtain pkg-config. A port that explicitly requires Bash, Autotools or other
 MSYS2 utilities still has its own build requirements. Linux and macOS continue
 using their native pkg-config. Existing action SHA pins or tags must be updated
-to a commit containing this change to receive it; published tags are unchanged.
+to `v0.1.002` to receive it; earlier published tags are unchanged.
 
 ## Exact re2c host package identity
 
 `setup-re2c-tools` accepts `version` and `sha256` as a pair. With neither
-input it selects the explicit published `Qigao.Re2c.Binary` 4.6.5 archive,
-SHA-256 `dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed`.
+input it selects the explicit published `Qigao.Re2c.Binary` 4.6.7 archive,
+SHA-256 `fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305`.
 Supplying exactly one input is an error; a different version cannot inherit
-the default digest. Consumers should pin the action's source commit too.
+the default digest. Consumers pin the action's source to `@v0.1.002` too.
 
 The direct command has no default lock or latest-version path:
 
 ```sh
 python scripts/github-packages.py re2c "$RUNNER_TEMP/qigao-re2c-binary" \
-  --version 4.6.5 \
-  --sha256 dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed
+  --version 4.6.7 \
+  --sha256 fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305
 ```
 
 The CLI requires an exact three-component version and 64 hexadecimal digest
@@ -99,13 +98,12 @@ neither the destination nor environment changes. On success the reader
 exports `RE2C_ROOT`, `RE2C_PACKAGE_VERSION`, `RE2C_PACKAGE_SHA256` and its bin
 directory. These re2c checks do not change general vcpkg cache semantics.
 
-The default advanced only after the 4.6.5 package was published from
-[producer commit 4864033d4e4bc70d182df6a33695582ec6fcc968](https://github.com/qigao/vcpkg-cache/commit/4864033d4e4bc70d182df6a33695582ec6fcc968)
-in [run 40852170873](https://github.com/qigao/vcpkg-cache/actions/runs/40852170873).
+The default advanced only after the 4.6.7 package was published from
+[producer commit 63b29115780a01f429e23cbba791ca40c779b26e](https://github.com/qigao/vcpkg-cache/commit/63b29115780a01f429e23cbba791ca40c779b26e)
+in [run 41263215892](https://github.com/qigao/vcpkg-cache/actions/runs/41263215892).
 Actual Ubuntu 22.04 and 24.04 verification receipts and the publisher recorded
-the same archive digest above. The actual curl reader job includes Ubuntu
-22.04 as a feed regression, retaining Ubuntu 24.04, macOS 15 and Windows 2025.
-Those reader jobs must still pass against the published package.
+the same archive digest above. The actual curl reader job covers Ubuntu
+22.04/24.04, macOS Intel/ARM64 and Windows x64/ARM64 against the published package.
 
 The historical 4.6.4 package has SHA-256
 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269` and includes
