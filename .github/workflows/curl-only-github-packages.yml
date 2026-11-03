@@ -51,6 +51,7 @@ jobs:
           GOWORK=off go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -oneline \
             .github/workflows/curl-only-vcpkg-producer.yml \
             .github/workflows/release-vcpkg-cache-v0.1.002.yml \
+            .github/workflows/release-vcpkg-cache-v0.1.003.yml \
             .github/workflows/lemon-tools-package.yml
 
   real-packages:

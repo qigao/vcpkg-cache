@@ -4,8 +4,9 @@
 from the same pinned SQLite source commit. This is a host build tool, separate
 from SQLite libraries, product SDKs and vcpkg target ABI packages.
 
-This first package is a candidate; no published Lemon package/hash is implied.
-The immutable infrastructure tag `v0.1.002` is not changed by this work.
+The first package is **1.0.0**, released with infrastructure **v0.1.003**.
+That Release attaches the exact tested nupkg, `lemon.lock.json` and SHA256SUMS.
+The immutable infrastructure tag `v0.1.002` is unchanged.
 
 The source pair is pinned by commit and SHA-256 in `source-lock.json` (SQLite
 3.54.0, package version 1.0.0). Source downloads, package reads and protected
@@ -28,16 +29,16 @@ Lemon's `-x` output is not used as a trustworthy SQLite/package version.
 
 ## CMake
 
-Once a qualified package is published, use the existing CLI to resolve its
-exact package version to a product-owned lock, or use a reviewed producer lock:
+Use the CLI to resolve the published exact package version to a product-owned
+lock, or use the reviewed lock attached to the `v0.1.003` Release:
 
 ```sh
 python scripts/restore-native-dependency.py resolve Qigao.Lemon.Binary \
   --version 1.0.0 --output-lock cmake/lemon.lock.json
 ```
 
-The new module requires an infrastructure release containing it (or an exact
-candidate checkout for validation). Keep the full checkout/sibling scripts:
+The module is available in an infrastructure checkout with `ref: v0.1.003`.
+Keep the full checkout/sibling scripts:
 
 ```cmake
 include("${VCPKG_INFRA_ROOT}/cmake/QigaoLemon.cmake")
@@ -78,9 +79,15 @@ synthetic consumer project. There are no compiler version/probe CI jobs.
 Publication requires an explicit manual master dispatch with `publish: true`,
 after every packed-reader job passes. It uploads those tested bytes using curl
 and requires exact SHA-256 readback; it never overwrites a different existing
-version. After publication, the shared generic Action from `v0.1.002` can also
+version. The shared generic Action from `v0.1.003` can also
 restore the package using `lock-file`, `payload: tools/<host-rid>`,
 `required-files: share/lemon/lempar.c`, and the appropriate `executables` input.
+
+The one-time `v0.1.003` source publisher explicitly dispatches this qualified
+master publication, verifies its exact-run artifact and remote readback, then
+creates the source Release with those tested assets. The earlier `v0.1.002`
+generic Action remains compatible with the published package; the new paired
+CMake helper and offline archive option are introduced in `v0.1.003`.
 
 SaltsUtils currently builds an in-tree Lemon and passes its own `LEMPAR` to
 `cmake_add_grammar`. Switching it to this host package is a separate product
