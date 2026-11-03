@@ -15,7 +15,9 @@ For product-selected native SDK packages and public tool archives, the
 [shared restore CLI and Action](docs/restore-native-dependency.md) provide
 SHA-256 locked downloads, safe extraction, explicit payload selection and
 consistent local/CI paths. Products retain their dependency locks and SDK
-validation. This entry point needs a new infrastructure release before adoption.
+validation. An explicit latest-package resolver writes an exact version/hash
+lock; the Action and CMake module both restore that lock. This entry point needs
+a new infrastructure release before adoption.
 
 Obfuscation is selected **once at compiler setup**, with
 `obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.

@@ -6,6 +6,10 @@ inputs:
     description: GitHub Packages read token; unused for public tool URLs.
     required: false
     default: ""
+  lock-file:
+    description: JSON lock from the explicit CLI resolve command; mutually exclusive with package-id/version/url.
+    required: false
+    default: ""
   package-id:
     description: Exact qigao GitHub Packages ID; supply with version, or use url.
     required: false
@@ -19,8 +23,9 @@ inputs:
     required: false
     default: ""
   sha256:
-    description: Required SHA-256 of the entire downloaded archive.
-    required: true
+    description: SHA-256 of the entire archive; required unless lock-file supplies it.
+    required: false
+    default: ""
   destination:
     description: Fresh installation directory; existing installations are never replaced.
     required: true
@@ -68,6 +73,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token }}
         NATIVE_ACTION_PATH: ${{ github.action_path }}
+        NATIVE_LOCK_FILE: ${{ inputs.lock-file }}
         NATIVE_PACKAGE_ID: ${{ inputs.package-id }}
         NATIVE_VERSION: ${{ inputs.version }}
         NATIVE_URL: ${{ inputs.url }}
@@ -81,7 +87,10 @@ runs:
       run: |
         $ErrorActionPreference = 'Stop'
         $cli = Join-Path $env:NATIVE_ACTION_PATH '../../../scripts/restore-native-dependency.py'
-        if ($env:NATIVE_URL) {
+        if ($env:NATIVE_LOCK_FILE) {
+          if ($env:NATIVE_PACKAGE_ID -or $env:NATIVE_VERSION -or $env:NATIVE_URL) { throw 'Use lock-file OR package-id/version OR url' }
+          $arguments = @($cli, 'locked', $env:NATIVE_LOCK_FILE)
+        } elseif ($env:NATIVE_URL) {
           if ($env:NATIVE_PACKAGE_ID -or $env:NATIVE_VERSION) { throw 'Use package-id/version OR url' }
           $arguments = @($cli, 'url', $env:NATIVE_URL)
         } else {

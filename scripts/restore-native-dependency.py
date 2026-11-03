@@ -51,7 +51,22 @@ def contained(root, value):
 
 
 def validate_request(args):
-    if not re.fullmatch(r"[0-9a-fA-F]{64}", args.sha256):
+    if args.kind == "locked":
+        lock = json.loads(Path(args.lock_file).read_text(encoding="utf-8"))
+        if not isinstance(lock, dict) or lock.get("schema") != 1 or not isinstance(lock.get("source"), dict):
+            raise ValueError("unsupported native dependency lock")
+        source = lock["source"]
+        if args.sha256 and args.sha256.lower() != str(lock.get("sha256", "")).lower():
+            raise ValueError("SHA-256 override differs from dependency lock")
+        args.sha256 = lock.get("sha256", "")
+        args.kind = source.get("kind")
+        if args.kind == "package" and source.get("feed") == "https://nuget.pkg.github.com/qigao/index.json":
+            args.package_id, args.version = source.get("id", ""), source.get("version", "")
+        elif args.kind == "url":
+            args.url = source.get("url", "")
+        else:
+            raise ValueError("unsupported locked source/feed")
+    if not isinstance(args.sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", args.sha256):
         raise ValueError("an exact SHA-256 (64 hexadecimal digits) is required")
     args.sha256 = args.sha256.lower()
     relative(args.payload, allow_root=True)
@@ -60,11 +75,13 @@ def validate_request(args):
     if args.env_prefix and not re.fullmatch(r"[A-Z][A-Z0-9_]*", args.env_prefix):
         raise ValueError("env-prefix must be an uppercase environment variable prefix")
     if args.kind == "package":
-        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", args.package_id):
+        if not isinstance(args.package_id, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", args.package_id):
             raise ValueError("invalid package ID")
-        if not re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?", args.version):
+        if not isinstance(args.version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?", args.version):
             raise ValueError("an exact NuGet package version is required; no floating/latest")
     else:
+        if not isinstance(args.url, str):
+            raise ValueError("invalid locked tool URL")
         parsed = urlsplit(args.url)
         if parsed.query or parsed.fragment:
             raise ValueError("tool URL must not contain a query or fragment")
@@ -80,10 +97,50 @@ def validate_request(args):
             raise ValueError(f"{key} is required for the requested Actions exports")
 
 
+def source_descriptor(args):
+    if args.kind == "package":
+        return {"kind": "package", "feed": "https://nuget.pkg.github.com/qigao/index.json",
+                "id": args.package_id, "version": args.version}
+    return {"kind": "url", "url": args.url}
+
+
+def validate_payload(root, args):
+    if not root.is_dir():
+        raise ValueError(f"missing selected payload directory: {args.payload}")
+    for value in args.require + args.executable:
+        required = contained(root, value)
+        if not required.is_file() or required.stat().st_size == 0:
+            raise ValueError(f"missing or empty required payload file: {value}")
+    for value in args.executable:
+        executable = contained(root, value)
+        executable.chmod(executable.stat().st_mode | 0o111)
+    for value in args.add_path:
+        if not contained(root, value).is_dir():
+            raise ValueError(f"missing PATH directory: {value}")
+
+
+def reuse_installation(destination, args):
+    receipt_path = destination / "receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    root = contained(destination / "payload", args.payload)
+    expected = {"schema": 1, "source": source_descriptor(args), "sha256": args.sha256,
+                "payload": args.payload, "root": normalized(root), "receipt": normalized(receipt_path),
+                "required_files": args.require, "executables": args.executable,
+                "path": [normalized(contained(root, p)) for p in args.add_path]}
+    if receipt != expected:
+        raise ValueError("existing installation does not match lock/payload/options; choose a fresh destination")
+    validate_payload(root, args)
+    return receipt
+
+
 def restore(args, *, feed=None, download=None):
     validate_request(args)
     # Refuse the caller's symlink before resolve(), including dangling symlinks.
     requested = Path(args.destination).expanduser().absolute()
+    if args.reuse and requested.is_dir() and not requested.is_symlink():
+        receipt = reuse_installation(requested.resolve(), args)
+        export_receipt(args, receipt)
+        return receipt
     if requested.exists() or requested.is_symlink():
         raise ValueError("destination must be fresh; existing installations are never replaced")
     destination = requested.resolve()
@@ -98,14 +155,11 @@ def restore(args, *, feed=None, download=None):
             # Hash verification happens in the transport helper BEFORE opening the ZIP.
             with redirect_stdout(sys.stderr):
                 feed.package(args.package_id, args.version, archive, expected_sha256=args.sha256)
-            source = {"kind": "package", "feed": "https://nuget.pkg.github.com/qigao/index.json",
-                      "id": args.package_id, "version": args.version}
         else:
             suffix = ".tar.xz" if urlsplit(args.url).path.lower().endswith(".tar.xz") else ".zip"
             archive = stage / ("source" + suffix)
             (download or archives.verified_download)(args.url, archive, args.sha256,
                                                     limit=archives.MAX_ARCHIVE)
-            source = {"kind": "url", "url": args.url}
         # Independently enforce the lock even for a substituted transport.
         if packages.sha256(archive) != args.sha256:
             raise ValueError("dependency SHA-256 mismatch")
@@ -113,21 +167,10 @@ def restore(args, *, feed=None, download=None):
         payload = tree / "payload"
         archives.safe_extract(archive, payload)
         root = contained(payload, args.payload)
-        if not root.is_dir():
-            raise ValueError(f"missing selected payload directory: {args.payload}")
-        for value in args.require + args.executable:
-            required = contained(root, value)
-            if not required.is_file() or required.stat().st_size == 0:
-                raise ValueError(f"missing or empty required payload file: {value}")
-        for value in args.executable:
-            executable = contained(root, value)
-            executable.chmod(executable.stat().st_mode | 0o111)
-        for value in args.add_path:
-            if not contained(root, value).is_dir():
-                raise ValueError(f"missing PATH directory: {value}")
+        validate_payload(root, args)
         installed_root = destination / root.relative_to(tree)
         receipt_path = destination / "receipt.json"
-        receipt = {"schema": 1, "source": source, "sha256": args.sha256,
+        receipt = {"schema": 1, "source": source_descriptor(args), "sha256": args.sha256,
                    "payload": args.payload, "root": normalized(installed_root),
                    "receipt": normalized(receipt_path), "required_files": args.require,
                    "executables": args.executable,
@@ -138,6 +181,11 @@ def restore(args, *, feed=None, download=None):
         if destination.exists() or destination.is_symlink():
             raise ValueError("destination appeared during restore")
         tree.rename(destination)
+    export_receipt(args, receipt)
+    return receipt
+
+
+def export_receipt(args, receipt):
     if args.github_output:
         append_lines("GITHUB_OUTPUT", [f"{key}={receipt[key]}" for key in ("root", "receipt", "sha256")])
     if args.env_prefix:
@@ -146,7 +194,33 @@ def restore(args, *, feed=None, download=None):
                                   f"{args.env_prefix}_RECEIPT={receipt['receipt']}"])
     if args.add_path:
         append_lines("GITHUB_PATH", receipt["path"])
-    return receipt
+
+
+def resolve_package(args, *, feed=None):
+    """An explicit update operation: download once and write an exact version/hash lock.
+
+    The computed digest pins the selected bytes for later restores. It is not
+    an independently signed or publisher-provided attestation.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", args.package_id):
+        raise ValueError("invalid package ID")
+    if args.version != "latest" and not re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?", args.version):
+        raise ValueError("resolve requires an exact version or the explicit literal latest")
+    feed = feed or packages.NugetFeed(packages.Curl())
+    version = feed.latest_stable(args.package_id) if args.version == "latest" else args.version
+    output = Path(args.output_lock).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".native-lock-", dir=output.parent) as temporary:
+        archive = Path(temporary) / "source.nupkg"
+        with redirect_stdout(sys.stderr):
+            feed.package(args.package_id, version, archive)
+        lock = {"schema": 1, "source": {"kind": "package",
+                "feed": "https://nuget.pkg.github.com/qigao/index.json",
+                "id": args.package_id, "version": version}, "sha256": packages.sha256(archive)}
+        staged = Path(temporary) / "lock.json"
+        staged.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+        staged.replace(output)
+    return lock
 
 
 def append_lines(key, lines):
@@ -157,7 +231,8 @@ def append_lines(key, lines):
 def parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--destination", required=True)
-    common.add_argument("--sha256", required=True)
+    common.add_argument("--sha256", default="", help="required for package/url; read from lock for locked")
+    common.add_argument("--reuse", action="store_true", help="reuse a local installation only when its receipt and required files match")
     common.add_argument("--payload", default=".", help="relative payload directory; explicit host/target selection")
     common.add_argument("--require", action="append", default=[], help="nonempty file relative to selected payload; repeatable")
     common.add_argument("--executable", action="append", default=[], help="required file to grant execute bits; never executed by setup")
@@ -171,12 +246,19 @@ def parser():
     package.add_argument("version")
     url = sub.add_parser("url", parents=[common], help="public GitHub .zip/.tar.xz; no token")
     url.add_argument("url")
+    locked = sub.add_parser("locked", parents=[common], help="restore an exact source/version/hash from a JSON lock")
+    locked.add_argument("lock_file")
+    resolve = sub.add_parser("resolve", help="explicitly resolve an SDK/tool package version and write a lock; not a vcpkg ABI resolver")
+    resolve.add_argument("package_id")
+    resolve.add_argument("--version", required=True, help="exact package version or explicit latest stable selection")
+    resolve.add_argument("--output-lock", required=True)
     return result
 
 
 def main():
     try:
-        print(json.dumps(restore(parser().parse_args()), indent=2))
+        args = parser().parse_args()
+        print(json.dumps(resolve_package(args) if args.kind == "resolve" else restore(args), indent=2))
         return 0
     except (ValueError, OSError) as exc:
         print(f"native dependency restore failed: {exc}", file=sys.stderr)

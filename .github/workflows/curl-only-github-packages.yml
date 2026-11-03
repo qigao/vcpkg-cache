@@ -4,6 +4,7 @@ on:
     paths:
       - scripts/github-packages.py
       - scripts/restore-native-dependency.py
+      - cmake/QigaoNativeDependency.cmake
       - scripts/setup-vcpkg-curl-cache.py
       - scripts/windows_pkgconf.py
       - scripts/setup-compiler-toolchain.py
@@ -254,12 +255,21 @@ jobs:
           }
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw 'Published re2c binary failed' }
+      - name: Resolve an exact published package into the downstream lock format
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lock = Join-Path $env:RUNNER_TEMP 're2c.lock.json'
+          cmake '-DQIGAO_PACKAGE_ID=Qigao.Re2c.Binary' '-DQIGAO_VERSION=4.6.7' `
+            "-DQIGAO_LOCK_FILE=$lock" -P cmake/QigaoNativeDependency.cmake
+          if ($LASTEXITCODE -ne 0) { throw 'Exact package lock resolution failed' }
       - name: Restore the same published tool through the generic shared entry point
         id: generic
         uses: ./.github/actions/setup-native-dependency
         with:
-          package-id: Qigao.Re2c.Binary
-          version: 4.6.7
+          lock-file: ${{ runner.temp }}/re2c.lock.json
           sha256: fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305
           destination: ${{ runner.temp }}/native dependency generic
           payload: tools/${{ matrix.rid }}
@@ -282,3 +292,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Generic native restore outputs differ from its receipt' }
           & (Join-Path $env:RESTORED_ROOT $env:RESTORED_EXECUTABLE) --version
           if ($LASTEXITCODE -ne 0) { throw 'Generic restored tool failed' }
+      - name: Restore the real locked package from CMake and reuse it on the second invocation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESTORED_RID: ${{ matrix.rid }}
+          RESTORED_EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $destination = Join-Path $env:RUNNER_TEMP 'native dependency cmake'
+          $lock = Join-Path $env:RUNNER_TEMP 're2c.lock.json'
+          $cmakeArguments = @("-DQIGAO_LOCK_FILE=$lock", "-DQIGAO_DESTINATION=$destination",
+            "-DQIGAO_PAYLOAD=tools/$env:RESTORED_RID",
+            '-DQIGAO_REQUIRED_FILES=share/re2c/stdlib/syntax/c;share/re2c/stdlib/unicode_categories.re;share/re2c/stdlib/unicode_properties.re',
+            "-DQIGAO_EXECUTABLES=$env:RESTORED_EXECUTABLE", '-P', 'cmake/QigaoNativeDependency.cmake')
+          & cmake @cmakeArguments
+          if ($LASTEXITCODE -ne 0) { throw 'CMake locked package restore failed' }
+          # A valid local installation must reconfigure without credentials/network.
+          $env:GH_TOKEN = ''
+          $env:GITHUB_TOKEN = ''
+          & cmake @cmakeArguments
+          if ($LASTEXITCODE -ne 0) { throw 'CMake local installation reuse failed' }
+          $receipt = Get-Content -Raw (Join-Path $destination 'receipt.json') | ConvertFrom-Json
+          & (Join-Path $receipt.root $env:RESTORED_EXECUTABLE) --version
+          if ($LASTEXITCODE -ne 0) { throw 'CMake restored real tool failed' }

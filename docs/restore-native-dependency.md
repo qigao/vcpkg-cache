@@ -20,7 +20,9 @@ release tags stay immutable.
 Both require the SHA-256 of the **whole archive**. Package hashes are checked
 before opening the ZIP. Public archive downloads use the existing download
 size/deadline/redirect-host bounds. Hash mismatches, unavailable versions and
-invalid archives fail; there is no latest-version lookup or fallback.
+invalid archives fail. Restoration never selects a newer version or falls back.
+The separate explicit `resolve` operation below can discover the latest stable
+SDK/tool package and freeze its selected bytes into a lock.
 
 The product owns the lock (ID/version or URL plus hash), host/target choice,
 SDK layout and CMake target validation. A shared restore is not an ABI or SDK
@@ -72,6 +74,12 @@ publication remove staging files and emit no Actions exports. Existing
 installations are never deleted or replaced; choose a separate versioned
 destination to upgrade.
 
+With `--reuse`, an existing local installation is accepted only when its receipt
+matches the source, hash, payload and file/path options, and required files are
+still present and nonempty. It needs no token or network. This trusts the local
+installation receipt; it does not re-download the archive or rehash every
+extracted file. A mismatch or missing file fails without replacing anything.
+
 Standard output is a JSON receipt (diagnostics go to standard error). The same
 receipt is saved as `<destination>/receipt.json`; extracted files are beneath
 `<destination>/payload`. The receipt records source identity, archive hash,
@@ -107,8 +115,11 @@ steps:
       env-prefix: PROJECT_RE2C
 ```
 
-For public tools, replace `package-id`/`version` with `url`; these source choices
-are mutually exclusive. `required-files`, `executables` and `add-path` accept
+For public tools, replace `package-id`/`version` with `url`. To consume a committed
+lock instead, use `lock-file: cmake/native-sdk.lock.json` and omit
+`package-id`/`version`/`url`; the hash is read from the lock. An optional `sha256`
+must match that lock. These three source choices are mutually exclusive.
+`required-files`, `executables` and `add-path` accept
 one path per line, relative to `payload`. The optional `token` input overrides
 `github.token` for cross-repository package read access.
 
@@ -119,9 +130,101 @@ same exports through `--github-output`, `--env-prefix` and repeated `--add-path`
 options; their corresponding GitHub command files must be present. Local use
 without those options needs no GitHub runner environment.
 
+## Explicit latest-package updates
+
+An update job or local maintainer can select the latest **stable SDK/tool
+package**, inspect the resulting lock, and commit it:
+
+```sh
+python scripts/restore-native-dependency.py resolve Qigao.Re2c.Binary \
+  --version latest --output-lock cmake/re2c.lock.json
+```
+
+Use `--version 4.6.7` to resolve an exact version instead. The lock records
+`schema`, exact source/feed/ID/version and the SHA-256 of the downloaded nupkg.
+The latest selection excludes prereleases and compares stable numeric versions;
+it does not use textual ordering. Failed updates preserve the previous lock.
+The computed digest pins the selected download for later restores; it is not
+an independently signed or publisher-supplied checksum. The update is the point
+at which the selected version and bytes must be reviewed.
+
+```sh
+python scripts/restore-native-dependency.py locked cmake/re2c.lock.json \
+  --destination ./dependencies/re2c --payload tools/linux-x64 \
+  --require share/re2c/stdlib/syntax/c --executable bin/re2c
+```
+
+Normal builds restore the committed lock. They do not query `latest` on every
+configure. This avoids CI and local builds selecting different versions during
+the same development cycle. Infrastructure Action source releases are a separate
+version: downstream still selects a published infrastructure tag containing the
+new entry points, independently of the SDK/tool package version.
+
+## CMake
+
+Use CMake 3.19+, Python 3.12+ and curl. From a complete, version-pinned checkout
+of this infrastructure repository, include the module in the product:
+
+```cmake
+include("${VCPKG_INFRA_ROOT}/cmake/QigaoNativeDependency.cmake")
+qigao_restore_native_dependency(
+  LOCK_FILE "${CMAKE_SOURCE_DIR}/cmake/native-sdk.lock.json"
+  PAYLOAD "sdk/${MY_SDK_RID}"
+  REQUIRED_FILES "lib/cmake/MySdk/MySdkConfig.cmake"
+  OUT_ROOT MY_SDK_ROOT)
+list(PREPEND CMAKE_PREFIX_PATH "${MY_SDK_ROOT}")
+find_package(MySdk CONFIG REQUIRED)
+```
+
+The SDK and its payload paths in this example belong to the product. The helper
+does not create imported targets or substitute its own SDK target validation.
+Without `DESTINATION`, installations go under
+`${CMAKE_BINARY_DIR}/_deps/qigao-native/<lock-and-options-hash>`. A changed lock
+or payload uses another directory; repeated configure reuses a matching receipt
+and checks required files without downloading. An explicit `DESTINATION` must
+be fresh or match the existing receipt exactly.
+
+For host tools, pass `EXECUTABLES "bin/tool"` and use the returned root to locate
+the program. `OUT_RECEIPT` optionally returns the receipt file. CMake does not
+modify the shell's environment. If CI already restores via the Action, its
+exported `PREFIX_ROOT` can instead be passed directly to CMake as a package
+prefix; another download is unnecessary.
+
+An explicit CMake update script can call
+`qigao_resolve_native_package(PACKAGE_ID Qigao.Re2c.Binary VERSION latest
+LOCK_FILE "${CMAKE_CURRENT_LIST_DIR}/re2c.lock.json")`. Keep that call in an
+update operation. The same module also works directly in script mode:
+
+```sh
+cmake -DQIGAO_PACKAGE_ID=Qigao.Re2c.Binary -DQIGAO_VERSION=latest \
+  -DQIGAO_LOCK_FILE=/path/to/re2c.lock.json \
+  -P /path/to/vcpkg-cache/cmake/QigaoNativeDependency.cmake
+
+cmake -DQIGAO_LOCK_FILE=/path/to/re2c.lock.json \
+  -DQIGAO_PAYLOAD=tools/linux-x64 -DQIGAO_EXECUTABLES=bin/re2c \
+  -P /path/to/vcpkg-cache/cmake/QigaoNativeDependency.cmake
+```
+
+## vcpkg caches use exact ABI identities
+
+There is no global "latest cache package" that is compatible with every build.
+Use `setup-vcpkg-curl-cache` with the product manifest and exact target/host
+triplets. Strict remote restoration derives the current ABI set using vcpkg and
+downloads those exact packages over curl; CMake then uses the exported
+`QIGAO_VCPKG_TOOLCHAIN_FILE` and local files cache.
+
+`restore-packages: "true"` requires every exact remote package and fails when
+one is missing. For a normal product build, `restore-packages: "false"` leaves
+dependency installation to the product's normal vcpkg build using the local
+files cache and pinned source downloads; it does not fetch remote cache misses
+automatically. Reusing the newest published binary with a different ABI would
+not be a valid fallback. Updating the infrastructure release and updating the
+product manifest/baseline are separate explicit operations.
+
 The existing curl qualification workflow tests package restoration through this
-action on Linux x64, macOS x64/ARM64 and Windows x64/ARM64, using the real locked
-re2c package. Offline tests also exercise public ZIP/tar.xz downloads with the
+action and CMake entry point on Linux x64, macOS x64/ARM64 and Windows x64/ARM64,
+using the real locked re2c package and a second credential-free CMake invocation.
+Offline tests also exercise latest-to-lock resolution, local reuse and public ZIP/tar.xz downloads with the
 transport replaced, SHA failures, archive rejection, fresh destination handling
 and receipt/environment path equality. Downstream adoption can follow a new
 published version without copying another downloader into product repositories.

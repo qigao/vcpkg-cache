@@ -190,6 +190,92 @@ class NativeDependencyTests(unittest.TestCase):
                                (PureWindowsPath(r"\\server\share\SDK space"), "//server/share/SDK space")):
             self.assertEqual(native.normalized(path), expected)
 
+    def test_resolve_latest_selects_numeric_stable_and_locked_restore_never_resolves_again(self):
+        selected = "1.2.10.1"
+        self.zip_archive(nuspec=NUSPEC.replace(VERSION, selected))
+        class VersionClient(LocalClient):
+            def json(self, url):
+                if url.endswith(f"/{PACKAGE_ID.lower()}/index.json"):
+                    self.calls.append(url)
+                    return {"versions": ["1.2.9", "1.2.10", selected, "2.0.0-rc.1"]}
+                return super().json(url)
+        client = VersionClient(self.archive)
+        output = self.work / "dependency.lock.json"
+        args = native.parser().parse_args(["resolve", PACKAGE_ID, "--version", "latest", "--output-lock", str(output)])
+        lock = native.resolve_package(args, feed=native.packages.NugetFeed(client))
+        self.assertEqual(lock["source"]["version"], selected)
+        self.assertEqual(lock["sha256"], native.packages.sha256(self.archive))
+        self.assertEqual(json.loads(output.read_text()), lock)
+        locked = native.parser().parse_args(["locked", str(output), "--destination", str(self.destination),
+                                             "--payload", "sdk/windows-x64", "--require", "include/example.h"])
+        receipt = native.restore(locked, feed=self.feed())
+        self.assertEqual(receipt["source"], lock["source"])
+        # LocalClient rejects version index requests: locked restore is exact.
+        self.assertEqual(len(self.client.calls), 2)
+
+    def test_resolve_exact_skips_version_index_and_failed_update_preserves_lock(self):
+        output = self.work / "dependency.lock.json"
+        args = native.parser().parse_args(["resolve", PACKAGE_ID, "--version", VERSION, "--output-lock", str(output)])
+        lock = native.resolve_package(args, feed=self.feed())
+        self.assertEqual(lock["source"]["version"], VERSION)
+        original = output.read_bytes()
+        with mock.patch.object(self.client, "download", side_effect=ValueError("access denied")):
+            with self.assertRaisesRegex(ValueError, "access denied"):
+                native.resolve_package(args, feed=native.packages.NugetFeed(self.client))
+        self.assertEqual(output.read_bytes(), original)
+        self.assertEqual(list(self.work.glob(".native-lock-*")), [])
+
+    def test_latest_without_a_stable_package_fails_without_download(self):
+        client = LocalClient(self.archive)
+        original_json = client.json
+        client.json = lambda url: ({"versions": ["2.0.0-rc.1"]} if url.endswith(f"/{PACKAGE_ID.lower()}/index.json") else original_json(url))
+        args = native.parser().parse_args(["resolve", PACKAGE_ID, "--version", "latest", "--output-lock", str(self.work / "lock.json")])
+        with mock.patch.object(client, "download", side_effect=AssertionError("downloaded prerelease")):
+            with self.assertRaisesRegex(ValueError, "no stable"):
+                native.resolve_package(args, feed=native.packages.NugetFeed(client))
+        self.assertFalse((self.work / "lock.json").exists())
+
+    def test_matching_installation_reuses_receipt_without_network(self):
+        first = native.restore(self.arguments(), feed=self.feed())
+        with mock.patch.object(native.packages, "Curl", side_effect=AssertionError("reuse downloaded")):
+            second = native.restore(self.arguments("--reuse"))
+        self.assertEqual(first, second)
+
+    def test_reuse_rejects_changed_hash_options_and_missing_required_file(self):
+        first = native.restore(self.arguments(), feed=self.feed())
+        for change in ("hash", "options", "file"):
+            args = self.arguments("--reuse")
+            if change == "hash":
+                args.sha256 = "0" * 64
+            elif change == "options":
+                args.require += ["bin/example"]
+            else:
+                (Path(first["root"]) / "include/example.h").unlink()
+            with self.subTest(change=change), mock.patch.object(native.packages, "Curl", side_effect=AssertionError("reuse downloaded")):
+                with self.assertRaises(ValueError):
+                    native.restore(args)
+            self.assertEqual(json.loads(Path(first["receipt"]).read_text()), first)
+
+    def test_invalid_lock_and_conflicting_sha_fail_before_transport(self):
+        output = self.work / "lock.json"
+        source = {"kind": "package", "id": PACKAGE_ID, "version": VERSION,
+                  "feed": "https://nuget.pkg.github.com/qigao/index.json"}
+        for lock in ({"schema": 2, "source": source, "sha256": "a" * 64},
+                     {"schema": 1, "source": dict(source, feed="https://other.invalid"), "sha256": "a" * 64},
+                     {"schema": 1, "source": source, "sha256": None},
+                     {"schema": 1, "source": dict(source, version="latest"), "sha256": "a" * 64}):
+            output.write_text(json.dumps(lock))
+            args = native.parser().parse_args(["locked", str(output), "--destination", str(self.destination)])
+            with mock.patch.object(native.packages, "Curl", side_effect=AssertionError("invalid lock downloaded")):
+                with self.assertRaises(ValueError):
+                    native.restore(args)
+            self.assert_unpublished()
+        output.write_text(json.dumps({"schema": 1, "source": source, "sha256": "a" * 64}))
+        args = native.parser().parse_args(["locked", str(output), "--destination", str(self.destination), "--sha256", "b" * 64])
+        with self.assertRaisesRegex(ValueError, "override differs"):
+            native.restore(args)
+        self.assert_unpublished()
+
     def test_public_url_reuses_verified_curl_download_and_safe_extractor(self):
         args = self.arguments(kind="url")
         data = self.archive.read_bytes()
