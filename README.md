@@ -126,12 +126,28 @@ steps:
   - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
     with:
       mode: read
+      restore-packages: "false"
       manifest-root: .
       triplet: x64-linux
       host-triplet: x64-linux
 ```
 
 The action provides the pinned vcpkg executable/scripts environment, overlay ports, and exact GitHub Packages downloads over authenticated curl. vcpkg receives only the local files binary-cache provider; no NuGet executable, .NET restore or Mono is invoked. The Microsoft vcpkg repository is materialized at the exact pinned scripts SHA with its complete reachable Git objects: the checkout is non-shallow and has no promisor remote or partial-clone filter. This is required because vcpkg versioning resolves historical port snapshots by `git-tree` SHA; consumers must never need repository-local `git fetch --unshallow` workarounds. The action does not provide a product manifest and must not build or publish a product SDK.
+
+
+For normal product builds, `restore-packages: "false"` prepares the canonical
+tools and local files cache, validates the real manifest/triplets/features, and
+leaves dependency installation to the product's existing CMake/vcpkg build.
+Source archives and native tools are downloaded through curl/libcurl with their
+pinned hashes. This mode does not contact the remote binary feed and does not
+catch or ignore a failed restore. It does not configure the product's CMake
+features; the product retains that responsibility.
+
+The default `restore-packages: "true"` requires every exact remote ABI archive
+and keeps the strict cache-qualification behavior, including failure on missing,
+inaccessible or corrupt packages. Use it when binary restoration is an explicit
+requirement. A normal product build must not require a separate cache producer
+or permission change before it can compile its declared dependencies.
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
@@ -167,6 +183,7 @@ Consumer L1 caches should include both the central cache revision and their own 
   uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
   with:
     mode: read
+    restore-packages: "false"
     manifest-root: .
     triplet: x64-linux
     host-triplet: x64-linux

@@ -14,7 +14,8 @@ The former Mono/NuGet setup action has been removed.
 - A product supplies its OWN vcpkg.json, target triplet and host triplet; infrastructure does not select product dependencies.
 - The original vcpkg binary graph is resolved via --dry-run and --x-write-nuget-packages-config before HTTP download.
 - GitHub Packages NuGet V3 index and exact package version are read with authenticated curl; strict package ID, CONTROL ABI, BUILD_INFO and archive member checks precede materialization.
-- vcpkg then installs from local files cache, with no remote NuGet provider and no fallback. Missing or corrupted packages fail closed.
+- Strict restoration (the default) requires every exact remote ABI archive, then vcpkg installs from the local files cache. Missing, inaccessible or corrupted packages fail closed.
+- Normal product builds select `restore-packages: "false"`: validate the real manifest and triplets, prepare the same tools/local files cache, and let the existing product build install pinned dependencies. Source downloads use curl/libcurl and pinned hashes. This mode does not request remote binary archives or catch restore errors.
 - mode: read is supported; readwrite/write intentionally fail until a curl-only producer publisher is separately qualified.
 
 ## Usage
@@ -22,6 +23,10 @@ The former Mono/NuGet setup action has been removed.
 Required workflow permissions: contents: read and packages: read.
 Add uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
 with mode: read, triplet: x64-linux, host-triplet: x64-linux; manifest-root defaults to the repository root.
+For a normal product CMake/vcpkg build, add `restore-packages: "false"`.
+Omit it (or select `"true"`) only when every exact binary-cache package is required.
+Both modes validate the actual manifest and requested features; the product's
+build remains responsible for selecting its own CMake/vcpkg features.
 Replace `CURL_ONLY_RELEASE` with a published infrastructure version containing
 this change. Candidate PR validation can pin its exact commit; this change
 does not publish a new version or rewrite the immutable `v0.1.0` tag.
@@ -34,7 +39,8 @@ The cache-contract revision includes the canonical curl action and its
 bootstrap, manifest resolver and package transport scripts. Their content
 changes produce a new revision, including this migration from the legacy
 action. Consumers must use that identity and its exact package ABIs; the
-action must not substitute an older cache identity or fall back on a miss.
+strict restore must not substitute an older cache identity or fall back on a miss.
+Normal product builds do not require an existing remote package for each ABI.
 
 ## Windows pkg-config
 

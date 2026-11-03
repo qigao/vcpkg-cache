@@ -55,6 +55,8 @@ def main() -> int:
     p.add_argument("--host-triplet", required=True)
     p.add_argument("--feature", action="append", default=[],
                    help="Exact product-owned manifest feature (repeatable)")
+    p.add_argument("--validate-only", action="store_true",
+                   help="Validate product inputs; leave dependency installation to its normal build")
     args = p.parse_args()
     for name in ("triplet", "host_triplet"):
         if not re.fullmatch(r"[A-Za-z0-9_.+-]+", getattr(args, name)):
@@ -88,6 +90,9 @@ def main() -> int:
         if not isinstance(payload, dict):
             raise ValueError(f"invalid vcpkg feature metadata: {feature!r}")
         selected.extend(payload.get("dependencies", []))
+    if args.validate_only:
+        print(f"Validated product manifest: {manifest}; dependency installation belongs to the product build", flush=True)
+        return 0
     graph_intentionally_empty = len(selected) == 0
     root = Path(os.environ["VCPKG_ROOT"])
     vcpkg = root / ("vcpkg.exe" if os.name == "nt" else "vcpkg")
