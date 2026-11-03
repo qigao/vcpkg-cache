@@ -64,7 +64,8 @@ jobs:
 
           if [[ -d packaging ]]; then
             while IFS= read -r entry; do
-              [[ "$entry" == "re2c" ]] && continue
+              # Only shared host generators belong here; no product SDKs.
+              case "$entry" in re2c|lemon) continue ;; esac
               echo "product packaging is forbidden in vcpkg-cache: packaging/$entry" >&2
               exit 1
             done < <(find packaging -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
