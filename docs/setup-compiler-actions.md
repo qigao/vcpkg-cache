@@ -9,6 +9,10 @@ Product workflows own CMake compiler launchers, cache directories, size limits,
 restore/save keys and hit statistics. The action does not replace compiler
 selection, publish binary packages or run a compiler verification project.
 
+```yaml
+- uses: qigao/vcpkg-cache/.github/actions/setup-ccache@v0.1.4
+```
+
 Use CMake's C/C++ compiler launcher settings for an unprotected build. Keep
 toolchain/profile cache namespaces separate, persist successful compilations
 before tests, and let ccache validate compiler, source/header and command-line
@@ -19,7 +23,7 @@ inputs on every build. Do not overwrite an existing obfuscation launcher.
 Both existing compiler Actions expose **one** switch:
 
 ```yaml
-- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@v0.1.0
+- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@v0.1.4
   with:
     build-type: Release
     obfuscator: "true"

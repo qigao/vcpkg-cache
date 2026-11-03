@@ -9,7 +9,7 @@ on:
       - scripts/restore-native-dependency.py
       - scripts/publish-vcpkg-curl-cache.py
       - .github/workflows/release-vcpkg-cache-v0.1.003.yml
-      - scripts/publish-vcpkg-curl-cache.py
+      - .github/workflows/release-vcpkg-cache-v0.1.4.yml
       - .github/workflows/lemon-tools-package.yml
   push:
     branches: [master]
