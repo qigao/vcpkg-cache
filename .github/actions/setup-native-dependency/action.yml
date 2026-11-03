@@ -97,8 +97,9 @@ runs:
           if (-not $env:NATIVE_PACKAGE_ID -or -not $env:NATIVE_VERSION) { throw 'package-id and version are required together' }
           $arguments = @($cli, 'package', $env:NATIVE_PACKAGE_ID, $env:NATIVE_VERSION)
         }
-        $arguments += @('--destination', $env:NATIVE_DESTINATION, '--sha256', $env:NATIVE_SHA256,
+        $arguments += @('--destination', $env:NATIVE_DESTINATION,
                         '--payload', $env:NATIVE_PAYLOAD, '--github-output')
+        if ($env:NATIVE_SHA256) { $arguments += @('--sha256', $env:NATIVE_SHA256) }
         if ($env:NATIVE_ENV_PREFIX) { $arguments += @('--env-prefix', $env:NATIVE_ENV_PREFIX) }
         foreach ($pair in @(@('--require', $env:NATIVE_REQUIRED),
                             @('--executable', $env:NATIVE_EXECUTABLES),

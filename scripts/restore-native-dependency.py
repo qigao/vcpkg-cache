@@ -122,7 +122,10 @@ def validate_payload(root, args):
 def reuse_installation(destination, args):
     receipt_path = destination / "receipt.json"
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    root = contained(destination / "payload", args.payload)
+    payload = destination / "payload"
+    if payload.is_symlink() or not payload.is_dir():
+        raise ValueError("existing payload must be a real installation directory")
+    root = contained(payload, args.payload)
     expected = {"schema": 1, "source": source_descriptor(args), "sha256": args.sha256,
                 "payload": args.payload, "root": normalized(root), "receipt": normalized(receipt_path),
                 "required_files": args.require, "executables": args.executable,

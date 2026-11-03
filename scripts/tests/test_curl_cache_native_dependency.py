@@ -241,6 +241,24 @@ class NativeDependencyTests(unittest.TestCase):
             second = native.restore(self.arguments("--reuse"))
         self.assertEqual(first, second)
 
+    def test_modern_python_archive_validation_uses_ntpath_without_removed_pathlib_api(self):
+        with mock.patch.object(native.archives.ntpath, "isreserved", create=True,
+                               side_effect=lambda name: name.upper() in {"CON", "NUL"}) as modern, \
+             mock.patch.object(native.archives, "PureWindowsPath", side_effect=AssertionError("removed Python 3.15 API")):
+            self.assertEqual(native.archives.safe_path("tools/bin/example"), ("tools", "bin", "example"))
+            with self.assertRaises(ValueError):
+                native.archives.safe_path("tools/CON/example")
+            self.assertIn(mock.call("CON"), modern.call_args_list)
+
+    @unittest.skipIf(os.name == "nt", "creating symlinks requires Windows privileges")
+    def test_reuse_rejects_a_payload_directory_replaced_by_a_symlink(self):
+        native.restore(self.arguments(), feed=self.feed())
+        moved = self.work / "moved-payload"
+        (self.destination / "payload").rename(moved)
+        (self.destination / "payload").symlink_to(moved, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "real installation directory"):
+            native.restore(self.arguments("--reuse"))
+
     def test_reuse_rejects_changed_hash_options_and_missing_required_file(self):
         first = native.restore(self.arguments(), feed=self.feed())
         for change in ("hash", "options", "file"):

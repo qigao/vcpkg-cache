@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import ntpath
 import os
 from pathlib import Path, PureWindowsPath
 import posixpath
@@ -148,13 +149,21 @@ def verified_download(url: str, destination: Path, expected_sha256: str, limit: 
     raise AdmissionError(f"verified source download failed: {last_exc}")
 
 
+def windows_reserved(name: str) -> bool:
+    # ntpath is portable on Unix too. Python 3.15 removes pathlib.is_reserved;
+    # retain only the Python 3.12 fallback where ntpath.isreserved is absent.
+    if hasattr(ntpath, "isreserved"):
+        return ntpath.isreserved(name)
+    return PureWindowsPath(name).is_reserved()
+
+
 def safe_path(name: str) -> tuple[str, ...]:
     ensure(bool(name) and not name.startswith(("/", "\\")) and "\\" not in name and
            "\x00" not in name, "unsafe absolute/backslash archive entry")
     parts = name.rstrip("/").split("/")
     ensure(bool(parts) and all(p not in ("", ".", "..") and
            not any(ord(c) < 32 or c in ':<>"|?*' for c in p) and
-           not p.endswith((" ", ".")) and not PureWindowsPath(p).is_reserved() for p in parts),
+           not p.endswith((" ", ".")) and not windows_reserved(p) for p in parts),
            f"unsafe archive member: {name}")
     return tuple(parts)
 
