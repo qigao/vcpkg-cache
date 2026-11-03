@@ -267,14 +267,20 @@ class CurlCachePublisherTests(unittest.TestCase):
             source.write_bytes(b"safe fixture")
             class Client:
                 token = "not-a-real-token"
+            status = "200"
             def fake_run(cmd, **kwargs):
                 self.assertIn("--form", cmd)
                 self.assertEqual(cmd[cmd.index("--request") + 1], "PUT")
                 self.assertFalse(any("not-a-real-token" in value for value in cmd))
                 self.assertIn("not-a-real-token", kwargs["input"])
-                return type("Status", (), {"stdout": "201", "stderr": "", "returncode": 0})()
+                return type("Status", (), {"stdout": status, "stderr": "", "returncode": 0})()
             with mock.patch.object(publisher.subprocess, "run", side_effect=fake_run):
-                publisher.upload(Client(), "https://nuget.pkg.github.com/qigao/api/v2/package", source)
+                for status in ("200", "201", "202"):
+                    with self.subTest(accepted=status):
+                        publisher.upload(Client(), "https://nuget.pkg.github.com/qigao", source)
+                for status in ("204", "301", "400", "403"):
+                    with self.subTest(rejected=status), self.assertRaises(ValueError):
+                        publisher.upload(Client(), "https://nuget.pkg.github.com/qigao", source)
 
     def test_zero_publisher_plan_is_rejected_and_duplicate_ids_fail(self):
         with tempfile.TemporaryDirectory() as folder:
