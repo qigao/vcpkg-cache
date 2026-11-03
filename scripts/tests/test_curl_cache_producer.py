@@ -173,6 +173,36 @@ class CurlCachePublisherTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "trusted manual master"):
                         publisher.main()
 
+    def test_http200_upload_requires_exact_remote_readback(self):
+        import shutil
+        for tamper in (False, True):
+            with self.subTest(tamper=tamper), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                native = root / "native.zip"
+                binary_package(native)
+                remote = root / "remote.nupkg"
+                feed = StubFeed()
+                feed.client = type("Client", (), {"token": "fixture-token"})()
+                def uploaded(command, **kwargs):
+                    self.assertEqual(command[command.index("--request") + 1], "PUT")
+                    form = command[command.index("--form") + 1]
+                    source = form.split("@", 1)[1].split(";type=", 1)[0]
+                    shutil.copyfile(source, remote)
+                    if tamper:
+                        with zipfile.ZipFile(remote, "a") as zipped:
+                            zipped.comment = b"different server archive bytes"
+                    feed.packaged = remote
+                    return type("Response", (), {"stdout": "200", "stderr": "", "returncode": 0})()
+                with mock.patch.object(publisher, "resource", return_value="https://nuget.pkg.github.com/qigao"), \
+                     mock.patch.object(publisher.subprocess, "run", side_effect=uploaded) as curl:
+                    if tamper:
+                        with self.assertRaisesRegex(ValueError, "SHA256"):
+                            publisher.publish(feed, PACKAGE, VERSION, native, True)
+                    else:
+                        self.assertEqual(publisher.publish(feed, PACKAGE, VERSION, native, True), "published")
+                    self.assertEqual(curl.call_count, 1)
+                    self.assertEqual(len(feed.requests), 2)
+
     def test_native_zip_wrong_abi_id_missing_build_info_and_traversal(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -240,12 +270,21 @@ class CurlCachePublisherTests(unittest.TestCase):
             "https://nuget.pkg.github.com/qigao#fragment",
             "http://nuget.pkg.github.com/qigao/api/v2/package",
             "https://nuget.pkg.github.com/qigao@evil.example/api/v2/package",
+            "https://nuget.pkg.github.com/qigao-other",
+            "https://nuget.pkg.github.com/qigao?token=opaque",
+            "https://nuget.pkg.github.com/qigao#fragment",
+            "https://user@nuget.pkg.github.com/qigao",
+            "https://nuget.pkg.github.com:444/qigao",
         ):
             with self.subTest(endpoint=endpoint):
                 with self.assertRaises(ValueError):
                     publisher.resource(type("Stub", (), {"client": Client(endpoint)})())
-        good = "https://nuget.pkg.github.com/qigao/api/v2/package"
-        self.assertEqual(publisher.resource(type("Stub", (), {"client": Client(good)})()), good)
+        # Preserve the advertised URL; owner-root endpoints need no trailing slash.
+        for good in ("https://nuget.pkg.github.com/qigao",
+                     "https://nuget.pkg.github.com/qigao/",
+                     "https://nuget.pkg.github.com/qigao/api/v2/package"):
+            with self.subTest(advertised=good):
+                self.assertEqual(publisher.resource(type("Stub", (), {"client": Client(good)})()), good)
 
     def test_publisher_accepts_the_canonical_github_namespace_root(self):
         class Client:

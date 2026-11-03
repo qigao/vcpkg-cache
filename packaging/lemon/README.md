@@ -83,9 +83,10 @@ version. The shared generic Action from `v0.1.003` can also
 restore the package using `lock-file`, `payload: tools/<host-rid>`,
 `required-files: share/lemon/lempar.c`, and the appropriate `executables` input.
 
-The one-time `v0.1.003` source publisher explicitly dispatches this qualified
-master publication, verifies its exact-run artifact and remote readback, then
-creates the source Release with those tested assets. The earlier `v0.1.002`
+The one-time `v0.1.003` source publisher reuses the exact qualified/published
+archive from master run 41599361348, verifies unchanged binary inputs and its
+exact artifact/remote digests, then creates the source Release with those
+tested assets. The earlier `v0.1.002`
 generic Action remains compatible with the published package; the new paired
 CMake helper and offline archive option are introduced in `v0.1.003`.
 

@@ -253,7 +253,7 @@ def upload(client: packages.Curl, endpoint: str, archive: Path) -> None:
         result = subprocess.run(command, input=config, text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         status = result.stdout[-3:]
-        if result.returncode != 0 or status not in ("201", "202"):
+        if result.returncode != 0 or status not in ("200", "201", "202"):
             raise ValueError(f"NuGet V3 publish rejected or ambiguous: HTTP {status}, curl={result.returncode}")
     print(f"NuGet V3 publisher accepted uploaded payload SHA256={packages.sha256(archive)}", flush=True)
 

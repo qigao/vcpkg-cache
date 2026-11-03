@@ -1,6 +1,6 @@
 name: Publish versioned vcpkg-cache source v0.1.003
 
-# One-time source/Action release admission for the approved release PR merge.
+# One-time source/Action release admission, including the publisher endpoint fix.
 # The exact PR HEAD must pass both existing qualification workflows.
 # This does not write or relabel any native NuGet ABI package.
 on:
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      actions: write
+      actions: read
       packages: read
       pull-requests: read
     steps:
@@ -76,6 +76,8 @@ jobs:
           pull = api(f"pulls/{matches[0]['number']}")
           assert pull['merged'] and pull['base']['ref'] == 'master'
           assert pull['merge_commit_sha'] == commit, 'release must be the exact approved PR merge'
+          subprocess.run(['git', 'merge-base', '--is-ancestor',
+                          'c2e5aad866a4ac53cfc6113ca30b878481919351', commit], check=True)
           approved = pull['head']['sha']
           approved_tree = api(f'git/commits/{approved}')['tree']['sha']
           current_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
@@ -105,7 +107,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
 
-      - name: Explicitly dispatch qualified Lemon publication on this exact master
+      - name: Reuse the exact qualified and published Lemon archive
         id: lemon
         shell: bash
         env:
@@ -113,42 +115,40 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, subprocess, time
-          repo, commit = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA']
+          import json, os, subprocess
+          repo = os.environ['GITHUB_REPOSITORY']
           def api(path):
               return json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/{path}'], text=True))
-          def runs():
-              return api('actions/workflows/lemon-tools-package.yml/runs?event=workflow_dispatch&per_page=100')['workflow_runs']
-          before = {r['id'] for r in runs()}
-          assert api('git/ref/heads/master')['object']['sha'] == commit, 'master moved before dispatch'
-          subprocess.run(['gh', 'api', '--method', 'POST',
-                          f'repos/{repo}/actions/workflows/lemon-tools-package.yml/dispatches',
-                          '--input', '-'],
-                         input=json.dumps({'ref': 'master', 'inputs': {'publish': True}}),
-                         text=True, check=True)
-          selected = None
-          for attempt in range(30):
-              matches = [r for r in runs() if r['id'] not in before and r['head_sha'] == commit]
-              if matches:
-                  assert len(matches) == 1, 'ambiguous publication run; refusing guessed artifact'
-                  selected = matches[0]
-                  break
-              time.sleep(5)
-          assert selected, 'publication dispatch did not produce an exact-commit run'
-          run_id = selected['id']
+          run_id = 41599361348
+          run = api(f'actions/runs/{run_id}')
+          source = 'e60cb414fa8ecd4e366ceb636b18b1659a819ffe'
+          assert run['head_sha'] == source and run['event'] == 'workflow_dispatch'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['workflow_id'] == api('actions/workflows/lemon-tools-package.yml')['id']
+          subprocess.run(['git', 'merge-base', '--is-ancestor', source, 'HEAD'], check=True)
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', source, 'HEAD'], text=True).splitlines())
+          allowed = {'scripts/publish-vcpkg-curl-cache.py',
+                     'scripts/tests/test_curl_cache_producer.py',
+                     '.github/workflows/release-vcpkg-cache-v0.1.003.yml',
+                     'docs/releases/v0.1.003.md', 'packaging/lemon/README.md'}
+          assert changed <= allowed, f'binary build inputs changed: {changed - allowed}'
+          jobs = api(f'actions/runs/{run_id}/jobs?filter=all&per_page=100')['jobs']
+          latest = {}
+          for job in jobs:
+              if job['name'] not in latest or job['id'] > latest[job['name']]['id']:
+                  latest[job['name']] = job
+          for prefix, count in (('Build native Lemon / ', 6), ('Packed Lemon parser / ', 7)):
+              selected = [j for name, j in latest.items() if name.startswith(prefix)]
+              assert len(selected) == count and all(j['conclusion'] == 'success' for j in selected)
+          assert latest['Publish exact tested Lemon package using curl']['conclusion'] == 'success'
+          artifacts = api(f'actions/runs/{run_id}/artifacts?per_page=100')['artifacts']
+          selected = [a for a in artifacts if a['name'] == 'lemon-binary-nuget' and not a['expired']]
+          assert len(selected) == 1 and selected[0]['id'] == 13213352780
+          assert selected[0]['digest'] == 'sha256:bcf0976d8c67af09fde7347dc9f96bbbd3aa5e6c84ec9fc681e4890972053cc8'
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
               output.write(f'run_id={run_id}\n')
-          print(f'Waiting for exact Lemon publication run {run_id}', flush=True)
-          deadline = time.monotonic() + 2400
-          while time.monotonic() < deadline:
-              run = api(f'actions/runs/{run_id}')
-              assert run['head_sha'] == commit and run['event'] == 'workflow_dispatch'
-              if run['status'] == 'completed':
-                  assert run['conclusion'] == 'success', f'Lemon publication failed: {run["html_url"]}'
-                  break
-              time.sleep(15)
-          else:
-              raise RuntimeError('timed out waiting for qualified Lemon publication')
+          print(f'Using published, byte-verified Lemon artifact from run {run_id}')
           PY
 
       - uses: actions/download-artifact@v4
@@ -165,6 +165,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 packaging/lemon/package.py verify --archive dist/*.nupkg --lock dist/lemon.lock.json
+          python3 - <<'PY'
+          import json
+          lock = json.load(open('dist/lemon.lock.json', encoding='utf-8'))
+          assert lock['sha256'] == '92539e4d99c38657fa69f0bdaea73be2b35f6572cb6a9264731ae58a6da073cd'
+          PY
           python3 scripts/restore-native-dependency.py locked dist/lemon.lock.json \
             --destination "$RUNNER_TEMP/lemon-release-readback" --payload tools/linux-x64 \
             --require share/lemon/lempar.c --require share/lemon/source.json --executable bin/lemon
