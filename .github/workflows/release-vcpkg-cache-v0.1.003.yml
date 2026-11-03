@@ -1,6 +1,6 @@
 name: Publish versioned vcpkg-cache source v0.1.003
 
-# One-time source/Action release admission for the approved PR #273 merge.
+# One-time source/Action release admission, including the publisher endpoint fix.
 # The exact PR HEAD must pass both existing qualification workflows.
 # This does not write or relabel any native NuGet ABI package.
 on:
@@ -69,9 +69,15 @@ jobs:
           repo, commit = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA']
           def api(path):
               return json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/{path}'], text=True))
-          pull = api('pulls/273')
+          associated = api(f'commits/{commit}/pulls')
+          matches = [p for p in associated if p.get('merge_commit_sha') == commit
+                     and p.get('merged_at') and p['base']['ref'] == 'master']
+          assert len(matches) == 1, 'release must be the exact merge of one approved PR'
+          pull = api(f"pulls/{matches[0]['number']}")
           assert pull['merged'] and pull['base']['ref'] == 'master'
-          assert pull['merge_commit_sha'] == commit, 'release must be the exact PR #273 merge'
+          assert pull['merge_commit_sha'] == commit, 'release must be the exact approved PR merge'
+          subprocess.run(['git', 'merge-base', '--is-ancestor',
+                          'c2e5aad866a4ac53cfc6113ca30b878481919351', commit], check=True)
           approved = pull['head']['sha']
           approved_tree = api(f'git/commits/{approved}')['tree']['sha']
           current_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
@@ -92,7 +98,7 @@ jobs:
           assert original == '05a10d73a5b1d01598e59d8cf34074513bd49df4', 'v0.1.0 must remain immutable'
           previous = subprocess.check_output(['git', 'rev-parse', 'v0.1.002^{commit}'], text=True).strip()
           assert previous == 'd9f34af3f7bcad5ae2c8abf4ec95c7e93ad5d761', 'v0.1.002 must remain immutable'
-          print(f'Admitted exact PR #273 source {approved} for source release {commit}')
+          print(f"Admitted exact PR #{pull['number']} source {approved} for source release {commit}")
           PY
 
       - name: Test existing native cache transport and protected publisher contracts

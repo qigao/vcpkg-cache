@@ -187,7 +187,9 @@ def publish(archive, lock):
         if feed.package(identity, version, received, allow_not_found=True):
             ensure(native.packages.sha256(received) == digest, "immutable Lemon package already exists with different bytes")
             return
-        transport.upload(client, transport.resource(feed), archive)
+        endpoint = transport.resource(feed)
+        print(f"publish_endpoint={endpoint}", flush=True)
+        transport.upload(client, endpoint, archive)
         for attempt in range(6):
             if feed.package(identity, version, received, allow_not_found=True):
                 ensure(native.packages.sha256(received) == digest, "published Lemon package differs from tested archive")
