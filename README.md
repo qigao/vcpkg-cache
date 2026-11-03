@@ -16,8 +16,8 @@ For product-selected native SDK packages and public tool archives, the
 SHA-256 locked downloads, safe extraction, explicit payload selection and
 consistent local/CI paths. Products retain their dependency locks and SDK
 validation. An explicit latest-package resolver writes an exact version/hash
-lock; the Action and CMake module both restore that lock. This entry point needs
-a new infrastructure release before adoption.
+lock; the Action and CMake module both restore that lock. These entry points are
+available in the `v0.1.002` infrastructure release.
 
 Obfuscation is selected **once at compiler setup**, with
 `obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.
@@ -43,13 +43,13 @@ Accordingly, this repository must not contain a product `manifests/` tree, produ
 
 ## Versioned infrastructure releases
 
-The first shared **Action / registry source** release is
-[`v0.1.0`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.0).
+The current shared **Action / registry source** release is
+[`v0.1.002`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.002).
 Downstream workflows use a published version, not `@master`, for this cache
-repository's reusable Actions. The curl-only action and tool-download changes
-require a later version containing them; they are not backported into the
-immutable `v0.1.0` tag. This change does not publish that version. Candidate PR
-validation can select an exact commit before the version is released.
+repository's reusable Actions. `v0.1.002` includes the curl-only cache transport
+and shared package/tool CLI, Action and CMake entry points. The original
+`v0.1.0` tag stays immutable. Candidate PR validation can select an exact commit
+before a version is released.
 The Git registry's `reference` uses the selected release tag. Its `baseline` is a
 required exception: vcpkg requires the **40-hex Git commit** resolved from
 that same release tag. This is a registry schema constraint, not a different
@@ -59,7 +59,8 @@ The release tag versions infrastructure source and Action code; it is not a
 binary cache ABI and does not imply every platform's immutable NuGet ZIP is
 published. Native packages continue to be identified only by complete
 vcpkg ABI hashes and accepted through the existing strict cache gates.
-See [release v0.1.0](docs/releases/v0.1.0.md).
+See [release v0.1.002](docs/releases/v0.1.002.md) and the historical
+[release v0.1.0](docs/releases/v0.1.0.md).
 
 ## Shared vcpkg baseline
 
@@ -121,9 +122,8 @@ The MIR port keeps its pinned upstream source and executable-memory budget
 patch on Windows x64. Windows x86 and ARM64 remain unsupported. Product
 JIT/runtime tests belong to the consuming product.
 
-Consumers configure vcpkg with the following inputs. Replace
-`CURL_ONLY_RELEASE` with a published version containing this change and select
-the product's actual manifest and triplets:
+Consumers configure vcpkg with `v0.1.002` and select the product's actual manifest
+and triplets:
 
 ```yaml
 permissions:
@@ -131,7 +131,7 @@ permissions:
   packages: read
 
 steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
+  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.002
     with:
       mode: read
       restore-packages: "false"
@@ -188,7 +188,7 @@ Consumer L1 caches should include both the central cache revision and their own 
 
 ```yaml
 - id: shared-vcpkg
-  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
+  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.002
   with:
     mode: read
     restore-packages: "false"
@@ -226,7 +226,7 @@ sha256: fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305
 Consumers restore it with:
 
 ```yaml
-- uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@v0.1.0
+- uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@v0.1.002
   with:
     version: "4.6.7"
     sha256: "fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305"

@@ -5,10 +5,10 @@ development and `.github/actions/setup-native-dependency`. It reuses the existin
 authenticated GitHub Packages curl transport and the compiler setup's public
 curl downloader and archive extractor. It does not run NuGet, .NET or Mono.
 
-This entry point is **unreleased**. `v0.1.0` does not contain it. Validate a
-candidate with its exact commit; downstream workflows must select a new
-published infrastructure version containing the action before adoption. Existing
-release tags stay immutable.
+These entry points are available in **v0.1.002**. `v0.1.0` does not contain them.
+Downstream workflows select `@v0.1.002`; complete source checkouts select
+`ref: v0.1.002`. Candidate validation may select an exact commit before a release.
+Existing release tags stay immutable.
 
 ## Source and ownership
 
@@ -89,8 +89,7 @@ paths, so the receipt and CMake environment do not disagree.
 
 ## GitHub Action
 
-After a new infrastructure version is published, replace the version placeholder
-below with that release. For candidate validation use its exact commit instead.
+Use the published infrastructure version for downstream workflows:
 
 ```yaml
 permissions:
@@ -98,7 +97,7 @@ permissions:
   packages: read
 
 steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-native-dependency@<new-release>
+  - uses: qigao/vcpkg-cache/.github/actions/setup-native-dependency@v0.1.002
     id: re2c
     with:
       package-id: Qigao.Re2c.Binary
@@ -227,4 +226,4 @@ using the real locked re2c package and a second credential-free CMake invocation
 Offline tests also exercise latest-to-lock resolution, local reuse and public ZIP/tar.xz downloads with the
 transport replaced, SHA failures, archive rejection, fresh destination handling
 and receipt/environment path equality. Downstream adoption can follow a new
-published version without copying another downloader into product repositories.
+published `v0.1.002` version without copying another downloader into product repositories.
