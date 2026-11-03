@@ -228,7 +228,8 @@ def resource(feed: packages.NugetFeed) -> str:
     uri = urlsplit(endpoints[0])
     if (uri.scheme != "https" or uri.hostname != "nuget.pkg.github.com"
             or uri.username or uri.password or uri.port not in (None, 443)
-            or not uri.path.startswith("/qigao/") or uri.query or uri.fragment):
+            or not (uri.path == "/qigao" or uri.path.startswith("/qigao/"))
+            or uri.query or uri.fragment):
         raise ValueError("untrusted GitHub Packages publish endpoint")
     return endpoints[0]
 
