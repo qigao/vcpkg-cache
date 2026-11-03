@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - scripts/github-packages.py
+      - scripts/restore-native-dependency.py
       - scripts/setup-vcpkg-curl-cache.py
       - scripts/windows_pkgconf.py
       - scripts/setup-compiler-toolchain.py
@@ -13,6 +14,7 @@ on:
       - scripts/tests/**
       - .github/actions/setup-vcpkg-curl-cache/**
       - .github/actions/setup-re2c-tools/**
+      - .github/actions/setup-native-dependency/**
       - .github/workflows/curl-only-github-packages.yml
       - .github/workflows/curl-only-vcpkg-producer.yml
   workflow_dispatch:
@@ -34,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/github-packages.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py scripts/ci/verify-native-publish-target.py
+          python -m py_compile scripts/github-packages.py scripts/restore-native-dependency.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py scripts/ci/verify-native-publish-target.py
           python -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
           test "$(grep -Ec 'mono-complete|brew install mono|dotnet restore|vcpkg fetch nuget' .github/actions/setup-vcpkg-curl-cache/action.yml || true)" -eq 0
       - name: Parse privileged producer workflow using pinned actionlint
@@ -227,7 +229,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, macos-15-intel, macos-15, windows-2025, windows-11-arm]
+        include:
+          - {os: ubuntu-22.04, rid: linux-x64, executable: bin/re2c}
+          - {os: ubuntu-24.04, rid: linux-x64, executable: bin/re2c}
+          - {os: macos-15-intel, rid: macos-x64, executable: bin/re2c}
+          - {os: macos-15, rid: macos-arm64, executable: bin/re2c}
+          - {os: windows-2025, rid: windows-x64, executable: bin/re2c.exe}
+          - {os: windows-11-arm, rid: windows-arm64, executable: bin/re2c.exe}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-re2c-tools
@@ -246,3 +254,31 @@ jobs:
           }
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw 'Published re2c binary failed' }
+      - name: Restore the same published tool through the generic shared entry point
+        id: generic
+        uses: ./.github/actions/setup-native-dependency
+        with:
+          package-id: Qigao.Re2c.Binary
+          version: 4.6.7
+          sha256: fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305
+          destination: ${{ runner.temp }}/native dependency generic
+          payload: tools/${{ matrix.rid }}
+          required-files: |
+            share/re2c/stdlib/syntax/c
+            share/re2c/stdlib/unicode_categories.re
+            share/re2c/stdlib/unicode_properties.re
+          executables: ${{ matrix.executable }}
+          add-path: bin
+          env-prefix: GENERIC_RE2C
+      - name: Check shared receipt and exported paths using the real package binary
+        shell: pwsh
+        env:
+          RESTORED_ROOT: ${{ steps.generic.outputs.root }}
+          RESTORED_RECEIPT: ${{ steps.generic.outputs.receipt }}
+          RESTORED_EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -c 'import json, os; r=json.load(open(os.environ["RESTORED_RECEIPT"], encoding="utf-8")); assert r["root"] == os.environ["RESTORED_ROOT"] == os.environ["GENERIC_RE2C_ROOT"]; assert chr(92) not in r["root"]; assert r["source"]["version"] == "4.6.7"; assert r["sha256"] == os.environ["GENERIC_RE2C_SHA256"]'
+          if ($LASTEXITCODE -ne 0) { throw 'Generic native restore outputs differ from its receipt' }
+          & (Join-Path $env:RESTORED_ROOT $env:RESTORED_EXECUTABLE) --version
+          if ($LASTEXITCODE -ne 0) { throw 'Generic restored tool failed' }

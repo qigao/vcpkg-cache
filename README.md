@@ -11,6 +11,12 @@ This repository owns three reusable infrastructure inputs:
 
 The curl-only vcpkg setup action provides a [pinned native Windows pkg-config](docs/curl-only-github-packages.md#windows-pkg-config), avoiding vcpkg's MSYS2 download for pkg-config alone. CI must not install or execute Mono; external native packages and tool archives are downloaded with curl. The legacy Mono/NuGet setup action has been removed. Existing action tags and SHA pins remain immutable.
 
+For product-selected native SDK packages and public tool archives, the
+[shared restore CLI and Action](docs/restore-native-dependency.md) provide
+SHA-256 locked downloads, safe extraction, explicit payload selection and
+consistent local/CI paths. Products retain their dependency locks and SDK
+validation. This entry point needs a new infrastructure release before adoption.
+
 Obfuscation is selected **once at compiler setup**, with
 `obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.
 The action prepares the single upstream eshard/obfuscator-llvm pass and

@@ -161,7 +161,9 @@ class NugetFeed:
             raise ValueError("GitHub feed must advertise one PackageBaseAddress/3.0.0")
         self.base = addresses[0].rstrip("/")
 
-    def package(self, package_id, version, destination, allow_not_found=False):
+    def package(self, package_id, version, destination, allow_not_found=False, expected_sha256=None):
+        if expected_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise ValueError("invalid expected package SHA-256")
         for value in (package_id, version):
             if not re.fullmatch(r"[A-Za-z0-9_.+-]+", value):
                 raise ValueError("invalid NuGet identity")
@@ -175,6 +177,9 @@ class NugetFeed:
             downloaded = self.client.download(url, destination, "application/octet-stream")
         if downloaded is False:
             return False
+        if expected_sha256 is not None and sha256(destination) != expected_sha256:
+            Path(destination).unlink()
+            raise ValueError("package SHA-256 mismatch")
         with zipfile.ZipFile(destination) as archive:
             list(archive_members(archive))
             package_metadata(archive, package_id, version)
