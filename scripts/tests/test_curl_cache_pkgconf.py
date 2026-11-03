@@ -18,6 +18,143 @@ native = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(native)
 
 
+class CurlHostDownloads(unittest.TestCase):
+    """The shared compiler/pkgconf downloader publishes only verified bytes."""
+
+    def fake_curl(self, payload=b"archive", status=200, redirect="", exit_code=0):
+        process = mock.Mock()
+        process.stdout = io.BytesIO(payload)
+        process.wait.return_value = exit_code
+
+        def start(command, *, stdout, stderr):
+            self.assertEqual(command[0], "curl")
+            self.assertNotIn("--location", command)
+            self.assertEqual(command[command.index("--proto") + 1], "=https")
+            self.assertLessEqual(int(command[command.index("--max-time") + 1]), 180)
+            stderr.write(f"{status}\n{redirect}\n".encode())
+            return process
+
+        return process, start
+
+    def test_redirected_download_is_verified_before_atomic_publication(self):
+        payload = b"verified compiler archive"
+        digest = hashlib.sha256(payload).hexdigest()
+        redirect = "https://release-assets.githubusercontent.com/pinned.zip?signature=opaque"
+        _, first = self.fake_curl(b"", 302, redirect)
+        _, second = self.fake_curl(payload)
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "tool.zip"
+            target.write_bytes(b"previous complete archive")
+            factories = iter((first, second))
+
+            def start(command, **kwargs):
+                self.assertEqual(target.read_bytes(), b"previous complete archive")
+                return next(factories)(command, **kwargs)
+
+            with mock.patch.object(native.downloads.subprocess, "Popen", side_effect=start) as curl:
+                native.downloads.verified_download(
+                    "https://github.com/owner/repo/archive.zip", target, digest, 1024)
+            self.assertEqual(curl.call_count, 2)
+            self.assertEqual(curl.call_args_list[1].args[0][-1], redirect)
+            self.assertEqual(target.read_bytes(), payload)
+            self.assertEqual(list(Path(temporary).iterdir()), [target])
+
+    def test_redirect_destination_is_rejected_before_connecting(self):
+        redirects = (
+            "http://github.com/archive.zip", "https://elsewhere.invalid/archive.zip",
+            "https://user@github.com/archive.zip", "https://github.com:444/archive.zip",
+        )
+        for redirect in redirects:
+            with self.subTest(redirect=redirect), tempfile.TemporaryDirectory() as temporary:
+                _, start = self.fake_curl(b"", 302, redirect)
+                target = Path(temporary) / "tool"
+                with mock.patch.object(native.downloads.subprocess, "Popen", side_effect=start) as curl:
+                    with self.assertRaisesRegex(ValueError, "untrusted compiler download redirect"):
+                        native.downloads.verified_download(
+                            "https://github.com/owner/archive", target, "a" * 64, 1024)
+                self.assertEqual(curl.call_count, 1)
+                self.assertEqual(list(Path(temporary).iterdir()), [])
+
+    def test_streaming_limit_kills_curl_and_preserves_existing_file(self):
+        process, start = self.fake_curl(b"too much data")
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "tool"
+            target.write_bytes(b"previous verified file")
+            with mock.patch.object(native.downloads.subprocess, "Popen", side_effect=start) as curl:
+                with self.assertRaisesRegex(ValueError, "size bound"):
+                    native.downloads.verified_download(
+                        "https://github.com/owner/archive", target, "a" * 64, 4)
+            process.kill.assert_called_once()
+            self.assertTrue(process.stdout.closed)
+            self.assertEqual(curl.call_count, 1)
+            self.assertEqual(target.read_bytes(), b"previous verified file")
+            self.assertEqual(list(Path(temporary).iterdir()), [target])
+
+    def test_bad_digest_and_empty_body_never_publish_or_retry(self):
+        for payload, message in ((b"wrong archive", "SHA256 mismatch"), (b"", "empty compiler download")):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as temporary:
+                _, start = self.fake_curl(payload)
+                target = Path(temporary) / "tool"
+                with mock.patch.object(native.downloads.subprocess, "Popen", side_effect=start) as curl:
+                    with self.assertRaisesRegex(ValueError, message):
+                        native.downloads.verified_download(
+                            "https://github.com/owner/archive", target, "a" * 64, 1024)
+                self.assertEqual(curl.call_count, 1)
+                self.assertEqual(list(Path(temporary).iterdir()), [])
+
+    def test_transient_failure_retries_with_a_fresh_archive(self):
+        payload = b"good archive"
+        digest = hashlib.sha256(payload).hexdigest()
+        _, first = self.fake_curl(b"interrupted", status=0, exit_code=7)
+        _, second = self.fake_curl(payload)
+        factories = iter((first, second))
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "tool"
+            with mock.patch.object(native.downloads.subprocess, "Popen",
+                    side_effect=lambda command, **kwargs: next(factories)(command, **kwargs)) as curl, \
+                 mock.patch.object(native.downloads.time, "sleep") as pause:
+                native.downloads.verified_download(
+                    "https://github.com/owner/archive", target, digest, 1024)
+            self.assertEqual(curl.call_count, 2)
+            pause.assert_called_once_with(1)
+            self.assertEqual(target.read_bytes(), payload)
+
+    def test_network_failures_and_redirect_cycles_are_bounded(self):
+        for status, exit_code, expected_calls, message in (
+            (0, 28, 3, "curl source download failed"),
+            (302, 0, 6, "redirect limit"),
+            (0, 63, 1, "size bound"),
+        ):
+            with self.subTest(status=status, exit_code=exit_code), tempfile.TemporaryDirectory() as temporary:
+                def start(command, **kwargs):
+                    _, factory = self.fake_curl(b"", status,
+                        "https://github.com/owner/archive", exit_code)
+                    return factory(command, **kwargs)
+
+                target = Path(temporary) / "tool"
+                with mock.patch.object(native.downloads.subprocess, "Popen", side_effect=start) as curl, \
+                     mock.patch.object(native.downloads.time, "sleep"):
+                    with self.assertRaisesRegex(ValueError, message):
+                        native.downloads.verified_download(
+                            "https://github.com/owner/archive", target, "a" * 64, 1024)
+                self.assertEqual(curl.call_count, expected_calls)
+                self.assertEqual(list(Path(temporary).iterdir()), [])
+
+    def test_pkgconf_explicit_host_allowlist_uses_the_same_curl_path(self):
+        payload = b"native pkgconf wheel"
+        _, start = self.fake_curl(payload)
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "pkgconf.whl"
+            with mock.patch.object(native.downloads.subprocess, "Popen", side_effect=start) as curl:
+                native.downloads.verified_download(
+                    "https://files.pythonhosted.org/pkgconf.whl", target,
+                    hashlib.sha256(payload).hexdigest(), 1024,
+                    initial_hosts=("files.pythonhosted.org",),
+                    redirect_hosts=("files.pythonhosted.org",))
+            self.assertEqual(curl.call_count, 1)
+            self.assertEqual(target.read_bytes(), payload)
+
+
 class NativePkgconfContract(unittest.TestCase):
     def test_host_selection_is_independent_of_cross_compile_target(self):
         self.assertEqual(native.host_arch({"PROCESSOR_ARCHITECTURE": "AMD64",

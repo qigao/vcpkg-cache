@@ -9,7 +9,7 @@ This repository owns three reusable infrastructure inputs:
 2. **re2c host binaries** — `Qigao.Re2c.Binary` plus its reusable setup action.
 3. **Compiler selection** — Windows uses pinned llvm-mingw/UCRT, Linux/macOS use the runner's native Clang, and obfuscator-llvm has no global LLVM-version restriction. GCC is test-only. There are no Clang verification CI jobs, probes, or synthetic consumer projects. See [compiler setup](docs/setup-compiler-actions.md) and [Release policy](docs/release-obfuscation-toolchains.md).
 
-Both vcpkg setup actions provide a [pinned native Windows pkg-config](docs/curl-only-github-packages.md#windows-pkg-config), avoiding vcpkg's MSYS2 download for pkg-config alone. Consumers must select a commit containing this change; existing action tags and SHA pins remain immutable.
+The curl-only vcpkg setup action provides a [pinned native Windows pkg-config](docs/curl-only-github-packages.md#windows-pkg-config), avoiding vcpkg's MSYS2 download for pkg-config alone. CI must not install or execute Mono; external native packages and tool archives are downloaded with curl. The legacy Mono/NuGet setup action has been removed. Existing action tags and SHA pins remain immutable.
 
 Obfuscation is selected **once at compiler setup**, with
 `obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.
@@ -37,9 +37,12 @@ Accordingly, this repository must not contain a product `manifests/` tree, produ
 
 The first shared **Action / registry source** release is
 [`v0.1.0`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.0).
-Downstream workflows **must** use `@v0.1.0`, not `@master` or an
-independently chosen commit SHA, for this cache repository's reusable Actions.
-The Git registry's `reference` also uses `v0.1.0`. Its `baseline` is a
+Downstream workflows use a published version, not `@master`, for this cache
+repository's reusable Actions. The curl-only action and tool-download changes
+require a later version containing them; they are not backported into the
+immutable `v0.1.0` tag. This change does not publish that version. Candidate PR
+validation can select an exact commit before the version is released.
+The Git registry's `reference` uses the selected release tag. Its `baseline` is a
 required exception: vcpkg requires the **40-hex Git commit** resolved from
 that same release tag. This is a registry schema constraint, not a different
 infrastructure version; do not put a tag or a placeholder in `baseline`.
@@ -60,8 +63,10 @@ b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 
 The root `vcpkg.json` is a reference dependency set for infrastructure validation. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product. Products own dependency installation through their normal builds; there is no cache prewarming prerequisite or automatic warm workflow.
 
-The setup action bootstraps the official vcpkg executable from the checkout selected by
+The setup action bootstraps the official vcpkg executable selected by
 `vcpkg-scripts-revision.txt`, then checks it against `vcpkg-tool-version.txt`.
+Windows downloads the matching x64 or ARM64 release through the shared curl
+downloader with pinned SHA256 checks; Unix uses the pinned curl bootstrap.
 It does not use the runner image's preinstalled executable. When updating the shared
 tool identity, keep these two files aligned with the checkout's bootstrap metadata.
 Bootstrap or identity failures stop setup before dependency restoration.
@@ -108,7 +113,9 @@ The MIR port keeps its pinned upstream source and executable-memory budget
 patch on Windows x64. Windows x86 and ARM64 remain unsupported. Product
 JIT/runtime tests belong to the consuming product.
 
-Consumers configure vcpkg with:
+Consumers configure vcpkg with the following inputs. Replace
+`CURL_ONLY_RELEASE` with a published version containing this change and select
+the product's actual manifest and triplets:
 
 ```yaml
 permissions:
@@ -116,12 +123,31 @@ permissions:
   packages: read
 
 steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@v0.1.0
+  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
     with:
       mode: read
+      restore-packages: "false"
+      manifest-root: .
+      triplet: x64-linux
+      host-triplet: x64-linux
 ```
 
-The action provides the pinned vcpkg executable/scripts environment, overlay ports, and GitHub Packages binary-cache configuration. The Microsoft vcpkg repository is materialized at the exact pinned scripts SHA with its complete reachable Git objects: the checkout is non-shallow and has no promisor remote or partial-clone filter. This is required because vcpkg versioning resolves historical port snapshots by `git-tree` SHA; consumers must never need repository-local `git fetch --unshallow` workarounds. The action does not provide a product manifest and must not build or publish a product SDK.
+The action provides the pinned vcpkg executable/scripts environment, overlay ports, and exact GitHub Packages downloads over authenticated curl. vcpkg receives only the local files binary-cache provider; no NuGet executable, .NET restore or Mono is invoked. The Microsoft vcpkg repository is materialized at the exact pinned scripts SHA with its complete reachable Git objects: the checkout is non-shallow and has no promisor remote or partial-clone filter. This is required because vcpkg versioning resolves historical port snapshots by `git-tree` SHA; consumers must never need repository-local `git fetch --unshallow` workarounds. The action does not provide a product manifest and must not build or publish a product SDK.
+
+
+For normal product builds, `restore-packages: "false"` prepares the canonical
+tools and local files cache, validates the real manifest/triplets/features, and
+leaves dependency installation to the product's existing CMake/vcpkg build.
+Source archives and native tools are downloaded through curl/libcurl with their
+pinned hashes. This mode does not contact the remote binary feed and does not
+catch or ignore a failed restore. It does not configure the product's CMake
+features; the product retains that responsibility.
+
+The default `restore-packages: "true"` requires every exact remote ABI archive
+and keeps the strict cache-qualification behavior, including failure on missing,
+inaccessible or corrupt packages. Use it when binary restoration is an explicit
+requirement. A normal product build must not require a separate cache producer
+or permission change before it can compile its declared dependencies.
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
@@ -141,7 +167,7 @@ Current semantic contract:
 v8
 ```
 
-`setup-vcpkg-cache` exports:
+`setup-vcpkg-curl-cache` exports:
 
 - `VCPKG_CACHE_CONTRACT_VERSION` / `contract_version`
 - `VCPKG_CACHE_REVISION` / `cache_revision`
@@ -154,9 +180,13 @@ Consumer L1 caches should include both the central cache revision and their own 
 
 ```yaml
 - id: shared-vcpkg
-  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-cache@v0.1.0
+  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@CURL_ONLY_RELEASE
   with:
     mode: read
+    restore-packages: "false"
+    manifest-root: .
+    triplet: x64-linux
+    host-triplet: x64-linux
 
 - uses: actions/cache@v4
   with:
