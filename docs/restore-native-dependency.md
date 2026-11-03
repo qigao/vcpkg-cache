@@ -6,8 +6,9 @@ authenticated GitHub Packages curl transport and the compiler setup's public
 curl downloader and archive extractor. It does not run NuGet, .NET or Mono.
 
 These entry points are available in **v0.1.002**. `v0.1.0` does not contain them.
-Downstream workflows select `@v0.1.002`; complete source checkouts select
-`ref: v0.1.002`. Candidate validation may select an exact commit before a release.
+Downstream workflows select `@v0.1.003`; complete source checkouts select
+`ref: v0.1.003` for the paired Lemon helper and offline archive support.
+Candidate validation may select an exact commit before a release.
 Existing release tags stay immutable.
 
 ## Source and ownership
@@ -97,7 +98,7 @@ permissions:
   packages: read
 
 steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-native-dependency@v0.1.002
+  - uses: qigao/vcpkg-cache/.github/actions/setup-native-dependency@v0.1.003
     id: re2c
     with:
       package-id: Qigao.Re2c.Binary
@@ -160,6 +161,12 @@ version: downstream still selects a published infrastructure tag containing the
 new entry points, independently of the SDK/tool package version.
 
 ## CMake
+
+The CLI also accepts `--archive path/to/file.nupkg` for an offline
+package source. Its lock hash and NuGet identity are checked before extraction;
+it needs no token. The corresponding CMake option is `ARCHIVE_FILE`. This
+offline option and the paired Lemon helper are available in `v0.1.003`;
+the previous `v0.1.002` tag is unchanged.
 
 Use CMake 3.19+, Python 3.12+ and curl. From a complete, version-pinned checkout
 of this infrastructure repository, include the module in the product:
@@ -226,4 +233,4 @@ using the real locked re2c package and a second credential-free CMake invocation
 Offline tests also exercise latest-to-lock resolution, local reuse and public ZIP/tar.xz downloads with the
 transport replaced, SHA failures, archive rejection, fresh destination handling
 and receipt/environment path equality. Downstream adoption can follow a new
-published `v0.1.002` version without copying another downloader into product repositories.
+published `v0.1.003` version without copying another downloader into product repositories.
