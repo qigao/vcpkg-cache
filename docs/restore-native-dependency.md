@@ -161,6 +161,12 @@ new entry points, independently of the SDK/tool package version.
 
 ## CMake
 
+The candidate CLI also accepts `--archive path/to/file.nupkg` for an offline
+package source. Its lock hash and NuGet identity are checked before extraction;
+it needs no token. The corresponding CMake option is `ARCHIVE_FILE`. This new
+offline option and the paired Lemon helper require a later infrastructure
+release or an exact candidate checkout; `v0.1.002` is unchanged.
+
 Use CMake 3.19+, Python 3.12+ and curl. From a complete, version-pinned checkout
 of this infrastructure repository, include the module in the product:
 

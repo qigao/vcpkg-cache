@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import tempfile
 from urllib.parse import urlsplit
@@ -80,6 +81,8 @@ def validate_request(args):
         if not isinstance(args.version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?", args.version):
             raise ValueError("an exact NuGet package version is required; no floating/latest")
     else:
+        if args.archive:
+            raise ValueError("--archive is supported only for package sources")
         if not isinstance(args.url, str):
             raise ValueError("invalid locked tool URL")
         parsed = urlsplit(args.url)
@@ -153,11 +156,19 @@ def restore(args, *, feed=None, download=None):
         stage = Path(temporary)
         if args.kind == "package":
             archive = stage / "source.nupkg"
-            if feed is None:
-                feed = packages.NugetFeed(packages.Curl())
-            # Hash verification happens in the transport helper BEFORE opening the ZIP.
-            with redirect_stdout(sys.stderr):
-                feed.package(args.package_id, args.version, archive, expected_sha256=args.sha256)
+            if args.archive:
+                shutil.copyfile(args.archive, archive)
+                if packages.sha256(archive) != args.sha256:
+                    raise ValueError("offline archive SHA-256 mismatch")
+                with packages.zipfile.ZipFile(archive) as zipped:
+                    list(packages.archive_members(zipped))
+                    packages.package_metadata(zipped, args.package_id, args.version)
+            else:
+                if feed is None:
+                    feed = packages.NugetFeed(packages.Curl())
+                # Hash verification happens BEFORE opening the ZIP.
+                with redirect_stdout(sys.stderr):
+                    feed.package(args.package_id, args.version, archive, expected_sha256=args.sha256)
         else:
             suffix = ".tar.xz" if urlsplit(args.url).path.lower().endswith(".tar.xz") else ".zip"
             archive = stage / ("source" + suffix)
@@ -236,6 +247,7 @@ def parser():
     common.add_argument("--destination", required=True)
     common.add_argument("--sha256", default="", help="required for package/url; read from lock for locked")
     common.add_argument("--reuse", action="store_true", help="reuse a local installation only when its receipt and required files match")
+    common.add_argument("--archive", default="", help="offline nupkg for a locked/package source; still verifies hash and identity")
     common.add_argument("--payload", default=".", help="relative payload directory; explicit host/target selection")
     common.add_argument("--require", action="append", default=[], help="nonempty file relative to selected payload; repeatable")
     common.add_argument("--executable", action="append", default=[], help="required file to grant execute bits; never executed by setup")

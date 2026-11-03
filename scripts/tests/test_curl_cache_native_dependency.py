@@ -241,6 +241,20 @@ class NativeDependencyTests(unittest.TestCase):
             second = native.restore(self.arguments("--reuse"))
         self.assertEqual(first, second)
 
+    def test_offline_archive_uses_same_hash_identity_and_extraction_without_token(self):
+        args = self.arguments("--archive", str(self.archive))
+        with mock.patch.object(native.packages, "Curl", side_effect=AssertionError("offline restore requested token")):
+            receipt = native.restore(args)
+        self.assertEqual((Path(receipt["root"]) / "include/example.h").read_text(), "// SDK header\n")
+
+    def test_offline_bad_hash_is_rejected_before_zip_parsing(self):
+        args = self.arguments("--archive", str(self.archive))
+        args.sha256 = "0" * 64
+        with mock.patch.object(native.packages.zipfile, "ZipFile", side_effect=AssertionError("opened unverified offline ZIP")):
+            with self.assertRaisesRegex(ValueError, "offline archive SHA-256"):
+                native.restore(args)
+        self.assert_unpublished()
+
     def test_modern_python_archive_validation_uses_ntpath_without_removed_pathlib_api(self):
         with mock.patch.object(native.archives.ntpath, "isreserved", create=True,
                                side_effect=lambda name: name.upper() in {"CON", "NUL"}) as modern, \

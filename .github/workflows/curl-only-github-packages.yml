@@ -5,6 +5,8 @@ on:
       - scripts/github-packages.py
       - scripts/restore-native-dependency.py
       - cmake/QigaoNativeDependency.cmake
+      - cmake/QigaoLemon.cmake
+      - packaging/lemon/**
       - scripts/setup-vcpkg-curl-cache.py
       - scripts/windows_pkgconf.py
       - scripts/setup-compiler-toolchain.py
@@ -37,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/github-packages.py scripts/restore-native-dependency.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py scripts/ci/verify-native-publish-target.py
+          python -m py_compile scripts/github-packages.py scripts/restore-native-dependency.py packaging/lemon/package.py scripts/setup-vcpkg-curl-cache.py scripts/restore-manifest-cache.py scripts/publish-vcpkg-curl-cache.py scripts/ci/verify-native-publish-target.py
           python -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
           test "$(grep -Ec 'mono-complete|brew install mono|dotnet restore|vcpkg fetch nuget' .github/actions/setup-vcpkg-curl-cache/action.yml || true)" -eq 0
       - name: Parse privileged producer and release workflows using pinned actionlint
@@ -47,7 +49,8 @@ jobs:
           go version
           GOWORK=off go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -oneline \
             .github/workflows/curl-only-vcpkg-producer.yml \
-            .github/workflows/release-vcpkg-cache-v0.1.002.yml
+            .github/workflows/release-vcpkg-cache-v0.1.002.yml \
+            .github/workflows/lemon-tools-package.yml
 
   real-packages:
     name: Genuine Linux native vcpkg ABI GitHub Packages HTTP restore

@@ -19,6 +19,10 @@ validation. An explicit latest-package resolver writes an exact version/hash
 lock; the Action and CMake module both restore that lock. These entry points are
 available in the `v0.1.002` infrastructure release.
 
+A [paired Lemon executable/template package](packaging/lemon/README.md) and
+`Lemon::Lemon` CMake helper are also under qualification. This candidate adds
+host tooling without changing the published `v0.1.002` tag.
+
 Obfuscation is selected **once at compiler setup**, with
 `obfuscator: "true"` in `setup-llvm-native` or `setup-llvm-mingw`.
 The action prepares the single upstream eshard/obfuscator-llvm pass and
