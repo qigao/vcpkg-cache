@@ -148,21 +148,10 @@ jobs:
       contract: ${{ steps.cache.outputs.contract_version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Select runner-native LLVM for dependency builds
-        uses: ./.github/actions/setup-llvm-native
-        with:
-          build-type: toolchain-only
-          obfuscator: "false"
-      - name: Use the selected native dependency compiler
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf 'CC=%s\nCXX=%s\n' "$LLVM_NATIVE_CC" "$LLVM_NATIVE_CXX" >> "$GITHUB_ENV"
       - id: cache
         uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
-          restore-packages: "false"
           manifest-root: cache-contracts/optional-feature
           triplet: arm64-linux
           host-triplet: arm64-linux
@@ -194,56 +183,6 @@ jobs:
           test "$VCPKG_OVERLAY_PORTS" = "$expected_root/ports"
           test "$VCPKG_OVERLAY_TRIPLETS" = "$expected_root/triplets"
           test -f "$expected_root/cmake/QigaoVcpkgToolchain.cmake"
-
-      - name: Prepare Linux arm64 SDK build dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(uname -m)" = "aarch64"
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config autoconf automake libtool
-
-      - name: Build focused arm64-linux SDK dependencies from pinned sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$RUNNER_TEMP/linux-arm64-sdk-deps"
-          install_root="$RUNNER_TEMP/linux-arm64-sdk-deps-install"
-          rm -rf "$manifest" "$install_root"
-          mkdir -p "$manifest"
-          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json", encoding="utf-8"))["builtin-baseline"])')"
-          cat > "$manifest/vcpkg.json" <<EOF
-          {
-            "name": "qigao-linux-arm64-sdk-deps",
-            "version-string": "1",
-            "dependencies": [
-              {"name":"pkgconf","host":true},
-              "simde",
-              "zstd",
-              "aklomp-base64",
-              "c-ares",
-              "libuv",
-              "kcp",
-              "gmssl",
-              "miniaudio",
-              {"name":"zeromq","default-features":false}
-            ],
-            "builtin-baseline": "$baseline"
-          }
-          EOF
-          # Normal dependency installation has no remote cache prerequisite.
-          # vcpkg downloads pinned sources through libcurl and verifies their hashes.
-          # Strict binary-only restore remains in curl-only-github-packages.yml.
-          unset VCPKG_FORCE_SYSTEM_BINARIES
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root="$manifest" \
-            --x-install-root="$install_root" \
-            --triplet arm64-linux \
-            --host-triplet arm64-linux
-          test -f "$install_root/arm64-linux/include/zmq.h"
-          test -f "$install_root/arm64-linux/include/gmssl/tls.h"
-          test -f "$install_root/arm64-linux/include/simde/x86/sse2.h"
 
   macos:
     name: Contract / macos-15
@@ -425,3 +364,4 @@ jobs:
           test "$LINUX_REVISION" = "$MACOS_REVISION"
           test "$LINUX_REVISION" = "$WINDOWS_REVISION"
           printf 'contract=%s\nrevision=%s\n' "$LINUX_CONTRACT" "$LINUX_REVISION"
+

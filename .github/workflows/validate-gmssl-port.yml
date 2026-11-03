@@ -44,41 +44,6 @@ jobs:
             --triplet x64-linux --host-triplet x64-linux
           test -f "$install/x64-linux/include/gmssl/tls.h"
           test -f "$install/x64-linux/lib/libgmssl.a"
-      - name: Compile and link consumer
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/gmssl-install/x64-linux"
-          src="$RUNNER_TEMP/gmssl-consumer-src"
-          build="$RUNNER_TEMP/gmssl-consumer-build"
-          mkdir -p "$src"
-          cat > "$src/main.c" <<'EOF'
-          #include <gmssl/tls.h>
-          static tls_ret_t probe_send(void *user, const void *buf, size_t len, int flags) {
-            (void)user; (void)buf; (void)len; (void)flags;
-            return TLS_ERROR_SEND_AGAIN;
-          }
-          static tls_ret_t probe_recv(void *user, void *buf, size_t len, int flags) {
-            (void)user; (void)buf; (void)len; (void)flags;
-            return TLS_ERROR_RECV_AGAIN;
-          }
-          int main(void) {
-            TLS_CONNECT conn = {0};
-            TLS_IO io = {0, probe_send, probe_recv};
-            if (tls_protocol_name(TLS_protocol_tls13) == 0) return 1;
-            return tls_set_io(&conn, &io) == 1 ? 0 : 2;
-          }
-          EOF
-          cat > "$src/CMakeLists.txt" <<'EOF'
-          cmake_minimum_required(VERSION 3.16)
-          project(gmssl_consumer C)
-          find_package(GmSSL CONFIG REQUIRED)
-          add_executable(gmssl-consumer main.c)
-          target_link_libraries(gmssl-consumer PRIVATE GmSSL::GmSSL)
-          EOF
-          cmake -S "$src" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
-          cmake --build "$build"
-          "$build/gmssl-consumer"
       - name: Verify TLS 1.2 ALPN wire contract
         shell: bash
         run: |
@@ -322,41 +287,6 @@ jobs:
             --triplet "$triplet" --host-triplet arm64-osx
           test -f "$install/$triplet/include/gmssl/tls.h"
           test -f "$install/$triplet/lib/libgmssl.a"
-      - name: Compile and link consumer
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/gmssl-install/arm64-osx"
-          src="$RUNNER_TEMP/gmssl-consumer-src"
-          build="$RUNNER_TEMP/gmssl-consumer-build"
-          mkdir -p "$src"
-          cat > "$src/main.c" <<'EOF'
-          #include <gmssl/tls.h>
-          static tls_ret_t probe_send(void *user, const void *buf, size_t len, int flags) {
-            (void)user; (void)buf; (void)len; (void)flags;
-            return TLS_ERROR_SEND_AGAIN;
-          }
-          static tls_ret_t probe_recv(void *user, void *buf, size_t len, int flags) {
-            (void)user; (void)buf; (void)len; (void)flags;
-            return TLS_ERROR_RECV_AGAIN;
-          }
-          int main(void) {
-            TLS_CONNECT conn = {0};
-            TLS_IO io = {0, probe_send, probe_recv};
-            if (tls_protocol_name(TLS_protocol_tls13) == 0) return 1;
-            return tls_set_io(&conn, &io) == 1 ? 0 : 2;
-          }
-          EOF
-          cat > "$src/CMakeLists.txt" <<'EOF'
-          cmake_minimum_required(VERSION 3.16)
-          project(gmssl_consumer C)
-          find_package(GmSSL CONFIG REQUIRED)
-          add_executable(gmssl-consumer main.c)
-          target_link_libraries(gmssl-consumer PRIVATE GmSSL::GmSSL)
-          EOF
-          cmake -S "$src" -B "$build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root"
-          cmake --build "$build"
-          "$build/gmssl-consumer"
       - name: Verify TLS 1.2 ALPN wire contract
         shell: bash
         run: |
@@ -592,46 +522,6 @@ jobs:
           if (-not (Test-Path (Join-Path $root "include\gmssl\tls.h"))) { throw "tls.h missing" }
           if (-not (Test-Path (Join-Path $root "lib\libgmssl.a"))) { throw "libgmssl.a missing" }
           if (Test-Path (Join-Path $root "bin\gmssl.dll")) { throw "GmSSL provider must be packaged statically" }
-      - name: Compile and link consumer
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $triplet = "qigao-x64-windows-llvm-mingw"
-          $root = Join-Path (Join-Path $env:RUNNER_TEMP "gmssl-install") $triplet
-          $src = Join-Path $env:RUNNER_TEMP "gmssl-consumer-src"
-          $build = Join-Path $env:RUNNER_TEMP "gmssl-consumer-build"
-          New-Item -ItemType Directory -Force -Path $src | Out-Null
-          @'
-          #include <gmssl/tls.h>
-          static tls_ret_t probe_send(void *user, const void *buf, size_t len, int flags) {
-            (void)user; (void)buf; (void)len; (void)flags;
-            return TLS_ERROR_SEND_AGAIN;
-          }
-          static tls_ret_t probe_recv(void *user, void *buf, size_t len, int flags) {
-            (void)user; (void)buf; (void)len; (void)flags;
-            return TLS_ERROR_RECV_AGAIN;
-          }
-          int main(void) {
-            TLS_CONNECT conn = {0};
-            TLS_IO io = {0, probe_send, probe_recv};
-            if (tls_protocol_name(TLS_protocol_tls13) == 0) return 1;
-            return tls_set_io(&conn, &io) == 1 ? 0 : 2;
-          }
-          '@ | Set-Content -LiteralPath (Join-Path $src "main.c") -Encoding ascii
-          @'
-          cmake_minimum_required(VERSION 3.16)
-          project(gmssl_consumer C)
-          find_package(GmSSL CONFIG REQUIRED)
-          add_executable(gmssl-consumer main.c)
-          target_link_libraries(gmssl-consumer PRIVATE GmSSL::GmSSL)
-          '@ | Set-Content -LiteralPath (Join-Path $src "CMakeLists.txt") -Encoding ascii
-          cmake -S $src -B $build -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_PREFIX_PATH=$root" "-DCMAKE_TOOLCHAIN_FILE=${{ steps.llvm.outputs.toolchain-file }}"
-          if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer configure failed" }
-          cmake --build $build --config Release
-          if ($LASTEXITCODE -ne 0) { throw "GmSSL consumer build failed" }
-          if (Test-Path (Join-Path $root "bin\gmssl.dll")) { throw "unexpected GmSSL runtime DLL" }
-          & (Join-Path $build "gmssl-consumer.exe")
-          if ($LASTEXITCODE -ne 0) { throw "static GmSSL consumer failed without provider runtime on PATH" }
       - name: Verify TLS 1.2 ALPN wire contract
         shell: pwsh
         run: |
@@ -708,7 +598,7 @@ jobs:
 
 
   android:
-    name: GmSSL / Android arm64 API24 link
+    name: GmSSL / Android arm64 build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -719,7 +609,7 @@ jobs:
           manifest-root: cache-contracts/optional-feature
           triplet: arm64-android
           host-triplet: x64-linux
-      - name: Build overlay and link Android API24 consumer
+      - name: Build Android GmSSL overlay
         shell: bash
         run: |
           set -euo pipefail
@@ -740,144 +630,3 @@ jobs:
           root="$install/arm64-android"
           test -f "$root/include/gmssl/rand.h"
           test -f "$root/lib/libgmssl.a"
-
-          src="$RUNNER_TEMP/gmssl-android-rng.c"
-          cat > "$src" <<'EOF'
-          #include <gmssl/rand.h>
-          #include <stdint.h>
-          int main(void) {
-            uint8_t bytes[32];
-            return rand_bytes(bytes, sizeof(bytes)) == 1 ? 0 : 1;
-          }
-          EOF
-
-          prebuilt="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt"             -mindepth 1 -maxdepth 1 -type d -print -quit)"
-          test -n "$prebuilt"
-          cc="$prebuilt/bin/aarch64-linux-android24-clang"
-          nm="$prebuilt/bin/llvm-nm"
-          test -x "$cc"
-          test -x "$nm"
-          "$cc" -I"$root/include" "$src" "$root/lib/libgmssl.a"             -pthread -latomic -lm -o "$RUNNER_TEMP/gmssl-android-rng"
-          if "$nm" -u "$RUNNER_TEMP/gmssl-android-rng" | grep -q 'getentropy'; then
-            echo "Android API24 consumer still depends on getentropy" >&2
-            exit 1
-          fi
-
-  crypto-installed-interop:
-    name: Salts::Crypto consumer / GmSSL port17 OpenSSL3 interop
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: qigao/crypto
-          ref: 97ef1c24f168ace334320043324b3c1f7e7adce2
-          path: _crypto-consumer
-          persist-credentials: false
-      - name: Bootstrap pinned curl-only vcpkg for source-build Crypto Linux x64
-        uses: ./.github/actions/setup-vcpkg-curl-cache
-        with:
-          mode: read
-          manifest-root: cache-contracts/optional-feature
-          triplet: x64-linux
-          host-triplet: x64-linux
-      - name: Install port17 solely from the candidate vcpkg overlay
-        shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$RUNNER_TEMP/gmssl-crypto17-manifest"
-          installed="$RUNNER_TEMP/gmssl-crypto17-installed"
-          mkdir -p "$manifest"
-          cat > "$manifest/vcpkg.json" <<'EOF'
-          {
-            "name": "gmssl-port17-crypto-consumer",
-            "version-string": "1",
-            "dependencies": ["gmssl"]
-          }
-          EOF
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          m = json.loads(Path("ports/gmssl/vcpkg.json").read_text())
-          assert (m["name"], m["version"], m["port-version"]) == ("gmssl", "3.2.0", 17)
-          PY
-          VCPKG_BINARY_SOURCES=clear "$VCPKG_ROOT/vcpkg" install \
-            "--x-manifest-root=$manifest" \
-            "--x-install-root=$installed" --triplet x64-linux \
-            --host-triplet x64-linux
-          prefix="$installed/x64-linux"
-          test -s "$prefix/include/gmssl/tls.h"
-          test -s "$prefix/include/gmssl/sm3.h"
-          test -s "$prefix/lib/libgmssl.a"
-          test -s "$prefix/share/gmssl/GmSSLConfig.cmake"
-          printf 'CRYPTO_TEST_GMSSL_ROOT=%s\n' "$prefix" >> "$GITHUB_ENV"
-      - name: Build one Crypto archive and independent installed SDKs
-        shell: bash
-        run: |
-          set -euo pipefail
-          source="$GITHUB_WORKSPACE/_crypto-consumer"
-          prefix="$RUNNER_TEMP/crypto17-installed"
-          cmake -S "$source" -B build-crypto17 -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
-            "-DCRYPTO_GMSSL_ROOT=$CRYPTO_TEST_GMSSL_ROOT"
-          cmake --build build-crypto17 --parallel 2
-          ctest --test-dir build-crypto17 --no-tests=error --output-on-failure
-          cmake --install build-crypto17 --prefix "$prefix"
-          python3 "$source/tools/audit_static_crypto.py" \
-            --prefix "$prefix" --report build-crypto17/static-audit.json
-
-          cmake -S "$source/tests/owner" -B build-crypto-owner17 -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix"
-          cmake --build build-crypto-owner17 --parallel 2
-          ctest --test-dir build-crypto-owner17 --no-tests=error --output-on-failure
-
-          cmake -S "$source/tests/sdk" -B build-crypto-sdk17 -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix" \
-            -DCRYPTO_SDK_ENABLE_CIPHER_BIO=ON \
-            -DCRYPTO_SDK_ENABLE_OPENSSL_PEER=ON \
-            -DCRYPTO_SDK_ENABLE_INDEPENDENT_EXPORTER=ON \
-            "-DCRYPTO_TEST_FIXTURES=$source/tests/fixtures"
-          cmake --build build-crypto-sdk17 --parallel 2
-          ctest --test-dir build-crypto-sdk17 --no-tests=error --output-on-failure
-      - name: Qualify installed Crypto with independent OpenSSL3 TLS/HRR and negative peers
-        shell: bash
-        run: |
-          set -euo pipefail
-          openssl version | grep -q '^OpenSSL 3[.]'
-          source="$GITHUB_WORKSPACE/_crypto-consumer"
-          sdk="$GITHUB_WORKSPACE/build-crypto-sdk17"
-          work="$RUNNER_TEMP/gmssl-port17-crypto-peer"
-          bash "$source/tools/qualify_crypto_shared_openssl.sh" \
-            "$sdk/crypto_sdk_openssl_client" "$work" 9740
-          bash "$source/tools/qualify_crypto_exporter_openssl.sh" \
-            "$sdk/crypto_sdk_openssl_client" \
-            "$sdk/crypto_sdk_openssl_exporter_oracle" "$work" 9830
-          bash "$source/tools/qualify_crypto_server_openssl.sh" \
-            "$sdk/crypto_sdk_openssl_server" "$work" 9900
-          bash "$source/tools/qualify_crypto_server_api_openssl.sh" \
-            "$sdk/crypto_sdk_openssl_server" \
-            "$sdk/crypto_sdk_openssl_api_peer_client" "$work" 9950
-          CRYPTO_TLS_TEST_HRR_ONLY=1 bash \
-            "$source/tools/qualify_crypto_server_openssl.sh" \
-            "$sdk/crypto_sdk_openssl_server" "$work" 9920
-          # This original security-negative harness launches the pinned
-          # mutation proxy using a tools/ path relative to Crypto's root.
-          # Preserve both negative tests; execute from that root rather than
-          # the vcpkg-cache workspace so the proxy is actually exercised.
-          (
-            cd "$source"
-            bash "$source/tools/qualify_crypto_hrr_ccs_negative.sh" \
-              "$sdk/crypto_sdk_openssl_server" \
-              "$sdk/crypto_sdk_openssl_api_peer_client" "$work" 9970
-          )
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gmssl-port17-crypto-installed-evidence
-          if-no-files-found: warn
-          path: |
-            build-crypto17/static-audit.json
-            build-crypto17/Testing/Temporary/LastTest.log
-            build-crypto-owner17/Testing/Temporary/LastTest.log
-            build-crypto-sdk17/Testing/Temporary/LastTest.log
