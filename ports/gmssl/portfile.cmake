@@ -4,6 +4,8 @@ vcpkg_from_git(
     REF 7c9f02904ef33e59c87b4f16621cc8fd434e7579
     PATCHES
         p256-ecdsa-der-signature-parsing.patch
+        shangmi-secret-cleanup.patch
+        sm2-uncompressed-point-validation.patch
 )
 
 # Upstream overrides CMAKE_INSTALL_PREFIX on MSVC. vcpkg owns the install root.
@@ -75,13 +77,13 @@ vcpkg_cmake_configure(
         -DENABLE_SHA1=ON
         -DENABLE_CHACHA20=OFF
         -DENABLE_GHASH=OFF
-        -DENABLE_SM9=OFF
-        -DENABLE_CMS=OFF
+        -DENABLE_SM9=ON
+        -DENABLE_CMS=ON
         -DENABLE_LMS=OFF
         -DENABLE_XMSS=OFF
         -DENABLE_SPHINCS=OFF
         -DENABLE_KYBER=OFF
-        -DENABLE_ZUC=OFF
+        -DENABLE_ZUC=ON
         -DENABLE_SKF=OFF
         -DENABLE_SDF=OFF
 )
