@@ -9,7 +9,9 @@ The workflow resolves missing Ubuntu runtime packages from runner APT metadata, 
 their bytes only with curl, checks the supplied package digests and extracts them privately.
 It verifies libpulse can load; no PulseAudio daemon or system package is installed.
 The workflow tests actual libpulse against an invalid address (synchronous connect failure)
-and an absent Unix socket (asynchronous connection wait failure). Log assertions require
+and an absent Unix socket (synchronous connect failures), plus an accepting Unix
+peer that closes after connect (asynchronous connection wait failure). The peer is
+a transport failure fixture; all provider calls still use real libpulse. Log assertions require
 32 visits to the intended branch. It compares known original and patched header SHA256s,
 requires the original leak, and requires clean patched ASan/UBSan/LSan process exit.
 An unsuccessfully initialized context must not be passed to ma_context_uninit.
