@@ -24,6 +24,8 @@ jobs:
           tar -xzf build-pulse/source.tar.gz --strip-components=1 -C build-pulse/original
           cp build-pulse/original/miniaudio.h build-pulse/patched/miniaudio.h
           patch --fuzz=0 -d build-pulse/patched -p1 < ports/miniaudio/pulse-init-unref.patch
+      - name: Prepare real PulseAudio runtime using curl-only package downloads
+        run: python3 tests/miniaudio-pulse/prepare-pulse.py
       - name: Compare both real PulseAudio failure branches with ASan UBSan LSan
         env:
           CC: clang

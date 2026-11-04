@@ -6,7 +6,7 @@
 typedef struct { unsigned connect_failures; unsigned wait_failures; } observations;
 static void on_log(void* data, ma_uint32 level, const char* message) {
     observations* seen = data;
-    (void)level;
+    if (level == MA_LOG_LEVEL_ERROR) fprintf(stderr, "%s\n", message);
     if (strstr(message, "Failed to connect PulseAudio context.")) ++seen->connect_failures;
     if (strstr(message, "Waiting for connection failed.")) ++seen->wait_failures;
 }

@@ -5,6 +5,9 @@ Only two failed-initialization paths gain pa_context_unref before mainloop destr
 The public failure remains MA_NO_BACKEND (-203). No backend is disabled and no fallback
 or LSan suppression is used. Products still own a single implementation translation unit.
 
+The workflow resolves missing Ubuntu runtime packages from runner APT metadata, downloads
+their bytes only with curl, checks the supplied package digests and extracts them privately.
+It verifies libpulse can load; no PulseAudio daemon or system package is installed.
 The workflow tests actual libpulse against an invalid address (synchronous connect failure)
 and an absent Unix socket (asynchronous connection wait failure). Log assertions require
 32 visits to the intended branch. It compares known original and patched header SHA256s,

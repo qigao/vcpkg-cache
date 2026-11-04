@@ -29,7 +29,8 @@ for label, directory in [("original", original), ("patched", patched)]:
         (output / f"{label}-{scenario}.log").write_text(result.stdout)
         print(f"{label} {scenario}: exit={result.returncode}", flush=True)
         print(result.stdout, flush=True)
-        marker = f"scenario={scenario} iterations=32 result=-203"
+        counts = "connect_failures=32 wait_failures=0" if scenario == "invalid-address" else "connect_failures=0 wait_failures=32"
+        marker = f"scenario={scenario} iterations=32 result=-203 {counts}"
         if marker not in result.stdout:
             raise RuntimeError("Lifecycle/error/branch assertions did not finish")
         if label == "original":
