@@ -14,6 +14,11 @@ for line in plan.splitlines():
     if not line.startswith("'"):
         continue
     url, filename, size, digest = shlex.split(line)
+    if url.startswith("mirror+file:"):
+        mirror_file, separator, package_path = url.removeprefix("mirror+file:").partition("/pool/")
+        mirror = next(line.split()[0] for line in Path(mirror_file).read_text().splitlines()
+                      if line.startswith("https://") or line.startswith("http://"))
+        url = mirror.rstrip("/") + separator + package_path
     target = root / filename
     subprocess.run(["curl", "--fail", "--location", url, "-o", str(target)], check=True)
     algorithm, expected = digest.split(":", 1)
