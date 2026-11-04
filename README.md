@@ -48,9 +48,9 @@ Accordingly, this repository must not contain a product `manifests/` tree, produ
 ## Versioned infrastructure releases
 
 The current shared **Action / registry source** release is
-[`v0.1.4`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.4).
+[`v0.1.5`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.5).
 Downstream workflows use a published version, not `@master`, for this cache
-repository's reusable Actions. `v0.1.4` adds shared native ccache installation
+repository's reusable Actions. `v0.1.5` adds the miniaudio 0.11.22#1 PulseAudio cleanup fix and retains shared native ccache installation
 to the curl-only transport, package/tool CLI, CMake entry points and Lemon tools.
 The `v0.1.0`, `v0.1.002` and `v0.1.003` tags stay immutable. Candidate PR validation can select an exact commit
 before a version is released.
@@ -63,7 +63,7 @@ The release tag versions infrastructure source and Action code; it is not a
 binary cache ABI and does not imply every platform's immutable NuGet ZIP is
 published. Native packages continue to be identified only by complete
 vcpkg ABI hashes and accepted through the existing strict cache gates.
-See [release v0.1.4](docs/releases/v0.1.4.md) and the historical
+See [release v0.1.5](docs/releases/v0.1.5.md) and the historical
 [release v0.1.0](docs/releases/v0.1.0.md).
 
 ## Shared vcpkg baseline
@@ -126,7 +126,7 @@ The MIR port keeps its pinned upstream source and executable-memory budget
 patch on Windows x64. Windows x86 and ARM64 remain unsupported. Product
 JIT/runtime tests belong to the consuming product.
 
-Consumers configure vcpkg with `v0.1.4` and select the product's actual manifest
+Consumers configure vcpkg with `v0.1.5` and select the product's actual manifest
 and triplets:
 
 ```yaml
@@ -135,7 +135,7 @@ permissions:
   packages: read
 
 steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.4
+  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.5
     with:
       mode: read
       restore-packages: "false"
@@ -192,7 +192,7 @@ Consumer L1 caches should include both the central cache revision and their own 
 
 ```yaml
 - id: shared-vcpkg
-  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.4
+  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.5
   with:
     mode: read
     restore-packages: "false"
@@ -230,7 +230,7 @@ sha256: fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305
 Consumers restore it with:
 
 ```yaml
-- uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@v0.1.4
+- uses: qigao/vcpkg-cache/.github/actions/setup-re2c-tools@v0.1.5
   with:
     version: "4.6.7"
     sha256: "fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305"
