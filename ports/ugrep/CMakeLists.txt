@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 project(ugrep LANGUAGES C CXX)
 
-# Native MSVC adapter for the same sources as upstream src/Makefile.am and
+# Native Windows adapter for the same sources as upstream src/Makefile.am and
 # lib/Makefile.am. Avoid the upstream .sln's sibling library checkouts.
-if(NOT WIN32 OR NOT MSVC)
-    message(FATAL_ERROR "This adapter requires native Windows MSVC; POSIX uses upstream configure.")
+if(NOT WIN32)
+    message(FATAL_ERROR "This adapter requires native Windows; POSIX uses upstream configure.")
 endif()
 find_package(pcre2 CONFIG REQUIRED)
 
@@ -49,5 +49,9 @@ add_executable(ugrep-indexer
     "${UGREP_SOURCE_DIR}/src/zopen.c"
 )
 target_link_libraries(ugrep-indexer PRIVATE reflex ws2_32)
+if(MINGW)
+    target_link_options(ugrep PRIVATE -static)
+    target_link_options(ugrep-indexer PRIVATE -static)
+endif()
 install(TARGETS ugrep ugrep-indexer RUNTIME DESTINATION bin)
 install(FILES "${UGREP_SOURCE_DIR}/man/ugrep.1" "${UGREP_SOURCE_DIR}/man/ugrep-indexer.1" DESTINATION share/ugrep)

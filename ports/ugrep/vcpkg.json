@@ -1,11 +1,11 @@
 {
   "name": "ugrep",
   "version": "7.8.5",
-  "port-version": 1,
+  "port-version": 2,
   "description": "Unicode-aware grep command-line tools with PCRE2 support.",
   "homepage": "https://github.com/Genivia/ugrep",
   "license": "BSD-3-Clause",
-  "supports": "native & (linux | osx | (windows & !uwp & !mingw & (x86 | x64)))",
+  "supports": "native & (linux | osx | (windows & !uwp & (x86 | x64)))",
   "dependencies": [
     "pcre2",
     {
