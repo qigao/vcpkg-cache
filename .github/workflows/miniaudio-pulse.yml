@@ -1,0 +1,36 @@
+name: Miniaudio PulseAudio failure lifecycle
+on:
+  pull_request:
+    paths:
+      - 'ports/miniaudio/**'
+      - 'tests/miniaudio-pulse/**'
+      - '.github/workflows/miniaudio-pulse.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pulse-init:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare exact original and port-patched provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-pulse/original build-pulse/patched
+          curl --fail --location https://github.com/mackron/miniaudio/archive/refs/tags/0.11.22.tar.gz -o build-pulse/source.tar.gz
+          echo '6027109fd6427eb52eea6535dded0f419d79d1a31a2bf4a1a11c1fb48485fa4e65cac04fb0b7c82811663ce86227e0527a49e681ce966934c0159ccbc1ad094c  build-pulse/source.tar.gz' | sha512sum --check
+          tar -xzf build-pulse/source.tar.gz --strip-components=1 -C build-pulse/original
+          cp build-pulse/original/miniaudio.h build-pulse/patched/miniaudio.h
+          patch --fuzz=0 -d build-pulse/patched -p1 < ports/miniaudio/pulse-init-unref.patch
+      - name: Compare both real PulseAudio failure branches with ASan UBSan LSan
+        env:
+          CC: clang
+        run: python3 tests/miniaudio-pulse/run.py build-pulse/original build-pulse/patched build-pulse/results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: miniaudio-pulse-lifecycle
+          path: build-pulse/results/*.log
+          if-no-files-found: error

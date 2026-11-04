@@ -23,6 +23,10 @@
     "vcpkg-make": {
       "baseline": "2026-07-09",
       "port-version": 1
+    },
+    "miniaudio": {
+      "baseline": "0.11.22",
+      "port-version": 1
     }
   }
 }
