@@ -1,0 +1,12 @@
+--- a/src/pkcs8.c
++++ b/src/pkcs8.c
+@@ -272,7 +272,8 @@
+ 		if (ret < 0) error_print();
+ 		return ret;
+ 	}
+-	if (*oid != OID_sm4_cbc && *oid != OID_aes256_cbc) {
++	if (*oid != OID_sm4_cbc && *oid != OID_aes128_cbc
++		&& *oid != OID_aes192_cbc && *oid != OID_aes256_cbc) {
+ 		error_print();
+ 		return -1;
+ 	}

@@ -39,3 +39,13 @@
   50 inherits the peer handshake list, intersected with local certificate policy.
 - Qualification lives in salts-core formal tests: mixed P256/P384 signatures,
   PSS handshake/PKCS1 chain, input erasure and independent standard/SM2 peers.
+
+## 2026-11-05 AES128/192 PKCS8 import
+
+- The general X509 cipher algorithm table already includes all AES CBC OIDs.
+  PBES2 import had a second whitelist admitting only SM4 and AES256; extend
+  that reader whitelist rather than adding another ASN1 decoder downstream.
+- salts-core's formal CTests qualify input bounds, exact cipher key lengths,
+  independent RSA/P256/SM2 envelopes and authenticated TLS/TLCP use. AES256
+  retains the shared maximum-iteration boundary without repeating that costly
+  KDF for every equivalent key-size branch.
