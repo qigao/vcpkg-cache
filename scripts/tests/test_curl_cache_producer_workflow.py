@@ -22,6 +22,13 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         cls.publisher = publisher
         cls.reader = reader
 
+    def test_arm64_dry_run_requires_exact_intent_before_source_build(self):
+        early = self.producer.split("      - name: Prepare native compiler", 1)[0]
+        self.assertIn('if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]', early)
+        self.assertIn('test "$EXPECTED_NATIVE_ID" = miniaudio_arm64-linux', early)
+        self.assertIn('"$EXPECTED_NATIVE_VERSION" =~', early)
+        self.assertNotIn('"$DO_PUBLISH"', early)
+
     def test_source_build_job_never_receives_package_write_permission(self):
         self.assertIn("permissions:\n  contents: read\n  packages: read", self.header)
         self.assertIn("expected_master_sha:", self.header)
@@ -69,6 +76,24 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         self.assertIn("packages: read", self.reader)
         self.assertNotIn("packages: write", self.reader)
         self.assertNotIn("setup-vcpkg-cache", self.source)
+
+    def test_arm64_miniaudio_reuses_protected_single_target_pipeline(self):
+        self.assertIn("options: [simde, wabt, miniaudio-arm64]", self.header)
+        self.assertIn("ubuntu-24.04-arm", self.producer)
+        self.assertIn("cache-contracts/miniaudio-arm64", self.producer)
+        self.assertIn("unset VCPKG_FORCE_SYSTEM_BINARIES", self.producer)
+        self.assertIn("CC=clang", self.producer)
+        self.assertIn("--write-target-plan", self.producer)
+        self.assertIn("resolved-packages.config", self.producer)
+        self.assertIn("sha256sum resolved-packages.config", self.producer)
+        self.assertIn("--check-target-plan packages.config", self.publisher)
+        self.assertIn("triplet=$native_triplet", self.publisher)
+        self.assertIn("environment: native-cache-publish", self.publisher)
+        self.assertIn("ubuntu-24.04-arm", self.reader)
+        self.assertIn("cache-contracts/miniaudio-arm64", self.reader)
+        self.assertIn("--only-binarycaching", self.reader)
+        self.assertIn("--expected-version \"$EXPECTED_NATIVE_VERSION\"", self.reader)
+        self.assertNotIn("packages: write", self.producer)
 
     def test_single_canonical_transport_and_no_old_native_provider(self):
         self.assertIn("scripts/publish-vcpkg-curl-cache.py", self.source)
