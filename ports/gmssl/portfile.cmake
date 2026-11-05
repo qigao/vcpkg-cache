@@ -72,6 +72,8 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls-memory-credentials.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-cipher-version-filter.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls-signature-policy.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-multiple-memory-identities.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-sni-dns-names.patch"
 )
 
 vcpkg_cmake_configure(
