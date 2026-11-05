@@ -1,0 +1,325 @@
+--- a/src/tls12.c
++++ b/src/tls12.c
+@@ -1613,6 +1613,8 @@
+ 	const int *local_sig_algs;
+ 	size_t local_sig_algs_cnt;
+ 	int common_sig_algs[32];
++	int signing_sig_algs[32];
++	size_t signing_sig_algs_cnt = 0;
+ 	size_t common_sig_algs_cnt = 0;
+ 	const uint8_t *ca_names;
+ 	size_t ca_names_len;
+@@ -1655,6 +1657,12 @@
+ 		return -1;
+ 	}
+ 
++	/* Validate every advertised DN even with no usable local signature/key. */
++	if (tls_authorities_issued_certificate(ca_names, ca_names_len, NULL, 0) < 0) {
++		tls_send_alert(conn, TLS_alert_decode_error);
++		return -1;
++	}
++
+ 	if (digest_update(&conn->dgst_ctx, conn->record + 5, conn->recordlen - 5) != 1) {
+ 		error_print();
+ 		return -1;
+@@ -1677,62 +1685,66 @@
+ 		error_print();
+ 		tls_send_alert(conn, TLS_alert_decode_error);
+ 		return -1;
+-	} else if (ret == 0) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_unsupported_certificate);
+-		return -1;
+-	}
+-
+-	if (tls_authorities_issued_certificate(ca_names, ca_names_len,
+-		conn->client_certs, conn->client_certs_len) != 1) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_unsupported_certificate);
+-		return -1;
+-	}
+-	if (x509_certs_get_cert_by_index(conn->client_certs, conn->client_certs_len,
+-		0, &client_cert, &client_cert_len) != 1) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_bad_certificate);
+-		return -1;
+-	}
+-	if (x509_cert_get_subject_public_key(client_cert, client_cert_len,
+-		&client_public_key) != 1) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_bad_certificate);
+-		return -1;
+-	}
+-	if ((client_public_key.algor == OID_rsa_encryption
+-			&& tls_cert_types_has_rsa_sign(cert_types, cert_types_len) != 1)
+-		|| (client_public_key.algor == OID_ec_public_key
+-			&& tls_cert_types_has_ecdsa_sign(cert_types, cert_types_len) != 1)
+-		|| (client_public_key.algor != OID_rsa_encryption
+-			&& client_public_key.algor != OID_ec_public_key)) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_unsupported_certificate);
+-		return -1;
+-	}
+-	if ((ret = tls_cert_match_signature_algorithms(client_cert, client_cert_len,
+-		common_sig_algs, common_sig_algs_cnt, &client_sig_alg)) < 0) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_bad_certificate);
+-		return -1;
+-	} else if (ret == 0) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_unsupported_certificate);
+-		return -1;
+-	}
+-	if ((ret = tls_cert_chain_match_signature_algorithms_cert(conn->client_certs, conn->client_certs_len,
+-		common_sig_algs, common_sig_algs_cnt)) < 0) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_bad_certificate);
+-		return -1;
+-	} else if (ret == 0) {
+-		error_print();
+-		tls_send_alert(conn, TLS_alert_unsupported_certificate);
+-		return -1;
+-	}
+-
+-	conn->sig_alg = client_sig_alg;
++	}
++
++	/* The range context also advertises TLS1.3 PSS. TLS1.2's local signer
++	 * implements PKCS1/ECDSA; do not label a PKCS1 signature as RSA-PSS. */
++	for (size_t i = 0; i < common_sig_algs_cnt; i++) {
++		if (common_sig_algs[i] != TLS_sig_rsa_pss_rsae_sha256)
++			signing_sig_algs[signing_sig_algs_cnt++] = common_sig_algs[i];
++	}
++
++	/* Selection belongs to this connection; the context and its keys are immutable.
++	 * An empty CA list imposes no issuer restriction (RFC 5246 7.4.4).
++	 * No suitable identity sends an empty Certificate, never an unrelated key. */
++	conn->client_certs_len = 0;
++	conn->cert_chain = NULL;
++	conn->cert_chain_len = 0;
++	conn->cert_chain_idx = 0;
++	conn->sig_alg = 0;
++	cp = conn->ctx->cert_chains;
++	len = conn->ctx->cert_chains_len;
++	for (size_t idx = 1; len && signing_sig_algs_cnt; idx++) {
++		const uint8_t *chain;
++		size_t chain_len;
++		if (tls_uint24array_from_bytes(&chain, &chain_len, &cp, &len) != 1
++			|| x509_certs_get_cert_by_index(chain, chain_len, 0, &client_cert, &client_cert_len) != 1
++			|| x509_cert_get_subject_public_key(client_cert, client_cert_len, &client_public_key) != 1) {
++			error_print();
++			tls_send_alert(conn, TLS_alert_bad_certificate);
++			return -1;
++		}
++		if ((client_public_key.algor == OID_rsa_encryption
++				&& tls_cert_types_has_rsa_sign(cert_types, cert_types_len) != 1)
++			|| (client_public_key.algor == OID_ec_public_key
++				&& tls_cert_types_has_ecdsa_sign(cert_types, cert_types_len) != 1)
++			|| (client_public_key.algor != OID_rsa_encryption
++				&& client_public_key.algor != OID_ec_public_key)) continue;
++		if (ca_names_len) {
++			ret = tls_authorities_issued_certificate(ca_names, ca_names_len, chain, chain_len);
++			if (ret < 0) { tls_send_alert(conn, TLS_alert_decode_error); return -1; }
++			if (!ret) continue;
++		}
++		ret = tls_cert_match_signature_algorithms(client_cert, client_cert_len,
++			signing_sig_algs, signing_sig_algs_cnt, &client_sig_alg);
++		if (ret < 0) { tls_send_alert(conn, TLS_alert_bad_certificate); return -1; }
++		if (!ret) continue;
++		ret = tls_cert_chain_match_signature_algorithms_cert(chain, chain_len,
++			common_sig_algs, common_sig_algs_cnt);
++		if (ret < 0) { tls_send_alert(conn, TLS_alert_bad_certificate); return -1; }
++		if (!ret) continue;
++		if (chain_len > sizeof(conn->client_certs)) {
++			tls_send_alert(conn, TLS_alert_internal_error);
++			return -1;
++		}
++		memcpy(conn->client_certs, chain, chain_len);
++		conn->client_certs_len = chain_len;
++		conn->cert_chain = chain;
++		conn->cert_chain_len = chain_len;
++		conn->cert_chain_idx = idx;
++		conn->sig_alg = client_sig_alg;
++		break;
++	}
+ 
+ 	sm2_sign_update(&conn->sign_ctx, conn->record + 5, conn->recordlen - 5);
+ 
+@@ -1790,13 +1802,17 @@
+ 	int ret;
+ 	if(conn->verbose) tls_trace("send client Certificate\n");
+ 
+-	if (conn->client_certs_len == 0) {
++	if (conn->client_certs_len == 0 && conn->protocol != TLS_protocol_tls12) {
+ 		error_print();
+ 		return -1;
+ 	}
+ 
+ 	if (conn->recordlen == 0) {
+-		if (tls_record_set_handshake_certificate(conn->record, &conn->recordlen,
++		if (!conn->client_certs_len) {
++			const uint8_t empty_list[3] = {0, 0, 0};
++			if (tls_record_set_handshake(conn->record, &conn->recordlen,
++				TLS_handshake_certificate, empty_list, sizeof(empty_list)) != 1) return -1;
++		} else if (tls_record_set_handshake_certificate(conn->record, &conn->recordlen,
+ 			conn->client_certs, conn->client_certs_len) != 1) {
+ 			error_print();
+ 			tls_send_alert(conn, TLS_alert_internal_error);
+@@ -3542,13 +3558,16 @@
+ 
+ 	case TLS_state_certificate_request:
+ 		ret = tls12_recv_certificate_request(conn);
+-		if (ret == 1) conn->client_certificate_verify = 1;
++		if (ret == 1) {
++			conn->certificate_request = 1;
++			conn->client_certificate_verify = conn->client_certs_len != 0;
++		}
+ 		next_state = TLS_state_server_hello_done;
+ 		break;
+ 
+ 	case TLS_state_server_hello_done:
+ 		ret = tls_recv_server_hello_done(conn);
+-		if (conn->client_certificate_verify)
++		if (conn->certificate_request)
+ 			next_state = TLS_state_client_certificate;
+ 		else	next_state = TLS_state_client_key_exchange;
+ 		break;
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -6254,6 +6254,11 @@
+ 		}
+ 	}
+ 
++	if (tls_authorities_issued_certificate(ca_names, ca_names_len, NULL, 0) < 0) {
++		tls13_send_alert(conn, TLS_alert_decode_error);
++		return -1;
++	}
++
+ 	// oid_filters
+ 	if (oid_filters) {
+ 		if (tls13_oid_filters_from_bytes(
+@@ -6279,26 +6284,18 @@
+ 	//	* [certificate_authorities]
+ 	//	* [oid_filter]
+ 	//
+-	if (client_cert) {
+-		// client provides no certificate
+-		if (!conn->ctx->cert_chains_len) {
+-			warning_print();
+-			conn->cert_chain = NULL;
+-			conn->cert_chain_len = 0;
+-			conn->cert_chain_idx = 0;
+-			ret = 0;
+-		} else  if ((ret = tls13_cert_chains_select(
+-			conn->ctx->cert_chains, conn->ctx->cert_chains_len,
+-			common_sig_algs, common_sig_algs_cnt,
+-			common_sig_algs_cert, common_sig_algs_cert_cnt,
+-			ca_names, ca_names_len,
+-			filters, filters_len,
+-			NULL, 0,
+-			&conn->cert_chain, &conn->cert_chain_len, &conn->cert_chain_idx, &conn->sig_alg)) < 0) {
+-			error_print();
+-			return -1;
+-		}
+-		// when ret == 0, conn->cert_chain == NULL
++	conn->cert_chain = NULL;
++	conn->cert_chain_len = 0;
++	conn->cert_chain_idx = 0;
++	conn->sig_alg = 0;
++	if (client_cert && tls13_cert_chains_select(
++		conn->ctx->cert_chains, conn->ctx->cert_chains_len,
++		common_sig_algs, common_sig_algs_cnt,
++		common_sig_algs_cert, common_sig_algs_cert_cnt,
++		ca_names, ca_names_len, filters, filters_len, NULL, 0,
++		&conn->cert_chain, &conn->cert_chain_len, &conn->cert_chain_idx, &conn->sig_alg) < 0) {
++		error_print();
++		return -1;
+ 	}
+ 
+ 	if (digest_update(&conn->dgst_ctx, conn->plain_record + 5, conn->plain_recordlen - 5) != 1) {
+@@ -9297,6 +9294,9 @@
+ 					conn->client_certs_len = conn->cert_chain_len;
+ 					conn->cert_chain_idx = 1;
+ 				}
++				/* TLS1.3 retained ClientHello for its digest, but TLS1.2 client
++				 * CertificateVerify signs the complete raw transcript. */
++				if (tls_update_transcript(conn, conn->plain_record) != 1) return -1;
+ 				ret = tls_recv_server_hello(conn);
+ 				if (ret != 1) return ret;
+ 				tls_clean_record(conn);
+--- a/src/tls_cert.c
++++ b/src/tls_cert.c
+@@ -490,52 +490,28 @@
+  return tls_ctx_add_certificate_and_keys_der(ctx, certs, certslen, key, keylen, enc_key, enc_keylen);
+ }
+ 
+-int tls_authorities_issued_certificate(const uint8_t *ca_names, size_t ca_names_len, const uint8_t *certs, size_t certslen)
+-{
+-	const uint8_t *cert;
+-	size_t certlen;
+-	const uint8_t *issuer;
+-	size_t issuer_len;
+-
+-
+-	//x509_certs_print(stderr, 0, 0, "cert_chain", certs, certslen);
+-
+-
+-	if (x509_certs_get_last(certs, certslen, &cert, &certlen) != 1
+-		|| x509_cert_get_issuer(cert, certlen, &issuer, &issuer_len) != 1) {
+-		error_print();
+-		return -1;
+-	}
+-
+-	//x509_cert_print(stderr, 0, 0, "last cert", cert, certlen);
+-
+-	//x509_name_print(stderr, 0, 0, "issuer", issuer, issuer_len);
+-
++int tls_authorities_issued_certificate(const uint8_t *ca_names, size_t ca_names_len,
++	const uint8_t *certs, size_t certslen)
++{
++	int matched = 0;
++	/* A request can name a root or an intermediate issuer. Validate the full
++	 * names vector even when an earlier name matched. These are hints, not trust. */
+ 	while (ca_names_len) {
+-		const uint8_t *p;
+-		size_t len;
+-		const uint8_t *name;
+-		size_t namelen;
+-
+-		if (tls_uint16array_from_bytes(&p, &len, &ca_names, &ca_names_len) != 1) {
+-			error_print();
+-			return -1;
+-		}
+-		if (asn1_sequence_from_der(&name, &namelen, &p, &len) != 1
+-			|| asn1_length_is_zero(len) != 1) {
+-			error_print();
+-			return -1;
+-		}
+-
+-		//x509_name_print(stderr, 0, 0, "ca", name, namelen);
+-
+-
+-		if (x509_name_equ(name, namelen, issuer, issuer_len) == 1) {
+-			return 1;
+-		}
+-	}
+-	error_print();
+-	return 0;
++		const uint8_t *p, *name;
++		size_t len, namelen;
++		const uint8_t *chain = certs;
++		size_t chainlen = certslen;
++		if (tls_uint16array_from_bytes(&p, &len, &ca_names, &ca_names_len) != 1
++			|| asn1_sequence_from_der(&name, &namelen, &p, &len) != 1 || len) return -1;
++		while (chainlen) {
++			const uint8_t *cert, *issuer;
++			size_t certlen, issuerlen;
++			if (x509_cert_from_der(&cert, &certlen, &chain, &chainlen) != 1
++				|| x509_cert_get_issuer(cert, certlen, &issuer, &issuerlen) != 1) return -1;
++			if (x509_name_equ(name, namelen, issuer, issuerlen) == 1) matched = 1;
++		}
++	}
++	return matched;
+ }
+ 
+ static int tls_cert_types_has(const uint8_t *types, size_t types_len, uint8_t wanted)
