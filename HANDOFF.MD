@@ -49,3 +49,15 @@
   independent RSA/P256/SM2 envelopes and authenticated TLS/TLCP use. AES256
   retains the shared maximum-iteration boundary without repeating that costly
   KDF for every equivalent key-size branch.
+
+## 2026-11-06 certificate time diagnostics
+
+- Record expired/not-yet-valid at the same validity check and clock sample as
+  the actual verifier failure. A later certificate rescan can misidentify the
+  first failure. Keep the original public x509_cert_check signature as a wrapper.
+- Normal, CA-purpose and TLCP verification must preserve specific failure
+  results rather than overwrite them with generic certificate errors. Successful
+  checks must leave the caller's result unchanged.
+- Malformed intervals and failed clock reads retain existing generic results;
+  TLS1.2 can reject malformed Certificate data before entering verification.
+  Qualification belongs to salts-core's formal native/independent tests.

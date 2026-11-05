@@ -78,6 +78,7 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls-client-identity-selection.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls-certificate-signatures.patch"
         "${CMAKE_CURRENT_LIST_DIR}/pkcs8-aes-key-sizes.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/x509-validity-diagnostics.patch"
 )
 
 vcpkg_cmake_configure(
