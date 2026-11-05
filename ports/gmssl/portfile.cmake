@@ -80,6 +80,7 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/pkcs8-aes-key-sizes.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-validity-diagnostics.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-validity-positions.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/x509-verification-time.patch"
 )
 
 vcpkg_cmake_configure(

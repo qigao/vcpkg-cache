@@ -1,0 +1,285 @@
+--- a/include/gmssl/x509_cer.h
++++ b/include/gmssl/x509_cer.h
+@@ -404,24 +404,28 @@
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
+ /* Optional zero-based validity-failure position in the presented chain;
+- * (size_t)-1 for success, other failures and local-only trust anchors. */
++ * (size_t)-1 for success, other failures and local-only trust anchors.
++ * verification_time is an optional borrowed certificate-validity Unix time;
++ * NULL uses the system clock. Revocation clocks are not modified. */
+ int x509_certs_verify_ex(const uint8_t *certs, size_t certslen, int certs_type,
+ 	const uint8_t *rootcerts, size_t rootcertslen,
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+-	int depth, int *verify_result, size_t *verify_index);
++	int depth, int *verify_result, size_t *verify_index, const time_t *verification_time);
+ int x509_certs_verify_tlcp(const uint8_t *certs, size_t certslen, int certs_type,
+ 	const uint8_t *rootcerts, size_t rootcertslen,
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
+ /* Optional zero-based validity-failure position in the presented chain;
+- * (size_t)-1 for success, other failures and local-only trust anchors. */
++ * (size_t)-1 for success, other failures and local-only trust anchors.
++ * verification_time is an optional borrowed certificate-validity Unix time;
++ * NULL uses the system clock. Revocation clocks are not modified. */
+ int x509_certs_verify_tlcp_ex(const uint8_t *certs, size_t certslen, int certs_type,
+ 	const uint8_t *rootcerts, size_t rootcertslen,
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+-	int depth, int *verify_result, size_t *verify_index);
++	int depth, int *verify_result, size_t *verify_index, const time_t *verification_time);
+ int x509_certs_check_name_constraints(const uint8_t *cert_chain, size_t cert_chain_len,
+ 	const uint8_t *rootcacert, size_t rootcacertlen);
+ int x509_certs_check_basic_constraints(const uint8_t *cert_chain, size_t cert_chain_len,
+--- a/src/x509_cer.c
++++ b/src/x509_cer.c
+@@ -1810,7 +1810,7 @@
+ 	return 0;
+ }
+ 
+-static int x509_cert_check_with_result(const uint8_t *cert, size_t certlen, int cert_type, int *verify_result)
++static int x509_cert_check_with_result(const uint8_t *cert, size_t certlen, int cert_type, int *verify_result, const time_t *verification_time)
+ {
+ 	int version;
+ 	const uint8_t *serial;
+@@ -1856,7 +1856,8 @@
+ 	/* RFC 5280 does not impose a minimum serial-number width. The existing
+ 	 * non-empty check above is sufficient for interoperable certificate parsing. */
+ 
+-	time(&now);
++	if (verification_time) now = *verification_time;
++	else time(&now);
+ 	if (x509_validity_check(not_before, not_after, now, -1) != 1) {
+ 		/* Report the verifier's actual time failure, preserving malformed dates
+ 		 * and unavailable clock as the generic certificate category. */
+@@ -1892,7 +1893,7 @@
+ 
+ int x509_cert_check(const uint8_t *cert, size_t certlen, int cert_type)
+ {
+-	return x509_cert_check_with_result(cert, certlen, cert_type, NULL);
++	return x509_cert_check_with_result(cert, certlen, cert_type, NULL, NULL);
+ }
+ 
+ // 这个函数应该打印到底是哪个证书验证出错了
+@@ -2002,9 +2003,9 @@
+ }
+ 
+ static int x509_cert_check_ca_for_purpose(const uint8_t *cert, size_t certlen,
+-	int entity_cert_type, int *verify_result)
+-{
+-	if (x509_cert_check_with_result(cert, certlen, X509_cert_ca, verify_result) != 1
++	int entity_cert_type, int *verify_result, const time_t *verification_time)
++{
++	if (x509_cert_check_with_result(cert, certlen, X509_cert_ca, verify_result, verification_time) != 1
+ 		|| x509_cert_check_ca_key_purpose(cert, certlen, entity_cert_type) != 1) {
+ 		error_print();
+ 		return -1;
+@@ -2019,14 +2020,14 @@
+ 	int depth, int *verify_result)
+ {
+ 	return x509_certs_verify_ex(certs, certslen, certs_type, rootcerts, rootcertslen,
+-		crl, crl_len, ocsp, ocsp_len, depth, verify_result, NULL);
++		crl, crl_len, ocsp, ocsp_len, depth, verify_result, NULL, NULL);
+ }
+ 
+ int x509_certs_verify_ex(const uint8_t *certs, size_t certslen, int certs_type,
+ 	const uint8_t *rootcerts, size_t rootcertslen,
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+-	int depth, int *verify_result, size_t *verify_index)
++	int depth, int *verify_result, size_t *verify_index, const time_t *verification_time)
+ {
+ 	int entity_cert_type;
+ 	const uint8_t *cert_chain = certs;
+@@ -2064,7 +2065,7 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+-	if (x509_cert_check_with_result(cert, certlen, entity_cert_type, verify_result) != 1) {
++	if (x509_cert_check_with_result(cert, certlen, entity_cert_type, verify_result, verification_time) != 1) {
+ 		if (verify_index && (*verify_result == X509_verify_err_expired
+ 			|| *verify_result == X509_verify_err_not_yet_valid))
+ 			*verify_index = 0;
+@@ -2092,7 +2093,7 @@
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 			return -1;
+ 		}
+-		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result) != 1) {
++		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result, verification_time) != 1) {
+ 			if (verify_index && (*verify_result == X509_verify_err_expired
+ 				|| *verify_result == X509_verify_err_not_yet_valid))
+ 				*verify_index = cert_index;
+@@ -2158,7 +2159,7 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_trust_anchor);
+ 		return -1;
+ 	}
+-	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result) != 1) {
++	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result, verification_time) != 1) {
+ 		error_print();
+ 		if (!verify_result || *verify_result == X509_verify_ok)
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+@@ -2212,14 +2213,14 @@
+ 	int depth, int *verify_result)
+ {
+ 	return x509_certs_verify_tlcp_ex(certs, certslen, certs_type, rootcerts, rootcertslen,
+-		crl, crl_len, ocsp, ocsp_len, depth, verify_result, NULL);
++		crl, crl_len, ocsp, ocsp_len, depth, verify_result, NULL, NULL);
+ }
+ 
+ int x509_certs_verify_tlcp_ex(const uint8_t *certs, size_t certslen, int certs_type,
+ 	const uint8_t *rootcerts, size_t rootcertslen,
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+-	int depth, int *verify_result, size_t *verify_index)
++	int depth, int *verify_result, size_t *verify_index, const time_t *verification_time)
+ {
+ 	int sign_cert_type;
+ 	int kenc_cert_type;
+@@ -2257,7 +2258,7 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+-	if (x509_cert_check_with_result(cert, certlen, sign_cert_type, verify_result) != 1) {
++	if (x509_cert_check_with_result(cert, certlen, sign_cert_type, verify_result, verification_time) != 1) {
+ 		if (verify_index && (*verify_result == X509_verify_err_expired
+ 			|| *verify_result == X509_verify_err_not_yet_valid))
+ 			*verify_index = 0;
+@@ -2283,7 +2284,7 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+-	if (x509_cert_check_with_result(kenc_cert, kenc_certlen, kenc_cert_type, verify_result) != 1) {
++	if (x509_cert_check_with_result(kenc_cert, kenc_certlen, kenc_cert_type, verify_result, verification_time) != 1) {
+ 		if (verify_index && (*verify_result == X509_verify_err_expired
+ 			|| *verify_result == X509_verify_err_not_yet_valid))
+ 			*verify_index = 1;
+@@ -2321,7 +2322,7 @@
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 			return -1;
+ 		}
+-		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result) != 1) {
++		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result, verification_time) != 1) {
+ 			if (verify_index && (*verify_result == X509_verify_err_expired
+ 				|| *verify_result == X509_verify_err_not_yet_valid))
+ 				*verify_index = cert_index;
+@@ -2405,7 +2406,7 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_trust_anchor);
+ 		return -1;
+ 	}
+-	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result) != 1) {
++	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result, verification_time) != 1) {
+ 		error_print();
+ 		if (!verify_result || *verify_result == X509_verify_ok)
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -865,6 +865,8 @@
+ 	uint8_t *cacerts;
+ 	size_t cacertslen;
+ 	int verify_depth;
++	int certificate_time_set;
++	time_t certificate_time; /* immutable certificate-validity time, not revocation */
+ 	int external_trust;
+ 
+ 
+@@ -1996,7 +1998,7 @@
+ 	const uint8_t *oid_filters, size_t oid_filters_len,
+ 	const uint8_t *host_name, size_t host_name_len,
+ 	int *verify_result,
+-	int *selected_sig_alg, size_t *verify_index);
++	int *selected_sig_alg, size_t *verify_index, const time_t *verification_time);
+ 
+ 
+ int tls13_cert_chains_select(const uint8_t *cert_chains, size_t cert_chains_len,
+--- a/src/tls_vrf.c
++++ b/src/tls_vrf.c
+@@ -383,7 +383,7 @@
+ 		signature_algorithms, signature_algorithms_cnt,
+ 		signature_algorithms_cert, signature_algorithms_cert_cnt,
+ 		ca_names, ca_names_len, oid_filters, oid_filters_len, host_name, host_name_len,
+-		verify_result, selected_sig_alg, NULL);
++		verify_result, selected_sig_alg, NULL, NULL);
+ }
+ 
+ int tls_cert_chain_verify_ex(
+@@ -401,7 +401,7 @@
+ 	const uint8_t *oid_filters, size_t oid_filters_len,
+ 	const uint8_t *host_name, size_t host_name_len,
+ 	int *verify_result,
+-	int *selected_sig_alg, size_t *verify_index)
++	int *selected_sig_alg, size_t *verify_index, const time_t *verification_time)
+ {
+ 	int ret;
+ 	if (verify_index) *verify_index = (size_t)-1;
+@@ -462,11 +462,11 @@
+ 		if (protocol == TLS_protocol_tlcp && cert_chain_type == X509_cert_chain_server) {
+ 			ret = x509_certs_verify_tlcp_ex(cert_chain, cert_chain_len, cert_chain_type,
+ 				cacerts, cacerts_len, crl, crl_len, ocsp, ocsp_len,
+-				verify_depth, verify_result, verify_index);
++				verify_depth, verify_result, verify_index, verification_time);
+ 		} else {
+ 			ret = x509_certs_verify_ex(cert_chain, cert_chain_len, cert_chain_type,
+ 				cacerts, cacerts_len, crl, crl_len, ocsp, ocsp_len,
+-				verify_depth, verify_result, verify_index);
++				verify_depth, verify_result, verify_index, verification_time);
+ 		}
+ 		if (ret < 0) {
+ 			error_print();
+--- a/src/tls12.c
++++ b/src/tls12.c
+@@ -1411,7 +1411,8 @@
+ 		NULL, 0,
+ 		NULL, 0,
+ 		conn->host_name, conn->host_name_len,
+-		&verify_result, &server_sig_alg, &conn->verify_certificate_index) != 1) {
++		&verify_result, &server_sig_alg, &conn->verify_certificate_index,
++		conn->ctx->certificate_time_set ? &conn->ctx->certificate_time : NULL) != 1) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+ 		tls_send_alert(conn, TLS_alert_bad_certificate);
+@@ -2887,7 +2888,8 @@
+ 		NULL, 0,
+ 		NULL, 0,
+ 		NULL, 0,
+-		&verify_result, NULL, &conn->verify_certificate_index) != 1) {
++		&verify_result, NULL, &conn->verify_certificate_index,
++		conn->ctx->certificate_time_set ? &conn->ctx->certificate_time : NULL) != 1) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+ 		tls_send_alert(conn, TLS_alert_bad_certificate);
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -6417,7 +6417,8 @@
+ 		ca_names, ca_names_len,
+ 		NULL, 0,
+ 		host_name, host_name_len,
+-		&verify_result, NULL, &conn->verify_certificate_index);
++		&verify_result, NULL, &conn->verify_certificate_index,
++		conn->ctx->certificate_time_set ? &conn->ctx->certificate_time : NULL);
+ 	if (ret < 0) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+@@ -8905,7 +8906,8 @@
+ 		ca_names, ca_names_len,
+ 		oid_filters, oid_filters_len,
+ 		NULL, 0,
+-		&verify_result, NULL, &conn->verify_certificate_index);
++		&verify_result, NULL, &conn->verify_certificate_index,
++		conn->ctx->certificate_time_set ? &conn->ctx->certificate_time : NULL);
+ 	if (ret < 0) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+--- a/src/tlcp.c
++++ b/src/tlcp.c
+@@ -850,7 +850,8 @@
+ 		NULL, 0,
+ 		NULL, 0,
+ 		conn->host_name, conn->host_name_len,
+-		&verify_result, &sig_alg, &conn->verify_certificate_index) != 1) {
++		&verify_result, &sig_alg, &conn->verify_certificate_index,
++		conn->ctx->certificate_time_set ? &conn->ctx->certificate_time : NULL) != 1) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+ 		tls_send_alert(conn, TLS_alert_bad_certificate);
