@@ -1193,7 +1193,7 @@ static int x509_plain_ec_private_key_info_from_pem(X509_KEY *key, FILE *fp)
 		|| asn1_length_is_zero(len) != 1
 		|| attrslen != 0
 		|| key->algor != OID_ec_public_key
-		|| key->algor_param != OID_secp256r1) {
+		|| (key->algor_param != OID_secp256r1 && key->algor_param != OID_sm2)) {
 		error_print();
 		goto end;
 	}

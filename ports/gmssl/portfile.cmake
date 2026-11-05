@@ -7,6 +7,7 @@ vcpkg_from_git(
         shangmi-secret-cleanup.patch
         sm2-uncompressed-point-validation.patch
         sm9-state-cleanup.patch
+        tlcp-signature-extension.patch
 )
 
 # Upstream overrides CMAKE_INSTALL_PREFIX on MSVC. vcpkg owns the install root.
