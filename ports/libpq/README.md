@@ -3,7 +3,8 @@
 The overlay uses PostgreSQL 16.9 from vcpkg baseline
 `b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01`, with no OpenSSL dependency.
 The `ssl` feature is removed, not aliased to another provider. Unix/MinGW
-configuration explicitly uses `--without-ssl`; MSVC configuration leaves
+configuration leaves upstream with_ssl=no by omitting --with-ssl (PostgreSQL
+16.9 rejects --without-ssl); MSVC configuration leaves
 its OpenSSL option unset. Default libpq dependencies and its exported CMake
 and pkg-config link interfaces must not pull in OpenSSL or BoringSSL.
 
