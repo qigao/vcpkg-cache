@@ -73,3 +73,15 @@
   verifier entry points as wrappers and retain the original verification order.
 - The TLS_CONNECT layout changes: qualify the archive and headers together
   through salts-core's full graph and formal ABI/native/independent CTests.
+
+## 2026-11-06 certificate verification time
+
+- The context owns an optional fixed certificate-validity time. Route it through
+  TLS1.2 client/server, TLS1.3 client/server and TLCP server authentication into
+  leaf, intermediate and local-anchor checks. NULL retains system-clock checks.
+- The original verifier wrappers retain system time. The extended verifier
+  signatures and TLS_CTX layout change together with this provider revision;
+  downstream headers/archive pins must move together. No global clock state.
+- This option only controls certificate validity: CRL/OCSP and additional peer
+  policy freshness clocks keep their existing contracts. Qualification lives
+  in salts-core's formal native/independent CTests, not a separate consumer.
