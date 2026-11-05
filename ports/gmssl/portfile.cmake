@@ -4,6 +4,10 @@ vcpkg_from_git(
     REF 7c9f02904ef33e59c87b4f16621cc8fd434e7579
     PATCHES
         p256-ecdsa-der-signature-parsing.patch
+        shangmi-secret-cleanup.patch
+        sm2-uncompressed-point-validation.patch
+        sm9-state-cleanup.patch
+        tlcp-signature-extension.patch
 )
 
 # Upstream overrides CMAKE_INSTALL_PREFIX on MSVC. vcpkg owns the install root.
@@ -21,17 +25,17 @@ vcpkg_replace_string(
     "add_library(gmssl STATIC \${src})"
 )
 
-# Native C/H extensions live solely in qigao/crypto.
-# This is a pinned SOURCE-ONLY fetch, not a second GmSSL package dependency.
-# vcpkg builds these same sources once into its GmSSL static archive; the
-# installed Salts::Crypto later embeds that archive, without rebuilding them.
+# Extensions are source-owned by qigao/salts-core/crypto/gmssl-extensions.
+# Fetch their exact immutable source commit only; vcpkg builds them exactly
+# once into this one static GmSSL archive. Downstream Salts::Crypto LINKS the
+# installed GmSSL target and MUST NOT compile a duplicate native source tree.
 vcpkg_from_git(
     OUT_SOURCE_PATH GMSSL_CRYPTO_REPO
-    URL "https://github.com/qigao/crypto.git"
-    REF d88d90dfd81df2320e6d47a92ad58c1eac9e0a17
+    URL "https://github.com/qigao/salts-core.git"
+    REF 720abc55eca41cc7f676d0b5dbb38e8605d091b9
 )
 set(GMSSL_CRYPTO_EXTENSIONS_SOURCE
-    "${GMSSL_CRYPTO_REPO}/vendor/gmssl-extensions")
+    "${GMSSL_CRYPTO_REPO}/crypto/gmssl-extensions")
 foreach(_gmssl_extension IN ITEMS
     src/aes_key_wrap.c
     src/des.c
@@ -59,6 +63,16 @@ include("${CMAKE_CURRENT_LIST_DIR}/overlays-01.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/overlays-02.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/overlays-03.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/overlays-04.cmake")
+vcpkg_apply_patches(
+    SOURCE_PATH "${SOURCE_PATH}"
+    PATCHES
+        "${CMAKE_CURRENT_LIST_DIR}/tls12-range-negotiation.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-response.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-peer-key-update-limit.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-memory-credentials.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-cipher-version-filter.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-signature-policy.patch"
+)
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
@@ -71,13 +85,13 @@ vcpkg_cmake_configure(
         -DENABLE_SHA1=ON
         -DENABLE_CHACHA20=OFF
         -DENABLE_GHASH=OFF
-        -DENABLE_SM9=OFF
-        -DENABLE_CMS=OFF
+        -DENABLE_SM9=ON
+        -DENABLE_CMS=ON
         -DENABLE_LMS=OFF
         -DENABLE_XMSS=OFF
         -DENABLE_SPHINCS=OFF
         -DENABLE_KYBER=OFF
-        -DENABLE_ZUC=OFF
+        -DENABLE_ZUC=ON
         -DENABLE_SKF=OFF
         -DENABLE_SDF=OFF
 )

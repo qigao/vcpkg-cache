@@ -1,0 +1,212 @@
+diff --git a/src/sm9_sign.c b/src/sm9_sign.c
+--- a/src/sm9_sign.c
++++ b/src/sm9_sign.c
+@@ -124,7 +124,9 @@
+ int sm9_do_sign(const SM9_SIGN_KEY *key, const SM3_CTX *sm3_ctx, SM9_SIGNATURE *sig)
+ {
+ 	sm9_z256_t r;
+-	sm9_z256_fp12_t g;
++	sm9_z256_fp12_t g, w;
++	int ret = -1;
++	unsigned attempts = 0;
+ 	uint8_t wbuf[32 * 12];
+ 	SM3_CTX ctx = *sm3_ctx;
+ 	SM3_CTX tmp_ctx;
+@@ -136,15 +138,19 @@
+ 	sm9_z256_pairing(g, &key->Ppubs, sm9_z256_generator());
+ 
+ 	do {
++		if (++attempts > 128) goto end;
++		ctx = *sm3_ctx;
+ 		// A2: rand r in [1, N-1]
+ 		if (sm9_z256_rand_range(r, sm9_z256_order()) != 1) {
+ 			error_print();
+-			return -1;
++			goto end;
+ 		}
+ 
++		if (sm9_z256_is_zero(r)) continue;
++
+ 		// A3: w = g^r
+-		sm9_z256_fp12_pow(g, g, r);
+-		sm9_z256_fp12_to_bytes(g, wbuf);
++		sm9_z256_fp12_pow(w, g, r);
++		sm9_z256_fp12_to_bytes(w, wbuf);
+ 
+ 		// A4: h = H2(M || w, N)
+ 		sm3_update(&ctx, wbuf, sizeof(wbuf));
+@@ -163,13 +169,17 @@
+ 	// A6: S = l * dsA
+ 	sm9_z256_point_mul(&sig->S, r, &key->ds);
+ 
++	ret = 1;
++end:
++	gmssl_secure_clear(&w, sizeof(w));
++	gmssl_secure_clear(&ctx, sizeof(ctx));
+ 	gmssl_secure_clear(&r, sizeof(r));
+ 	gmssl_secure_clear(&g, sizeof(g));
+ 	gmssl_secure_clear(wbuf, sizeof(wbuf));
+ 	gmssl_secure_clear(&tmp_ctx, sizeof(tmp_ctx));
+ 	gmssl_secure_clear(Ha, sizeof(Ha));
+ 
+-	return 1;
++	return ret;
+ }
+ 
+ int sm9_verify_init(SM9_SIGN_CTX *ctx)
+diff --git a/src/sm9_key.c b/src/sm9_key.c
+--- a/src/sm9_key.c
++++ b/src/sm9_key.c
+@@ -467,6 +467,7 @@
+ 	if (sm9_z256_is_zero(t)) {
+ 		// TODO: when this happen, the admin should re-generate the MSK. Some speciall error/warning should return on this!			
+ 		error_print();
++		gmssl_secure_clear(t, sizeof(t));
+ 		return -1;
+ 	}
+ 
+@@ -478,6 +479,7 @@
+ 	sm9_z256_point_mul_generator(&key->ds, t);
+ 	key->Ppubs = msk->Ppubs;
+ 
++	gmssl_secure_clear(t, sizeof(t));
+ 	return 1;
+ }
+ 
+@@ -491,6 +493,7 @@
+ 	sm9_z256_modn_add(t, t, msk->ke);
+ 	if (sm9_z256_is_zero(t)) {
+ 		error_print();
++		gmssl_secure_clear(t, sizeof(t));
+ 		return -1;
+ 	}
+ 
+@@ -502,6 +505,7 @@
+ 	sm9_z256_twist_point_mul_generator(&key->de, t);
+ 	key->Ppube = msk->Ppube;
+ 
++	gmssl_secure_clear(t, sizeof(t));
+ 	return 1;
+ }
+ 
+@@ -515,6 +519,7 @@
+ 	sm9_z256_modn_add(t, t, msk->ke);
+ 	if (sm9_z256_is_zero(t)) {
+ 		error_print();
++		gmssl_secure_clear(t, sizeof(t));
+ 		return -1;
+ 	}
+ 
+@@ -526,6 +531,7 @@
+ 	sm9_z256_twist_point_mul_generator(&key->de, t);
+ 	key->Ppube = msk->Ppube;
+ 
++	gmssl_secure_clear(t, sizeof(t));
+ 	return 1;
+ }
+ 
+diff --git a/src/sm9_enc.c b/src/sm9_enc.c
+--- a/src/sm9_enc.c
++++ b/src/sm9_enc.c
+@@ -22,26 +22,35 @@
+ int sm9_kem_encrypt(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t idlen,
+ 	size_t klen, uint8_t *kbuf, SM9_Z256_POINT *C)
+ {
++	int ret = -1;
++	unsigned attempts = 0;
++	SM9_Z256_POINT Q;
+ 	sm9_z256_t r;
+ 	sm9_z256_fp12_t w;
+ 	uint8_t wbuf[32 * 12];
+ 	uint8_t cbuf[65];
+ 	SM3_KDF_CTX kdf_ctx;
+ 
++	if (!mpk || !id || !idlen || !klen || !kbuf || !C) return -1;
++
+ 	// A1: Q = H1(ID||hid,N) * P1 + Ppube
+ 	sm9_z256_hash1(r, id, idlen, SM9_HID_ENC);
+-	sm9_z256_point_mul(C, r, sm9_z256_generator());
+-	sm9_z256_point_add(C, C, &mpk->Ppube);
++	sm9_z256_point_mul(&Q, r, sm9_z256_generator());
++	sm9_z256_point_add(&Q, &Q, &mpk->Ppube);
++	if (sm9_z256_point_is_at_infinity(&Q)) goto end;
+ 
+ 	do {
++		if (++attempts > 128) goto end;
+ 		// A2: rand r in [1, N-1]
+ 		if (sm9_z256_rand_range(r, sm9_z256_order()) != 1) {
+ 			error_print();
+-			return -1;
++			goto end;
+ 		}
+ 
++		if (sm9_z256_is_zero(r)) goto end;
++
+ 		// A3: C1 = r * Q
+-		sm9_z256_point_mul(C, r, C);
++		sm9_z256_point_mul(C, r, &Q);
+ 		sm9_z256_point_to_uncompressed_octets(C, cbuf);
+ 
+ 		// A4: g = e(Ppube, P2)
+@@ -60,27 +69,34 @@
+ 
+ 	} while (mem_is_zero(kbuf, klen) == 1);
+ 
++	ret = 1;
++end:
++	if (ret != 1) gmssl_secure_clear(kbuf, klen);
++	gmssl_secure_clear(&Q, sizeof(Q));
+ 	gmssl_secure_clear(&r, sizeof(r));
+ 	gmssl_secure_clear(&w, sizeof(w));
+ 	gmssl_secure_clear(wbuf, sizeof(wbuf));
+ 	gmssl_secure_clear(&kdf_ctx, sizeof(kdf_ctx));
+ 
+ 	// A7: output (K, C)
+-	return 1;
++	return ret;
+ }
+ 
+ int sm9_kem_decrypt(const SM9_ENC_KEY *key, const char *id, size_t idlen, const SM9_Z256_POINT *C,
+ 	size_t klen, uint8_t *kbuf)
+ {
++	int ret = -1;
+ 	sm9_z256_fp12_t w;
+ 	uint8_t wbuf[32 * 12];
+ 	uint8_t cbuf[65];
+ 	SM3_KDF_CTX kdf_ctx;
+ 
++	if (!key || !id || !idlen || !C || !klen || !kbuf) return -1;
++
+ 	// B1: check C in G1
+-	if (sm9_z256_point_is_on_curve(C) != 1) {
+-		error_print();
+-		return -1;
++	if (sm9_z256_point_is_at_infinity(C) || sm9_z256_point_is_on_curve(C) != 1) {
++		error_print();
++		goto end;
+ 	}
+ 	sm9_z256_point_to_uncompressed_octets(C, cbuf);
+ 
+@@ -97,15 +113,18 @@
+ 
+ 	if (mem_is_zero(kbuf, klen)) {
+ 		error_print();
+-		return -1;
+-	}
+-
++		goto end;
++	}
++
++	ret = 1;
++end:
++	if (ret != 1) gmssl_secure_clear(kbuf, klen);
+ 	gmssl_secure_clear(&w, sizeof(w));
+ 	gmssl_secure_clear(wbuf, sizeof(wbuf));
+ 	gmssl_secure_clear(&kdf_ctx, sizeof(kdf_ctx));
+ 
+ 	// B4: output K
+-	return 1;
++	return ret;
+ }
+ 
+ int sm9_do_encrypt(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t idlen,

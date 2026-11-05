@@ -229,6 +229,23 @@ class ExactRe2cPackage(unittest.TestCase):
         with mock.patch.dict(os.environ, {"RUNNER_OS": "macOS", "RUNNER_ARCH": "X64"}):
             self.reject(self.make_package(), message="missing re2c package file: tools/macos-x64")
 
+    def test_windows_arm64_selects_its_native_payload(self):
+        root = "tools/windows-arm64"
+        extra = (
+            (f"{root}/bin/re2c.exe", b"MZarm64fixture"),
+            (f"{root}/share/re2c/stdlib/syntax/c", b"syntax\n"),
+            (f"{root}/share/re2c/stdlib/unicode_categories.re", b"categories\n"),
+            (f"{root}/share/re2c/stdlib/unicode_properties.re", b"properties\n"),
+        )
+        archive = self.make_package(extra=extra)
+        digest = packages.sha256(archive)
+        with mock.patch.dict(os.environ, {"RUNNER_OS": "Windows", "RUNNER_ARCH": "ARM64"}), \
+                mock.patch.object(packages.subprocess, "run") as execute:
+            packages.restore_re2c(self.feed(archive), self.destination, VERSION, digest)
+        command = execute.call_args.args[0]
+        self.assertEqual(Path(command[0]).name, "re2c.exe")
+        self.assertIn("tools/windows-arm64/bin/re2c.exe", Path(command[0]).as_posix())
+
     def test_cli_requires_both_lock_arguments_before_authentication(self):
         for extra in ([], ["--version", VERSION], ["--sha256", "a" * 64]):
             with self.subTest(extra=extra), redirect_stderr(io.StringIO()):

@@ -1,0 +1,150 @@
+name: Set up Windows llvm-mingw
+description: Install the selected immutable llvm-mingw UCRT package; no Clang validation or smoke CI.
+inputs:
+  version:
+    description: Windows llvm-mingw release tag (MinGW-specific)
+    default: "20261020"
+    required: false
+  target:
+    description: Windows target CPU
+    default: x64
+    required: false
+  build-type:
+    description: Product build configuration; does not trigger compiler tests
+    default: toolchain-only
+    required: false
+  obfuscator:
+    description: Set true to prepare and activate obfuscator-llvm for all product C/C++ compilation.
+    default: "false"
+    required: false
+  plugin-path:
+    description: Existing Windows-host plugin path, or empty for pinned source-build.
+    default: ""
+    required: false
+  obfuscation-seed:
+    description: Obfuscation pass seed
+    default: "0xA04252B187478C00A40BC6D81D1A8A52"
+    required: false
+  install-root:
+    description: Optional fresh absolute toolchain folder
+    default: ""
+    required: false
+outputs:
+  root:
+    value: ${{ steps.install.outputs.root }}
+  cc:
+    value: ${{ steps.install.outputs.cc }}
+  cxx:
+    value: ${{ steps.install.outputs.cxx }}
+  host-cxx:
+    value: ${{ steps.install.outputs.host-cxx }}
+  ar:
+    value: ${{ steps.install.outputs.ar }}
+  rc:
+    value: ${{ steps.install.outputs.rc }}
+  toolchain-file:
+    value: ${{ steps.install.outputs.toolchain-file }}
+  dependency-toolchain-file:
+    value: ${{ steps.install.outputs.dependency-toolchain-file }}
+  host-dependency-toolchain-file:
+    value: ${{ steps.install.outputs.host-dependency-toolchain-file }}
+  target-triple:
+    value: ${{ steps.install.outputs.target-triple }}
+  version:
+    value: ${{ steps.install.outputs.version }}
+  archive-sha256:
+    value: ${{ steps.install.outputs.archive-sha256 }}
+  obfuscator-enabled:
+    value: ${{ steps.obfuscator.outputs.enabled || 'false' }}
+  plugin-path:
+    value: ${{ steps.obfuscator.outputs.plugin-path }}
+  obfuscator-compile-flag:
+    value: ${{ steps.obfuscator.outputs.compile-flag }}
+  vcpkg-triplet:
+    value: ${{ steps.install.outputs.vcpkg-triplet }}
+  compiler-obfuscation-cmake:
+    value: ${{ steps.obfuscator.outputs.cmake-file }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install Windows llvm-mingw toolchain
+      id: install
+      shell: pwsh
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_BUILD_TYPE: ${{ inputs.build-type }}
+        INPUT_OBFUSCATOR: ${{ inputs.obfuscator }}
+        INPUT_PLUGIN_PATH: ${{ inputs.plugin-path }}
+        INPUT_OBF_SEED: ${{ inputs.obfuscation-seed }}
+        INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
+        HOST_OS: ${{ runner.os }}
+        HOST_ARCH: ${{ runner.arch }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $repo = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $installer = Join-Path $repo 'scripts/setup-compiler-toolchain.py'
+        $destination = $env:INPUT_INSTALL_ROOT
+        if (-not $destination) {
+          $destination = Join-Path $env:RUNNER_TEMP "qigao-llvm-mingw-$env:INPUT_VERSION-$env:HOST_OS-$env:HOST_ARCH-$env:INPUT_TARGET"
+        }
+        if ($env:INPUT_OBFUSCATOR -notin @('true', 'false')) {
+          throw 'obfuscator must be true or false'
+        }
+        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo') -and
+            $env:INPUT_OBFUSCATOR -ne 'true') {
+          throw 'Protected Windows Release requires obfuscator: true'
+        }
+        if ($env:INPUT_OBFUSCATOR -ne 'true' -and $env:INPUT_PLUGIN_PATH) {
+          throw 'plugin-path requires obfuscator: true'
+        }
+        if ($env:INPUT_BUILD_TYPE -in @('Release', 'MinSizeRel', 'RelWithDebInfo') -and
+            $env:INPUT_TARGET -notin @('x64', 'arm64')) {
+          throw 'Protected Windows Release uses llvm-mingw x64 or arm64 only'
+        }
+        $argv = @('--compiler', 'llvm-mingw', '--version', $env:INPUT_VERSION,
+                  '--target', $env:INPUT_TARGET,
+                  '--build-type', $env:INPUT_BUILD_TYPE,
+                  '--runner-os', $env:HOST_OS, '--runner-arch', $env:HOST_ARCH,
+                  '--destination', $destination,
+                  '--github-output', $env:GITHUB_OUTPUT,
+                  '--github-env', $env:GITHUB_ENV,
+                  '--github-path', $env:GITHUB_PATH)
+        & python $installer @argv
+        if ($LASTEXITCODE -ne 0) { throw 'Windows llvm-mingw package install failed' }
+        if ($env:INPUT_TARGET -in @('x64','arm64')) {
+          $triplet = "qigao-$env:INPUT_TARGET-windows-llvm-mingw"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "vcpkg-triplet=$triplet"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "LLVM_MINGW_VCPKG_TRIPLET=$triplet"
+        }
+    - name: Prepare pinned obfuscator-llvm source or existing host plugin
+      id: obfuscator
+      if: inputs.obfuscator == 'true'
+      shell: pwsh
+      env:
+        COMPILER_CXX: ${{ steps.install.outputs.host-cxx }}
+        DECODE_COMPILER: ${{ steps.install.outputs.cc }}
+        COMPILER_ROOT: ${{ steps.install.outputs.root }}
+        PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
+        OBF_SEED: ${{ inputs.obfuscation-seed }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $repo = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $argv = @('--repo-root',$repo,
+                  '--compiler-cxx',$env:COMPILER_CXX,
+                  '--decode-compiler',$env:DECODE_COMPILER,
+                  '--plugin-path',$env:PROVIDED_PLUGIN,
+                  '--output-root',(Join-Path $env:RUNNER_TEMP 'qigao-obfuscator-llvm'),
+                  '--seed',$env:OBF_SEED,
+                  '--github-env',$env:GITHUB_ENV,
+                  '--github-output',$env:GITHUB_OUTPUT)
+        if ($env:RUNNER_OS -eq 'Windows') {
+          $argv += @('--windows-toolchain-root',$env:COMPILER_ROOT)
+        }
+        & python (Join-Path $repo 'scripts/setup-obfuscator-llvm.py') @argv
+        if ($LASTEXITCODE -ne 0) {
+          throw 'Required obfuscator-llvm plugin installation failed, no unprotected fallback'
+        }

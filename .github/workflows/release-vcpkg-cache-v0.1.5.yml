@@ -1,0 +1,142 @@
+name: Publish versioned vcpkg-cache source v0.1.5
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/release-vcpkg-cache-v0.1.5.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcpkg-cache-source-release-v0.1.5
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish exact approved source and unchanged tool assets
+    if: github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify exact approved master and immutable previous versions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
+          test "$GITHUB_REF" = refs/heads/master
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
+          test "$(git ls-remote --exit-code https://github.com/qigao/vcpkg-cache.git refs/heads/master | cut -f1)" = "$GITHUB_SHA"
+          if git ls-remote --exit-code https://github.com/qigao/vcpkg-cache.git refs/tags/v0.1.5 >/dev/null 2>&1; then
+            echo 'v0.1.5 already exists; refusing to replace an immutable version' >&2
+            exit 1
+          fi
+          if gh release view v0.1.5 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'v0.1.5 Release already exists; refusing overwrite' >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo, commit = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/{path}'], text=True))
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          associated = api(f'commits/{commit}/pulls')
+          matches = [p for p in associated if p.get('merge_commit_sha') == commit
+                     and p.get('merged_at') and p['base']['ref'] == 'master']
+          assert len(matches) == 1, 'release must be one exact approved PR merge'
+          pull = api(f"pulls/{matches[0]['number']}")
+          approved = pull['head']['sha']
+          assert pull['merged'] and pull['merge_commit_sha'] == commit
+          assert api(f'git/commits/{approved}')['tree']['sha'] == git('rev-parse', 'HEAD^{tree}')
+          runs = api(f'actions/runs?head_sha={approved}&event=pull_request&per_page=100')['workflow_runs']
+          for name in ('Validate vcpkg cache contract',):
+              matching = [r for r in runs if r['name'] == name and r['head_sha'] == approved]
+              assert matching, f'missing exact-HEAD qualification: {name}'
+              latest = max(matching, key=lambda r: (r['id'], r.get('run_attempt', 1)))
+              assert latest['status'] == 'completed' and latest['conclusion'] == 'success', name
+          previous = {
+              'v0.1.0': '05a10d73a5b1d01598e59d8cf34074513bd49df4',
+              'v0.1.002': 'd9f34af3f7bcad5ae2c8abf4ec95c7e93ad5d761',
+              'v0.1.003': '079d0a536060f8dd70b88ee2b6c4dc60321f36f7',
+              'v0.1.4': '65da6a0d0690059fc15b073c2a649d99ca26aa03',
+          }
+          for tag, expected in previous.items():
+              assert git('rev-parse', f'{tag}^{{commit}}') == expected, f'immutable tag moved: {tag}'
+          subprocess.run(['git', 'merge-base', '--is-ancestor',
+                          'c56ffe4f5911d33387eea088267cf4acda3821cc', commit], check=True)
+          tested = 'd8bd0ad88943d81d1ed98c90aa0834a4294df4f7'
+          source_pr = api('pulls/279')
+          assert source_pr['merged'] and source_pr['head']['sha'] == tested
+          for path in ('ports/miniaudio', 'tests/miniaudio-pulse', '.github/workflows/miniaudio-pulse.yml',
+                       'versions/m-/miniaudio.json', 'versions/baseline.json'):
+              assert git('rev-parse', f'{tested}:{path}') == git('rev-parse', f'HEAD:{path}'), path
+          runs = api(f'actions/runs?head_sha={tested}&event=pull_request&per_page=100')['workflow_runs']
+          for name in ('Miniaudio PulseAudio failure lifecycle', 'Validate vcpkg cache contract',
+                       'Validate GmSSL registry contract', 'WABT current master source CI (NO PUBLISH)'):
+              latest = max((r for r in runs if r['name'] == name), key=lambda r: r['id'])
+              assert latest['status'] == 'completed' and latest['conclusion'] == 'success', name
+          port = json.loads(Path('ports/miniaudio/vcpkg.json').read_text())
+          assert port['version'] == '0.11.22' and port['port-version'] == 1
+          # Exact installer bytes exercised by existing CMeta/SaltsUtils CI.
+          assert git('rev-parse', 'HEAD:.github/actions/setup-ccache/action.yml') == '5f9227bb6f500605172258864f005f35e2bbf4ce'
+          assert Path('docs/releases/v0.1.5.md').is_file()
+          assert Path('cache-contract-version.txt').read_text().strip() == '8'
+          print(f"Admitted PR #{pull['number']} source {approved} for v0.1.5 at {commit}")
+          PY
+      - name: Run existing curl transport and package tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
+      - name: Reuse the exact published Lemon assets without rebuilding or republishing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('release_packages', 'scripts/github-packages.py')
+          packages = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(packages)
+          pins = {
+              'Qigao.Lemon.Binary.1.0.0.nupkg': '92539e4d99c38657fa69f0bdaea73be2b35f6572cb6a9264731ae58a6da073cd',
+              'lemon.lock.json': '4f29190bc754b2f53bda5233d61de1df620923a4a15a290d08ef697d42bdc058',
+              'SHA256SUMS': '552dd7e89239a680dc9432bc64c6cd35c2956ff273d7d2c795f80e05bdcb2053',
+          }
+          Path('dist').mkdir()
+          client = packages.Curl()
+          for name, expected in pins.items():
+              path = Path('dist') / name
+              packages.release_asset(client, 'qigao/vcpkg-cache', 'v0.1.003', name, path)
+              assert packages.sha256(path) == expected, f'published asset changed: {name}'
+          PY
+          python3 packaging/lemon/package.py verify --archive dist/*.nupkg --lock dist/lemon.lock.json
+      - name: Publish v0.1.5 with versioned source and verified existing tool assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v0.1.5 dist/*.nupkg dist/lemon.lock.json dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+            --title "vcpkg-cache v0.1.5" --notes-file docs/releases/v0.1.5.md
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.1.5" --jq '.object.sha')" = "$GITHUB_SHA"
+          gh release view v0.1.5 --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease,url

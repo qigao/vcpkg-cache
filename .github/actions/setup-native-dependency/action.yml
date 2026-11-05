@@ -1,0 +1,112 @@
+name: Restore a locked native package or tool
+description: Curl-only, SHA-256 verified package/tool restore using the shared local CLI.
+
+inputs:
+  token:
+    description: GitHub Packages read token; unused for public tool URLs.
+    required: false
+    default: ""
+  lock-file:
+    description: JSON lock from the explicit CLI resolve command; mutually exclusive with package-id/version/url.
+    required: false
+    default: ""
+  package-id:
+    description: Exact qigao GitHub Packages ID; supply with version, or use url.
+    required: false
+    default: ""
+  version:
+    description: Exact package version; no latest or floating requirements.
+    required: false
+    default: ""
+  url:
+    description: Public HTTPS GitHub .zip or .tar.xz URL; mutually exclusive with package-id/version.
+    required: false
+    default: ""
+  sha256:
+    description: SHA-256 of the entire archive; required unless lock-file supplies it.
+    required: false
+    default: ""
+  destination:
+    description: Fresh installation directory; existing installations are never replaced.
+    required: true
+  payload:
+    description: Relative payload root; choose the host/target explicitly.
+    required: false
+    default: "."
+  required-files:
+    description: Newline-separated nonempty files required under the selected payload.
+    required: false
+    default: ""
+  executables:
+    description: Newline-separated required files to grant execute bits; setup never executes them.
+    required: false
+    default: ""
+  add-path:
+    description: Newline-separated payload directories to append to GITHUB_PATH.
+    required: false
+    default: ""
+  env-prefix:
+    description: Optional uppercase prefix for PREFIX_ROOT, PREFIX_SHA256 and PREFIX_RECEIPT.
+    required: false
+    default: ""
+
+outputs:
+  root:
+    description: Absolute selected payload path with forward slashes, suitable for CMake.
+    value: ${{ steps.restore.outputs.root }}
+  receipt:
+    description: JSON download/installation receipt path.
+    value: ${{ steps.restore.outputs.receipt }}
+  sha256:
+    description: Verified archive SHA-256.
+    value: ${{ steps.restore.outputs.sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Download, verify and restore the selected payload
+      id: restore
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token }}
+        NATIVE_ACTION_PATH: ${{ github.action_path }}
+        NATIVE_LOCK_FILE: ${{ inputs.lock-file }}
+        NATIVE_PACKAGE_ID: ${{ inputs.package-id }}
+        NATIVE_VERSION: ${{ inputs.version }}
+        NATIVE_URL: ${{ inputs.url }}
+        NATIVE_SHA256: ${{ inputs.sha256 }}
+        NATIVE_DESTINATION: ${{ inputs.destination }}
+        NATIVE_PAYLOAD: ${{ inputs.payload }}
+        NATIVE_REQUIRED: ${{ inputs.required-files }}
+        NATIVE_EXECUTABLES: ${{ inputs.executables }}
+        NATIVE_ADD_PATH: ${{ inputs.add-path }}
+        NATIVE_ENV_PREFIX: ${{ inputs.env-prefix }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $cli = Join-Path $env:NATIVE_ACTION_PATH '../../../scripts/restore-native-dependency.py'
+        if ($env:NATIVE_LOCK_FILE) {
+          if ($env:NATIVE_PACKAGE_ID -or $env:NATIVE_VERSION -or $env:NATIVE_URL) { throw 'Use lock-file OR package-id/version OR url' }
+          $arguments = @($cli, 'locked', $env:NATIVE_LOCK_FILE)
+        } elseif ($env:NATIVE_URL) {
+          if ($env:NATIVE_PACKAGE_ID -or $env:NATIVE_VERSION) { throw 'Use package-id/version OR url' }
+          $arguments = @($cli, 'url', $env:NATIVE_URL)
+        } else {
+          if (-not $env:NATIVE_PACKAGE_ID -or -not $env:NATIVE_VERSION) { throw 'package-id and version are required together' }
+          $arguments = @($cli, 'package', $env:NATIVE_PACKAGE_ID, $env:NATIVE_VERSION)
+        }
+        $arguments += @('--destination', $env:NATIVE_DESTINATION,
+                        '--payload', $env:NATIVE_PAYLOAD, '--github-output')
+        if ($env:NATIVE_SHA256) { $arguments += @('--sha256', $env:NATIVE_SHA256) }
+        if ($env:NATIVE_ENV_PREFIX) { $arguments += @('--env-prefix', $env:NATIVE_ENV_PREFIX) }
+        foreach ($pair in @(@('--require', $env:NATIVE_REQUIRED),
+                            @('--executable', $env:NATIVE_EXECUTABLES),
+                            @('--add-path', $env:NATIVE_ADD_PATH))) {
+          foreach ($line in ($pair[1] -split '\r?\n')) {
+            if ($line -ne '') { $arguments += @($pair[0], $line) }
+          }
+        }
+        & python @arguments
+        if ($LASTEXITCODE -ne 0) { throw 'Locked native dependency restore failed' }

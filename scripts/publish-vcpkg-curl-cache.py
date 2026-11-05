@@ -228,7 +228,8 @@ def resource(feed: packages.NugetFeed) -> str:
     uri = urlsplit(endpoints[0])
     if (uri.scheme != "https" or uri.hostname != "nuget.pkg.github.com"
             or uri.username or uri.password or uri.port not in (None, 443)
-            or not uri.path.startswith("/qigao/") or uri.query or uri.fragment):
+            or not (uri.path == "/qigao" or uri.path.startswith("/qigao/"))
+            or uri.query or uri.fragment):
         raise ValueError("untrusted GitHub Packages publish endpoint")
     return endpoints[0]
 
@@ -252,7 +253,9 @@ def upload(client: packages.Curl, endpoint: str, archive: Path) -> None:
         result = subprocess.run(command, input=config, text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         status = result.stdout[-3:]
-        if result.returncode != 0 or status not in ("201", "202"):
+        # GitHub's canonical owner-root NuGet PUT returns 200. Acceptance is
+        # followed by callers' exact archive readback; it is not final success.
+        if result.returncode != 0 or status not in ("200", "201", "202"):
             raise ValueError(f"NuGet V3 publish rejected or ambiguous: HTTP {status}, curl={result.returncode}")
     print(f"NuGet V3 publisher accepted uploaded payload SHA256={packages.sha256(archive)}", flush=True)
 

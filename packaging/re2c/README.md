@@ -10,11 +10,13 @@ C/C++ CI pipelines.
 - `tools/linux-x64/bin/re2c` plus `tools/linux-x64/share/re2c/stdlib/`
 - `tools/linux-arm64/bin/re2c` plus `tools/linux-arm64/share/re2c/stdlib/`
 - `tools/windows-x64/bin/re2c.exe` plus `tools/windows-x64/share/re2c/stdlib/`
+- `tools/windows-arm64/bin/re2c.exe` plus `tools/windows-arm64/share/re2c/stdlib/`
+- `tools/macos-x64/bin/re2c` plus `tools/macos-x64/share/re2c/stdlib/`
 - `tools/macos-arm64/bin/re2c` plus `tools/macos-arm64/share/re2c/stdlib/`
 
-These are the four host RIDs in the published 4.6.4 package. The producer checks
-that every RID retains its executable, both Unicode tables and the C syntax
-file. macOS x64 is not present; an ARM64 executable is not an x64 substitute.
+The 4.6.6 producer requires all six product CI host RIDs. Every RID retains its
+native executable, both Unicode tables and the C syntax file; one architecture
+is never substituted for another.
 
 Use the executable matching the build host. NuGet/Actions ZIP extraction may not preserve
 Unix executable bits, so Linux/macOS consumers run `chmod +x` on the restored binary.
@@ -51,11 +53,14 @@ The original 4.6.4 package was produced on Ubuntu 24.04 with GCC 13.3.0 in
 Its NuGet SHA256 is
 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`.
 Its Linux x64 executable requires `GLIBCXX_3.4.32`; it is a concrete negative
-input for the new compatibility gate. The version 4.6.5 workflow changes are
-not themselves evidence of a successful 22.04/24.04 run or a published package.
+input for the new compatibility gate. The immutable 4.6.6 package added all six
+host RIDs, but its Windows binaries require llvm-mingw runtime DLLs that were
+present only on the producer PATH. Version 4.6.7 links the Windows runtime
+statically and executes the staged binary with a system-only PATH before
+packing.
 
 Upstream project: https://github.com/skvadrik/re2c
 
-Package version: 4.6.5 (upstream re2c 4.6; packaging revision 5)
+Package version: 4.6.7 (upstream re2c 4.6; packaging revision 7)
 
 Upstream source commit: `e485c5d572ab8a9f895b2a3c98e5239bf59254c8`

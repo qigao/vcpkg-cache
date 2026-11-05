@@ -1,0 +1,109 @@
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -1290,6 +1290,14 @@
+ 
+ 	*sentlen = 0;
+ 
++	/* A partially emitted KeyUpdate must resume through its control path.
++	 * Never report stale application sentlen or rebuild/rotate it twice. */
++	if (conn->key_update_sending) {
++		ret = conn->is_client ? tls13_send_client_key_update(conn, 0)
++			: tls13_send_server_key_update(conn, 0);
++		return ret == 1 ? TLS_ERROR_SEND_AGAIN : ret;
++	}
++
+ 	if (!conn->recordlen) {
+ 		const BLOCK_CIPHER_KEY *key;
+ 		const uint8_t *iv;
+@@ -1554,40 +1562,17 @@
+ 				return -1;
+ 			}
+ 
+-			// 如果对方要求KeyUpdate，并且也满足我方KeyUpdate的最低条件
+-			// 那么我们就设置key_update标志位
+-			// 下次发送的时候就启动KeyUpdate
+-
+-
++			/* RFC 8446 4.6.3: peer requests are mandatory regardless of
++			 * automatic local rotation policy or current record count. */
+ 			if (conn->is_client) {
+-				uint64_t seq_num;
+-
+-				tls13_update_server_application_secret(conn);
+-				tls13_generate_server_application_keys(conn);
+-
+-
+-				seq_num = GETU64(conn->client_seq_num);
+-
+-				if (seq_num > 2 && update_requested && conn->ctx->key_update) {
+-					conn->key_update = 1;
+-				}
+-
+-
++				if (tls13_update_server_application_secret(conn) != 1
++					|| tls13_generate_server_application_keys(conn) != 1) return -1;
+ 			} else {
+-				uint64_t seq_num;
+-
+-				tls13_update_client_application_secret(conn);
+-				tls13_generate_client_application_keys(conn);
+-
+-				seq_num = GETU64(conn->server_seq_num);
+-
+-				if (seq_num > 2 && update_requested && conn->ctx->key_update) {
+-					if(conn->verbose) {
+-						fprintf(stderr, "server prepare key_update\n");
+-					}
+-					conn->key_update = 1;
+-				}
+-			}
++				if (tls13_update_client_application_secret(conn) != 1
++					|| tls13_generate_client_application_keys(conn) != 1) return -1;
++			}
++			if (update_requested) conn->key_update = 1;
++
+ 
+ 			conn->data = NULL;
+ 			conn->datalen = 0;
+@@ -8972,6 +8957,7 @@
+ 		tls13_generate_client_application_keys(conn);
+ 
+ 		conn->key_update = 0;
++		conn->key_update_sending = 1;
+ 
+ 	}
+ 
+@@ -8982,6 +8968,7 @@
+ 	}
+ 
+ 	if (ret == 1) {
++		conn->key_update_sending = 0;
+ 
+ 		// 首先我们在发送数据的时候，应该根据offset是否已经达到末尾来判断数据是否完全发送
+ 		// 其次在记录已经完全发送之后，应该自动的清空recordlen, offset这个数据
+@@ -9023,6 +9010,7 @@
+ 		tls13_generate_server_application_keys(conn);
+ 
+ 		conn->key_update = 0;
++		conn->key_update_sending = 1;
+ 
+ 	}
+ 
+@@ -9034,6 +9022,7 @@
+ 	}
+ 
+ 	if (ret == 1) {
++		conn->key_update_sending = 0;
+ 
+ 		// 首先我们在发送数据的时候，应该根据offset是否已经达到末尾来判断数据是否完全发送
+ 		// 其次在记录已经完全发送之后，应该自动的清空recordlen, offset这个数据
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -1269,6 +1269,7 @@
+ 
+ 	// KeyUpdate
+ 	int key_update; // 标志位，send之前看这个值，如果为1的话就先做keyUpdate
++	int key_update_sending; /* pending encrypted control record, not application data */
+ 	size_t client_data_size;
+ 	size_t server_data_size;
+ 

@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "setup-vcpkg-curl-cache.py"
@@ -18,6 +19,8 @@ NATIVE_FILES = (
     "scripts/github-packages.py",
     "scripts/restore-manifest-cache.py",
     "scripts/setup-vcpkg-curl-cache.py",
+    "scripts/windows_pkgconf.py",
+    "scripts/setup-compiler-toolchain.py",
 )
 
 
@@ -61,5 +64,59 @@ class CurlBootstrapOwnerContract(unittest.TestCase):
         bootstrap.require_native_curl_owner(SOURCE.parents[1])
 
 
+class WindowsCurlBootstrap(unittest.TestCase):
+    def metadata(self, root: Path, tag: str = bootstrap.WINDOWS_TOOL_TAG):
+        (root / "scripts").mkdir()
+        (root / "scripts/vcpkg-tool-metadata.txt").write_text(
+            f"VCPKG_TOOL_RELEASE_TAG={tag}\n", encoding="utf-8")
+
+    def test_host_architecture_selects_exact_release_and_disables_metrics(self):
+        for host, (asset, digest) in bootstrap.WINDOWS_TOOL_ASSETS.items():
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.metadata(root)
+                with mock.patch.object(bootstrap.downloads, "verified_download") as download:
+                    bootstrap.bootstrap_windows_tool(root, bootstrap.WINDOWS_TOOL_VERSION, host)
+                download.assert_called_once_with(
+                    f"https://github.com/microsoft/vcpkg-tool/releases/download/{bootstrap.WINDOWS_TOOL_TAG}/{asset}",
+                    root / "vcpkg.exe", digest, 16 * 1024 * 1024,
+                )
+                self.assertTrue((root / "vcpkg.disable-metrics").is_file())
+
+    def test_tool_version_and_scripts_tag_must_both_match_the_hash_lock(self):
+        for version, tag in (("unexpected-version", bootstrap.WINDOWS_TOOL_TAG),
+                             (bootstrap.WINDOWS_TOOL_VERSION, "2099-01-01")):
+            with self.subTest(version=version, tag=tag), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.metadata(root, tag)
+                with mock.patch.object(bootstrap.downloads, "verified_download") as download:
+                    with self.assertRaises(ValueError):
+                        bootstrap.bootstrap_windows_tool(root, version, "X64")
+                download.assert_not_called()
+                self.assertFalse((root / "vcpkg.disable-metrics").exists())
+
+    def test_unknown_host_has_no_architecture_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.metadata(root)
+            for host in ("", "X86", "AMD64", "x64"):
+                with self.subTest(host=host), mock.patch.object(
+                        bootstrap.downloads, "verified_download") as download:
+                    with self.assertRaisesRegex(ValueError, "unsupported Windows vcpkg host"):
+                        bootstrap.bootstrap_windows_tool(root, bootstrap.WINDOWS_TOOL_VERSION, host)
+                    download.assert_not_called()
+
+    def test_failed_download_does_not_mark_bootstrap_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.metadata(root)
+            with mock.patch.object(bootstrap.downloads, "verified_download",
+                                   side_effect=ValueError("SHA256 mismatch")):
+                with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
+                    bootstrap.bootstrap_windows_tool(root, bootstrap.WINDOWS_TOOL_VERSION, "X64")
+            self.assertFalse((root / "vcpkg.disable-metrics").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
+

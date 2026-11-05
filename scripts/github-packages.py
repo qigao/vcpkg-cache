@@ -161,7 +161,9 @@ class NugetFeed:
             raise ValueError("GitHub feed must advertise one PackageBaseAddress/3.0.0")
         self.base = addresses[0].rstrip("/")
 
-    def package(self, package_id, version, destination, allow_not_found=False):
+    def package(self, package_id, version, destination, allow_not_found=False, expected_sha256=None):
+        if expected_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise ValueError("invalid expected package SHA-256")
         for value in (package_id, version):
             if not re.fullmatch(r"[A-Za-z0-9_.+-]+", value):
                 raise ValueError("invalid NuGet identity")
@@ -175,6 +177,9 @@ class NugetFeed:
             downloaded = self.client.download(url, destination, "application/octet-stream")
         if downloaded is False:
             return False
+        if expected_sha256 is not None and sha256(destination) != expected_sha256:
+            Path(destination).unlink()
+            raise ValueError("package SHA-256 mismatch")
         with zipfile.ZipFile(destination) as archive:
             list(archive_members(archive))
             package_metadata(archive, package_id, version)
@@ -291,6 +296,40 @@ def extract_package(nupkg, destination):
                 (Path(destination) / entry.filename).chmod(mode & 0o777)
 
 
+def reject_missing_exact_archive(feed, package_id, version):
+    """Classify an actual archive HTTP 404 with the SAME authenticated feed.
+
+    NuGet package-download 404 may mean an unlisted immutable ABI, a
+    registry visibility/authorization failure, or an inconsistency between
+    advertised version metadata and the archive endpoint. Neither case
+    permits a source rebuild, substitute ABI, second credential, or a silent
+    success. Probe only the single failed package's version metadata; never
+    query every package or introduce a separate CI preflight.
+    """
+    try:
+        visible_versions = feed.versions(package_id)
+    except Exception as error:
+        raise ValueError(
+            f"exact NuGet archive returned HTTP 404: {package_id}/{version}; "
+            "the same credential also could not read its NuGet V3 version "
+            "index. Package visibility/Actions access or registry availability "
+            "is unverified; do not assume the immutable ABI was unpublished"
+        ) from error
+    if version.lower() in {value.lower() for value in visible_versions}:
+        raise ValueError(
+            f"exact NuGet archive returned HTTP 404: {package_id}/{version}, "
+            "but the SAME authenticated feed advertises this precise version. "
+            "The registry's archive delivery or package read authorization "
+            "is inconsistent; never rebuild or switch ABI"
+        )
+    raise ValueError(
+        f"exact NuGet archive returned HTTP 404: {package_id}/{version}, "
+        "and the SAME credential's NuGet V3 package index does not list that "
+        "version. Verify immutable package publication AND Actions package "
+        "access; 404 alone does not distinguish removal from denied access"
+    )
+
+
 def restore_cache(feed, config, cache):
     root = ET.parse(config).getroot()
     if root.tag != "packages":
@@ -304,8 +343,11 @@ def restore_cache(feed, config, cache):
             package_id, version = item.attrib["id"], item.attrib["version"]
             path = Path(temporary) / "package.nupkg"
             if not feed.package(package_id, version, path, allow_not_found=True):
-                misses += 1
-                continue
+                # Stop at the first exact miss. Historically all 15 packages
+                # were reported missing when one workflow GITHUB_TOKEN could
+                # not read ANY archives; that is not evidence of 15 deleted
+                # immutable packages. Keep the same token and no fallback.
+                reject_missing_exact_archive(feed, package_id, version)
             cache_package(path, package_id, version, cache)
             restored += 1
     print(
@@ -317,7 +359,7 @@ def restore_cache(feed, config, cache):
 RE2C_HOSTS = {
     ("Linux", "X64"): "linux-x64", ("Linux", "ARM64"): "linux-arm64",
     ("macOS", "X64"): "macos-x64", ("macOS", "ARM64"): "macos-arm64",
-    ("Windows", "X64"): "windows-x64",
+    ("Windows", "X64"): "windows-x64", ("Windows", "ARM64"): "windows-arm64",
 }
 
 
@@ -376,7 +418,7 @@ def re2c_package_members(archive, version, rid):
     # Validate all included host payloads, and require the selected host. A
     # missing RID must not select another architecture or a system executable.
     for host in payload_rids | {rid}:
-        binary = "re2c.exe" if host == "windows-x64" else "re2c"
+        binary = "re2c.exe" if host.startswith("windows-") else "re2c"
         for suffix in (f"bin/{binary}", "share/re2c/stdlib/syntax/c",
                        "share/re2c/stdlib/unicode_categories.re",
                        "share/re2c/stdlib/unicode_properties.re"):
@@ -419,7 +461,7 @@ def restore_re2c(feed, destination, version, expected_sha256):
                 if mode and not entry.is_dir():
                     (stage / "package" / entry.filename).chmod(mode & 0o777)
         staged_root = stage / "package" / "tools" / rid
-        exe = staged_root / "bin" / ("re2c.exe" if rid == "windows-x64" else "re2c")
+        exe = staged_root / "bin" / ("re2c.exe" if rid.startswith("windows-") else "re2c")
         exe.chmod(exe.stat().st_mode | 0o111)
         subprocess.run([str(exe), "--version"], check=True)
         # No destination publication or environment change on verification or

@@ -1,0 +1,12 @@
+diff --git a/utils/Utils.cpp b/utils/Utils.cpp
+--- a/utils/Utils.cpp
++++ b/utils/Utils.cpp
+@@ -50,7 +50,7 @@ void fixStack(Function *f) {
+     }
+ 
+     for (unsigned int i = 0; i != tmpPhi.size(); ++i) {
+-      DemotePHIToStack(tmpPhi.at(i), f->begin()->getTerminator()->getIterator());
++      DemotePHIToStack(tmpPhi.at(i));
+     }
+ 
+   } while (tmpReg.size() != 0 || tmpPhi.size() != 0);

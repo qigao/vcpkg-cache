@@ -1,0 +1,47 @@
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -6780,6 +6780,8 @@
+ int tls13_recv_client_hello(TLS_CONNECT *conn)
+ {
+ 	int ret;
++	int policy_ciphers[TLS_MAX_CIPHER_SUITES];
++	size_t policy_ciphers_cnt = 0;
+ 	uint8_t *record = conn->record;
+ 
+ 	int client_verify = 0;
+@@ -6894,10 +6896,25 @@
+ 		conn->session_id_len = legacy_session_id_len;
+ 	}
+ 
++	/* A range context contains TLS1.2 and TLS1.3 suites. This handshake
++	 * has already selected TLS1.3: filter before BOTH initial selection and
++	 * certificate/signature matching, preserving server preference. */
++	for (size_t i = 0; i < conn->ctx->cipher_suites_cnt; i++) {
++		if (tls_type_is_in_list(conn->ctx->cipher_suites[i],
++			tls13_cipher_suites, tls13_cipher_suites_cnt)) {
++			policy_ciphers[policy_ciphers_cnt++] = conn->ctx->cipher_suites[i];
++		}
++	}
++	if (!policy_ciphers_cnt) {
++		error_print();
++		tls13_send_alert(conn, TLS_alert_handshake_failure);
++		return -1;
++	}
++
+ 	// cipher_suites
+ 	// after select server cert_chain, cipher_suite might be changed
+ 	if ((ret = tls_cipher_suites_select(cipher_suites, cipher_suites_len,
+-		conn->ctx->cipher_suites, conn->ctx->cipher_suites_cnt,
++		policy_ciphers, policy_ciphers_cnt,
+ 		&conn->cipher_suite)) < 0) {
+ 		error_print();
+ 		tls13_send_alert(conn, TLS_alert_decode_error);
+@@ -7296,7 +7313,7 @@
+ 
+ 		// cipher_suites match conn->sig_alg
+ 		if (tls13_cipher_suites_match_signature_scheme(
+-			conn->ctx->cipher_suites, conn->ctx->cipher_suites_cnt, conn->sig_alg,
++			policy_ciphers, policy_ciphers_cnt, conn->sig_alg,
+ 			common_cipher_suites, &common_cipher_suites_cnt,
+ 			sizeof(common_cipher_suites)/sizeof(common_cipher_suites[0])) != 1) {
+ 			error_print();

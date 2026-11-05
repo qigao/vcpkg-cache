@@ -235,6 +235,9 @@ class CurlCachePublisherTests(unittest.TestCase):
         for endpoint in (
             "https://evil.example/qigao/api/v2/package",
             "https://nuget.pkg.github.com/attacker/api/v2/package",
+            "https://nuget.pkg.github.com/qigao-evil",
+            "https://nuget.pkg.github.com/qigao?redirect=elsewhere",
+            "https://nuget.pkg.github.com/qigao#fragment",
             "http://nuget.pkg.github.com/qigao/api/v2/package",
             "https://nuget.pkg.github.com/qigao@evil.example/api/v2/package",
         ):
@@ -244,20 +247,40 @@ class CurlCachePublisherTests(unittest.TestCase):
         good = "https://nuget.pkg.github.com/qigao/api/v2/package"
         self.assertEqual(publisher.resource(type("Stub", (), {"client": Client(good)})()), good)
 
+    def test_publisher_accepts_the_canonical_github_namespace_root(self):
+        class Client:
+            def __init__(self, endpoint):
+                self.endpoint = endpoint
+            def json(self, url):
+                self.asserted_url = url
+                return {"resources": [{"@id": self.endpoint,
+                                       "@type": ["PackagePublish/2.0.0"]}]}
+        for endpoint in ("https://nuget.pkg.github.com/qigao", "https://nuget.pkg.github.com/qigao/"):
+            with self.subTest(endpoint=endpoint):
+                client = Client(endpoint)
+                self.assertEqual(publisher.resource(type("Feed", (), {"client": client})()), endpoint)
+                self.assertEqual(client.asserted_url, "https://nuget.pkg.github.com/qigao/index.json")
+
     def test_curl_multipart_credentials_only_on_stdin(self):
         with tempfile.TemporaryDirectory() as root:
             source = Path(root) / "approved.nupkg"
             source.write_bytes(b"safe fixture")
             class Client:
                 token = "not-a-real-token"
+            status = "200"
             def fake_run(cmd, **kwargs):
                 self.assertIn("--form", cmd)
                 self.assertEqual(cmd[cmd.index("--request") + 1], "PUT")
                 self.assertFalse(any("not-a-real-token" in value for value in cmd))
                 self.assertIn("not-a-real-token", kwargs["input"])
-                return type("Status", (), {"stdout": "201", "stderr": "", "returncode": 0})()
+                return type("Status", (), {"stdout": status, "stderr": "", "returncode": 0})()
             with mock.patch.object(publisher.subprocess, "run", side_effect=fake_run):
-                publisher.upload(Client(), "https://nuget.pkg.github.com/qigao/api/v2/package", source)
+                for status in ("200", "201", "202"):
+                    with self.subTest(accepted=status):
+                        publisher.upload(Client(), "https://nuget.pkg.github.com/qigao", source)
+                for status in ("204", "301", "400", "403"):
+                    with self.subTest(rejected=status), self.assertRaises(ValueError):
+                        publisher.upload(Client(), "https://nuget.pkg.github.com/qigao", source)
 
     def test_zero_publisher_plan_is_rejected_and_duplicate_ids_fail(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -1,0 +1,15 @@
+{
+  "name": "bfs",
+  "version": "4.1.5",
+  "port-version": 1,
+  "description": "Breadth-first POSIX find command-line tool.",
+  "homepage": "https://github.com/tavianator/bfs",
+  "license": "0BSD",
+  "supports": "native & (linux | osx)",
+  "dependencies": [
+    {
+      "name": "vcpkg-make",
+      "host": true
+    }
+  ]
+}

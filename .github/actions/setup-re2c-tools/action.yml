@@ -27,8 +27,8 @@ runs:
         GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token }}
         RE2C_REQUESTED_VERSION: ${{ inputs.version }}
         RE2C_REQUESTED_SHA256: ${{ inputs.sha256 }}
-        RE2C_DEFAULT_PACKAGE_VERSION: "4.6.5"
-        RE2C_DEFAULT_PACKAGE_SHA256: "dfdcf77dfd36e60500532a3fcc8a1bd32dc2232edeb63e053267a712bc4489ed"
+        RE2C_DEFAULT_PACKAGE_VERSION: "4.6.7"
+        RE2C_DEFAULT_PACKAGE_SHA256: "fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305"
       run: |
         $ErrorActionPreference = 'Stop'
         $version = $env:RE2C_REQUESTED_VERSION

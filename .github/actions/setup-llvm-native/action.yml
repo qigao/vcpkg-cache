@@ -1,0 +1,149 @@
+name: Set up runner-native LLVM/Clang
+description: Select installed Clang and optionally enable product-wide LLVM obfuscation.
+inputs:
+  build-type:
+    description: Compiler setup type; explicit protected Release requires obfuscator=true.
+    default: toolchain-only
+    required: false
+  obfuscator:
+    description: Activate LLVM pass for product C/C++ compilation, without target lists.
+    default: "false"
+    required: false
+  plugin-path:
+    description: Existing host plugin; if empty when enabled, build the pinned source.
+    default: ""
+    required: false
+  obfuscation-seed:
+    description: LLVM obfuscation seed.
+    default: "0xA04252B187478C00A40BC6D81D1A8A52"
+    required: false
+  macos-llvm-formula:
+    description: Independent Homebrew LLVM formula, no LLVM version enforcement.
+    default: "llvm@18"
+    required: false
+outputs:
+  root:
+    value: ${{ steps.local.outputs.root }}
+  cc:
+    value: ${{ steps.local.outputs.cc }}
+  cxx:
+    value: ${{ steps.local.outputs.cxx }}
+  ar:
+    value: ${{ steps.local.outputs.ar }}
+  ranlib:
+    value: ${{ steps.local.outputs.ranlib }}
+  toolchain-file:
+    value: ${{ steps.local.outputs.toolchain-file }}
+  obfuscator-enabled:
+    value: ${{ steps.obfuscator.outputs.enabled || 'false' }}
+  plugin-path:
+    value: ${{ steps.obfuscator.outputs.plugin-path }}
+  obfuscator-compile-flag:
+    value: ${{ steps.obfuscator.outputs.compile-flag }}
+  compiler-obfuscation-cmake:
+    value: ${{ steps.obfuscator.outputs.cmake-file }}
+runs:
+  using: composite
+  steps:
+    - name: Select installed Clang (without compiler probes)
+      id: local
+      shell: bash
+      env:
+        BUILD_TYPE: ${{ inputs.build-type }}
+        OBFUSCATOR: ${{ inputs.obfuscator }}
+        PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
+        LLVM_FORMULA: ${{ inputs.macos-llvm-formula }}
+      run: |
+        set -euo pipefail
+        case "$OBFUSCATOR" in
+          true|false) ;;
+          *) echo 'obfuscator must be true or false' >&2; exit 2 ;;
+        esac
+        if [[ "$BUILD_TYPE" =~ ^(Release|MinSizeRel|RelWithDebInfo)$ ]] &&
+           [[ "$OBFUSCATOR" != true ]]; then
+          echo 'Protected Release requires obfuscator: true' >&2
+          exit 1
+        fi
+        if [[ "$OBFUSCATOR" != true && -n "$PROVIDED_PLUGIN" ]]; then
+          echo 'plugin-path requires obfuscator: true' >&2
+          exit 1
+        fi
+        if [[ "$RUNNER_OS" == macOS ]]; then
+          root="$(brew --prefix "$LLVM_FORMULA")"
+          cc="$root/bin/clang"
+          cxx="$root/bin/clang++"
+          ar="$root/bin/llvm-ar"
+          ranlib="$root/bin/llvm-ranlib"
+          sdk="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          system=Darwin
+        else
+          cc="$(command -v clang)"
+          cxx="$(command -v clang++)"
+          select_llvm_tool() {
+            local name="$1" candidate
+            if command -v "$name" >/dev/null 2>&1; then
+              command -v "$name"
+              return
+            fi
+            for candidate in /usr/lib/llvm-*/bin/"$name" /usr/bin/"$name"-[0-9]*; do
+              if [[ -x "$candidate" ]]; then
+                printf '%s\n' "$candidate"
+                return
+              fi
+            done
+            echo "Missing installed LLVM utility: $name" >&2
+            return 1
+          }
+          ar="$(select_llvm_tool llvm-ar)"
+          ranlib="$(select_llvm_tool llvm-ranlib)"
+          root="$(dirname "$(dirname "$cc")")"
+          system=Linux
+          sdk=''
+        fi
+        tc="$RUNNER_TEMP/qigao-runner-clang-$RUNNER_ARCH.cmake"
+        if [[ "$system" == Darwin ]]; then
+          printf 'set(CMAKE_SYSTEM_NAME Darwin)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\nset(CMAKE_RANLIB "%s")\nset(CMAKE_OSX_SYSROOT "%s")\n' "$cc" "$cxx" "$ar" "$ranlib" "$sdk" > "$tc"
+        else
+          printf 'set(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_C_COMPILER "%s")\nset(CMAKE_CXX_COMPILER "%s")\nset(CMAKE_AR "%s")\nset(CMAKE_RANLIB "%s")\n' "$cc" "$cxx" "$ar" "$ranlib" > "$tc"
+        fi
+        # Product compiler launcher is not installed in third-party vcpkg ports.
+        printf 'if("$ENV{QIGAO_OBFUSCATOR_ENABLED}" STREQUAL "true")\n  include("$ENV{QIGAO_COMPILER_OBFUSCATION_CMAKE}")\nelseif(QIGAO_COMPILER_OBFUSCATION_ENABLED)\n  message(FATAL_ERROR "Reused protected CMake cache without obfuscator setup")\nendif()\n' >> "$tc"
+        echo "root=$root" >> "$GITHUB_OUTPUT"
+        echo "cc=$cc" >> "$GITHUB_OUTPUT"
+        echo "cxx=$cxx" >> "$GITHUB_OUTPUT"
+        echo "ar=$ar" >> "$GITHUB_OUTPUT"
+        echo "ranlib=$ranlib" >> "$GITHUB_OUTPUT"
+        echo "toolchain-file=$tc" >> "$GITHUB_OUTPUT"
+        {
+          echo "LLVM_NATIVE_ROOT=$root"
+          echo "LLVM_NATIVE_CC=$cc"
+          echo "LLVM_NATIVE_CXX=$cxx"
+          echo "LLVM_NATIVE_AR=$ar"
+          echo "LLVM_NATIVE_RANLIB=$ranlib"
+          echo "LLVM_NATIVE_TOOLCHAIN_FILE=$tc"
+          echo "QIGAO_COMPILER_TOOLCHAIN_FILE=$tc"
+        } >> "$GITHUB_ENV"
+        if [[ "$system" == Darwin ]]; then
+          echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
+        fi
+    - uses: actions/setup-python@v5
+      if: inputs.obfuscator == 'true'
+      with:
+        python-version: "3.12"
+    - name: Prepare pinned obfuscator-llvm host plugin
+      id: obfuscator
+      if: inputs.obfuscator == 'true'
+      shell: bash
+      env:
+        COMPILER_CXX: ${{ steps.local.outputs.cxx }}
+        PROVIDED_PLUGIN: ${{ inputs.plugin-path }}
+        OBFUSCATION_SEED: ${{ inputs.obfuscation-seed }}
+      run: |
+        set -euo pipefail
+        repo="$(cd "${{ github.action_path }}/../../.." && pwd)"
+        python "$repo/scripts/setup-obfuscator-llvm.py" \
+          --repo-root "$repo" --compiler-cxx "$COMPILER_CXX" \
+          --plugin-path "$PROVIDED_PLUGIN" \
+          --output-root "$RUNNER_TEMP/qigao-obfuscator-llvm" \
+          --seed "$OBFUSCATION_SEED" \
+          --github-env "$GITHUB_ENV" --github-output "$GITHUB_OUTPUT"

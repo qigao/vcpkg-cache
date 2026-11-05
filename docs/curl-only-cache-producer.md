@@ -1,8 +1,9 @@
 # Native vcpkg binary cache publishing: curl-only NuGet V3
 
-This is the producer replacement for `setup-vcpkg-cache` `write/readwrite`
-and `warm-cache.yml`. It is separate from the already merged curl-only
-consumer (`setup-vcpkg-curl-cache`). It does not install or run Mono,
+This is an explicitly dispatched publisher for a selected immutable ABI.
+Automatic generic and product cache warming have been removed; normal product
+builds own dependency installation and do not require prewarming. The publisher
+is separate from the curl-only consumer (`setup-vcpkg-curl-cache`). It does not install or run Mono,
 `nuget.exe`, `dotnet restore`, or `vcpkg` NuGet providers.
 
 ## Immutable ABI publication
@@ -95,8 +96,6 @@ against existing immutable GitHub Packages. No secrets appear in argv.
 
 - Run explicit real `publish=true` on one bounded package with an absent
   exact immutable version and confirm fresh-runner read-back.
-- Migrate every existing `warm-cache.yml` producer and read-only contract
-  to curl-native workflows, retaining the multi-RID package set.
 - Reject any downstream dependency on old `setup-vcpkg-cache` and remove
   that action only after all producers and consumers have exact-head CI.
 - Do not downgrade ABI validation or revert to NuGet/Mono as a fallback.

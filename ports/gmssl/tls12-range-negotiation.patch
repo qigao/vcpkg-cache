@@ -1,0 +1,145 @@
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -9101,6 +9101,12 @@
+ 	} else {
+ 		*selected_protocol = legacy_version;
+ 	}
++	/* RFC 8446 section 4.1.3: reject a TLS 1.3 server's downgrade marker. */
++	if (*selected_protocol == TLS_protocol_tls12
++		&& memcmp(random + 24, "DOWNGRD\x01", 8) == 0) {
++		tls_send_alert(conn, TLS_alert_illegal_parameter);
++		return -1;
++	}
+ 	return 1;
+ }
+ 
+@@ -9131,6 +9137,16 @@
+ 		break;
+ 
+ 	case TLS_state_hello_retry_request: // optional
++		if (conn->ctx->min_protocol == TLS_protocol_tls12
++			&& conn->ctx->max_protocol == TLS_protocol_tls13) {
++			int selected_protocol = 0;
++			ret = tls_client_server_hello_protocol(conn, &selected_protocol);
++			if (ret != 1) return ret;
++			if (selected_protocol == TLS_protocol_tls12) {
++				conn->handshake_state = TLS_state_server_hello;
++				return tls13_do_client_handshake(conn);
++			}
++		}
+ 		ret = tls13_recv_hello_retry_request(conn);
+ 		if (conn->hello_retry_request)
+ 			next_state = TLS_state_client_hello_again;
+@@ -9159,6 +9175,16 @@
+ 				conn->key_exchange_idx = 0;
+ 				conn->key_share = 0;
+ 				conn->key_exchange_modes = 0;
++				if (conn->ctx->cert_chains_len) {
++					const uint8_t *chains = conn->ctx->cert_chains;
++					size_t chains_len = conn->ctx->cert_chains_len;
++					if (tls_uint24array_from_bytes(&conn->cert_chain,
++						&conn->cert_chain_len, &chains, &chains_len) != 1
++						|| conn->cert_chain_len > sizeof(conn->client_certs)) return -1;
++					memcpy(conn->client_certs, conn->cert_chain, conn->cert_chain_len);
++					conn->client_certs_len = conn->cert_chain_len;
++					conn->cert_chain_idx = 1;
++				}
+ 				ret = tls_recv_server_hello(conn);
+ 				if (ret != 1) return ret;
+ 				tls_clean_record(conn);
+@@ -9356,6 +9382,7 @@
+ 			if (ret != 1) return ret;
+ 			if (selected_protocol == TLS_protocol_tls12) {
+ 				conn->protocol = TLS_protocol_tls12;
++				conn->client_certificate_verify = conn->ctx->certificate_request;
+ 				next_state = TLS_state_client_hello;
+ 				break;
+ 			}
+--- a/src/tls12.c
++++ b/src/tls12.c
+@@ -21,6 +21,7 @@
+ #include <gmssl/pem.h>
+ #include <gmssl/mem.h>
+ #include <gmssl/tls.h>
++#include <gmssl/rsa_ext.h>
+ 
+ 
+ 
+@@ -636,6 +637,7 @@
+ 		}
+ 		break;
+ 	case TLS_sig_rsa_pkcs1_sha256:
++	case TLS_sig_rsa_pss_rsae_sha256:
+ 		if (cipher_suite != TLS_cipher_ecdhe_rsa_with_aes_128_gcm_sha256) {
+ 			error_print();
+ 			return -1;
+@@ -1530,6 +1532,7 @@
+ 		}
+ 		break;
+ 	case TLS_sig_rsa_pkcs1_sha256:
++	case TLS_sig_rsa_pss_rsae_sha256:
+ 		if (server_sign_key.algor != OID_rsa_encryption) {
+ 			error_print();
+ 			tls_send_alert(conn, TLS_alert_bad_certificate);
+@@ -1546,7 +1549,21 @@
+ 		sign_argslen = SM2_DEFAULT_ID_LENGTH;
+ 	}
+ 
+-	if (x509_verify_init(&sign_ctx, &server_sign_key, sign_args, sign_argslen, sig, siglen) != 1
++	if (sig_alg == TLS_sig_rsa_pss_rsae_sha256) {
++		DIGEST_CTX hash;
++		uint8_t value[32];
++		size_t value_len = 0;
++		if (digest_init(&hash, DIGEST_sha256()) != 1
++			|| digest_update(&hash, conn->client_random, 32) != 1
++			|| digest_update(&hash, conn->server_random, 32) != 1
++			|| digest_update(&hash, server_ecdh_params, server_ecdh_params_len) != 1
++			|| digest_finish(&hash, value, &value_len) != 1 || value_len != 32
++			|| rsa_verify_pss_sha256(&server_sign_key.u.rsa_public_key,
++				value, sig, siglen) != 1) {
++			tls_send_alert(conn, TLS_alert_decrypt_error);
++			return -1;
++		}
++	} else if (x509_verify_init(&sign_ctx, &server_sign_key, sign_args, sign_argslen, sig, siglen) != 1
+ 		|| x509_verify_update(&sign_ctx, conn->client_random, 32) != 1
+ 		|| x509_verify_update(&sign_ctx, conn->server_random, 32) != 1
+ 		|| x509_verify_update(&sign_ctx, server_ecdh_params, server_ecdh_params_len) != 1
+@@ -3022,7 +3039,8 @@
+ 	}
+ 
+ 	if (client_sign_key.algor == OID_rsa_encryption) {
+-		if (sig_alg != TLS_sig_rsa_pkcs1_sha256) {
++		if (sig_alg != TLS_sig_rsa_pkcs1_sha256
++			&& sig_alg != TLS_sig_rsa_pss_rsae_sha256) {
+ 			error_print();
+ 			tls_send_alert(conn, TLS_alert_unsupported_certificate);
+ 			return -1;
+@@ -3037,7 +3055,17 @@
+ 		tls_send_alert(conn, TLS_alert_bad_certificate);
+ 		return -1;
+ 	}
+-	if (x509_verify_init_ex(&sign_ctx, &client_sign_key,
++	if (sig_alg == TLS_sig_rsa_pss_rsae_sha256) {
++		uint8_t value[32];
++		size_t value_len = 0;
++		if (digest(DIGEST_sha256(), conn->transcript, conn->transcript_len,
++			value, &value_len) != 1 || value_len != 32
++			|| rsa_verify_pss_sha256(&client_sign_key.u.rsa_public_key,
++				value, sig, siglen) != 1) {
++			tls_send_alert(conn, TLS_alert_decrypt_error);
++			return -1;
++		}
++	} else if (x509_verify_init_ex(&sign_ctx, &client_sign_key,
+ 		tls_signature_scheme_algorithm_oid(sig_alg),
+ 		signer_id, signer_idlen, sig, siglen) != 1
+ 		|| x509_verify_update(&sign_ctx, conn->transcript, conn->transcript_len) != 1
+--- a/src/tls_vrf.c
++++ b/src/tls_vrf.c
+@@ -87,6 +87,7 @@
+ 		}
+ 		break;
+ 	case TLS_sig_rsa_pkcs1_sha256:
++	case TLS_sig_rsa_pss_rsae_sha256:
+ 		return cipher_suite == TLS_cipher_ecdhe_rsa_with_aes_128_gcm_sha256;
+ 	}
+ 	return 0;

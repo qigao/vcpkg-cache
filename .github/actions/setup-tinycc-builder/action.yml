@@ -1,0 +1,57 @@
+name: Set up TinyCC-builder
+description: Install immutable TinyCC kit and obfus.h; no compiler smoke/consumer CI.
+inputs:
+  version:
+    default: "2026-10-29"
+    required: false
+  target:
+    default: x64
+    required: false
+  build-type:
+    default: toolchain-only
+    required: false
+  install-root:
+    default: ""
+    required: false
+outputs:
+  root:
+    value: ${{ steps.install.outputs.root }}
+  cc:
+    value: ${{ steps.install.outputs.cc }}
+  toolchain-file:
+    value: ${{ steps.install.outputs.toolchain-file }}
+  obfus-header:
+    value: ${{ steps.install.outputs.obfus-header }}
+  obfus-include:
+    value: ${{ steps.install.outputs.obfus-include }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install TinyCC kit and obfus.h
+      id: install
+      shell: pwsh
+      env:
+        VER: ${{ inputs.version }}
+        TARGET: ${{ inputs.target }}
+        TYPE: ${{ inputs.build-type }}
+        ROOT: ${{ inputs.install-root }}
+        RUNNER_OS_NAME: ${{ runner.os }}
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $repo = [IO.Path]::GetFullPath((Join-Path '${{ github.action_path }}' '../../..'))
+        $dest = $env:ROOT
+        if (-not $dest) {
+          $dest = Join-Path $env:RUNNER_TEMP "qigao-tinycc-$env:VER-$env:TARGET"
+        }
+        $argv = @('--compiler', 'tinycc-builder', '--version', $env:VER,
+                  '--target', $env:TARGET, '--build-type', $env:TYPE,
+                  '--runner-os', $env:RUNNER_OS_NAME,
+                  '--runner-arch', $env:RUNNER_ARCH_NAME,
+                  '--destination', $dest, '--github-output', $env:GITHUB_OUTPUT,
+                  '--github-env', $env:GITHUB_ENV, '--github-path', $env:GITHUB_PATH)
+        & python (Join-Path $repo 'scripts/setup-compiler-toolchain.py') @argv
+        if ($LASTEXITCODE -ne 0) { throw 'TinyCC toolchain install failed' }
