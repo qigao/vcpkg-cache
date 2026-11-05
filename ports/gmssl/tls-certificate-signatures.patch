@@ -1,0 +1,134 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -965,6 +965,8 @@
+ 	int post_handshake_auth;
+ 
+ 	// 50. signature_algorithms_cert
++	int certificate_signature_algorithms[4];
++	size_t certificate_signature_algorithms_cnt;
+ 	int signature_algorithms_cert; // 我方是否在ClientHello, CertificateRequest 中包含这个扩展
+ 
+ 	// 51. key_share
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -4063,6 +4063,7 @@
+ 	memset(conn, 0, sizeof(*conn));
+ 
+ 	conn->ctx = ctx;
++	conn->signature_algorithms_cert = ctx->signature_algorithms_cert;
+ 
+ 	conn->is_client = ctx->is_client;
+ 	conn->verbose = ctx->verbose;
+@@ -4141,6 +4142,13 @@
+ 
+ 
+ 	return 1;
++}
++
++static const int *tls13_local_certificate_signatures(const TLS_CTX *ctx) {
++ return ctx->certificate_signature_algorithms_cnt ? ctx->certificate_signature_algorithms : ctx->signature_algorithms;
++}
++static size_t tls13_local_certificate_signature_count(const TLS_CTX *ctx) {
++ return ctx->certificate_signature_algorithms_cnt ? ctx->certificate_signature_algorithms_cnt : ctx->signature_algorithms_cnt;
+ }
+ 
+ int tls13_send_client_hello(TLS_CONNECT *conn)
+@@ -4220,8 +4228,8 @@
+ 
+ 		// signature_algorithms_cert
+ 		if (conn->signature_algorithms_cert) {
+-			if (tls13_signature_algorithms_cert_ext_to_bytes(conn->ctx->signature_algorithms,
+-				conn->ctx->signature_algorithms_cnt, &pexts, &extslen) != 1) {
++			if (tls13_signature_algorithms_cert_ext_to_bytes(tls13_local_certificate_signatures(conn->ctx),
++				tls13_local_certificate_signature_count(conn->ctx), &pexts, &extslen) != 1) {
+ 				error_print();
+ 				return -1;
+ 			}
+@@ -4855,8 +4863,8 @@
+ 
+ 		// signature_algorithms_cert
+ 		if (conn->signature_algorithms_cert) {
+-			if (tls13_signature_algorithms_cert_ext_to_bytes(conn->ctx->signature_algorithms,
+-				conn->ctx->signature_algorithms_cnt, &pexts, &extslen) != 1) {
++			if (tls13_signature_algorithms_cert_ext_to_bytes(tls13_local_certificate_signatures(conn->ctx),
++				tls13_local_certificate_signature_count(conn->ctx), &pexts, &extslen) != 1) {
+ 				error_print();
+ 				return -1;
+ 			}
+@@ -6234,7 +6242,7 @@
+ 	if (signature_algorithms_cert) {
+ 		if ((ret = tls_process_signature_algorithms(
+ 			signature_algorithms_cert, signature_algorithms_cert_len,
+-			conn->ctx->signature_algorithms, conn->ctx->signature_algorithms_cnt,
++			tls13_local_certificate_signatures(conn->ctx), tls13_local_certificate_signature_count(conn->ctx),
+ 			common_sig_algs_cert, &common_sig_algs_cert_cnt,
+ 			sizeof(common_sig_algs_cert)/sizeof(common_sig_algs_cert[0]))) < 0) {
+ 			error_print();
+@@ -6242,6 +6250,13 @@
+ 		} else if (ret == 0) {
+ 			client_cert = 0;
+ 		}
++	} else if (conn->ctx->certificate_signature_algorithms_cnt) {
++		ret = tls_process_signature_algorithms(signature_algorithms, signature_algorithms_len,
++			tls13_local_certificate_signatures(conn->ctx), tls13_local_certificate_signature_count(conn->ctx),
++			common_sig_algs_cert, &common_sig_algs_cert_cnt,
++			sizeof(common_sig_algs_cert)/sizeof(common_sig_algs_cert[0]));
++		if (ret < 0) return -1;
++		if (!ret) { client_cert = 0; }
+ 	}
+ 
+ 	// certificate_authorities
+@@ -6374,8 +6389,8 @@
+ 
+ 	// check server cert_chain match ClientHello.extensions
+ 	if (conn->signature_algorithms_cert) {
+-		signature_algorithms_cert = conn->ctx->signature_algorithms;
+-		signature_algorithms_cert_cnt = conn->ctx->signature_algorithms_cnt;
++		signature_algorithms_cert = tls13_local_certificate_signatures(conn->ctx);
++		signature_algorithms_cert_cnt = tls13_local_certificate_signature_count(conn->ctx);
+ 	}
+ 	if (conn->certificate_authorities) {
+ 		ca_names = conn->ctx->ca_names;
+@@ -7293,7 +7308,7 @@
+ 	if (signature_algorithms_cert) {
+ 		if ((ret = tls_process_signature_algorithms(
+ 			signature_algorithms_cert, signature_algorithms_cert_len,
+-			conn->ctx->signature_algorithms, conn->ctx->signature_algorithms_cnt,
++			tls13_local_certificate_signatures(conn->ctx), tls13_local_certificate_signature_count(conn->ctx),
+ 			common_sig_algs_cert, &common_sig_algs_cert_cnt,
+ 			sizeof(common_sig_algs_cert)/sizeof(common_sig_algs_cert[0]))) < 0) {
+ 			error_print();
+@@ -7302,6 +7317,13 @@
+ 		} else if (ret == 0) {
+ 			common_key_exchange_modes &= ~TLS_KE_CERT_DHE;
+ 		}
++	} else if (conn->ctx->certificate_signature_algorithms_cnt) {
++		ret = tls_process_signature_algorithms(signature_algorithms, signature_algorithms_len,
++			tls13_local_certificate_signatures(conn->ctx), tls13_local_certificate_signature_count(conn->ctx),
++			common_sig_algs_cert, &common_sig_algs_cert_cnt,
++			sizeof(common_sig_algs_cert)/sizeof(common_sig_algs_cert[0]));
++		if (ret < 0) return -1;
++		if (!ret) { common_key_exchange_modes &= ~TLS_KE_CERT_DHE; }
+ 	}
+ 
+ 	// certificate_authorities
+@@ -8536,7 +8558,7 @@
+ 		// signature_algorithms_cert, only when ClientHello.signature_algorithms_cert
+ 		if (conn->signature_algorithms_cert) {
+ 			if (tls13_signature_algorithms_cert_ext_to_bytes(
+-				conn->ctx->signature_algorithms, conn->ctx->signature_algorithms_cnt, &pexts, &extslen) != 1) {
++				tls13_local_certificate_signatures(conn->ctx), tls13_local_certificate_signature_count(conn->ctx), &pexts, &extslen) != 1) {
+ 				error_print();
+ 				return -1;
+ 			}
+@@ -8856,8 +8878,8 @@
+ 
+ 	// client cert_chain match CertificateRequest extensions
+ 	if (conn->signature_algorithms_cert) {
+-		signature_algorithms_cert = conn->ctx->signature_algorithms;
+-		signature_algorithms_cert_cnt = conn->ctx->signature_algorithms_cnt;
++		signature_algorithms_cert = tls13_local_certificate_signatures(conn->ctx);
++		signature_algorithms_cert_cnt = tls13_local_certificate_signature_count(conn->ctx);
+ 	}
+ 	if (conn->certificate_authorities) {
+ 		ca_names = conn->ctx->ca_names;

@@ -30,3 +30,12 @@
 - The registry intentionally stores only the current GmSSL version entry.
   Replace that entry when bumping the port; appending historical entries fails
   the existing registry contract workflow even when the tree hashes are valid.
+
+## 2026-11-05 independent certificate signatures
+
+- TLS1.3 extension 50 has distinct local values from handshake signatures.
+  Carry its context switch into tls13_init and use the certificate list for
+  emission, identity selection and both role verifiers. Missing peer extension
+  50 inherits the peer handshake list, intersected with local certificate policy.
+- Qualification lives in salts-core formal tests: mixed P256/P384 signatures,
+  PSS handshake/PKCS1 chain, input erasure and independent standard/SM2 peers.
