@@ -1,0 +1,158 @@
+--- a/include/gmssl/x509_cer.h
++++ b/include/gmssl/x509_cer.h
+@@ -391,6 +391,8 @@
+ 	X509_verify_err_constraints,
+ 	X509_verify_err_tls_extensions,
+ 	X509_verify_err_hostname,
++	X509_verify_err_not_yet_valid,
++	X509_verify_err_expired,
+ } X509_VERIFY_RESULT;
+ 
+ #define X509_MAX_VERIFY_DEPTH	6
+--- a/src/x509_cer.c
++++ b/src/x509_cer.c
+@@ -1810,7 +1810,7 @@
+ 	return 0;
+ }
+ 
+-int x509_cert_check(const uint8_t *cert, size_t certlen, int cert_type)
++static int x509_cert_check_with_result(const uint8_t *cert, size_t certlen, int cert_type, int *verify_result)
+ {
+ 	int version;
+ 	const uint8_t *serial;
+@@ -1858,6 +1858,12 @@
+ 
+ 	time(&now);
+ 	if (x509_validity_check(not_before, not_after, now, -1) != 1) {
++		/* Report the verifier's actual time failure, preserving malformed dates
++		 * and unavailable clock as the generic certificate category. */
++		if (verify_result && now != (time_t)-1 && not_before <= not_after) {
++			if (now < not_before) *verify_result = X509_verify_err_not_yet_valid;
++			else if (now > not_after) *verify_result = X509_verify_err_expired;
++		}
+ 		error_print();
+ 		return -1;
+ 	}
+@@ -1882,6 +1888,11 @@
+ 	}
+ 
+ 	return 1;
++}
++
++int x509_cert_check(const uint8_t *cert, size_t certlen, int cert_type)
++{
++	return x509_cert_check_with_result(cert, certlen, cert_type, NULL);
+ }
+ 
+ // 这个函数应该打印到底是哪个证书验证出错了
+@@ -1991,9 +2002,9 @@
+ }
+ 
+ static int x509_cert_check_ca_for_purpose(const uint8_t *cert, size_t certlen,
+-	int entity_cert_type)
+-{
+-	if (x509_cert_check(cert, certlen, X509_cert_ca) != 1
++	int entity_cert_type, int *verify_result)
++{
++	if (x509_cert_check_with_result(cert, certlen, X509_cert_ca, verify_result) != 1
+ 		|| x509_cert_check_ca_key_purpose(cert, certlen, entity_cert_type) != 1) {
+ 		error_print();
+ 		return -1;
+@@ -2039,10 +2050,11 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+-	if (x509_cert_check(cert, certlen, entity_cert_type) != 1) {
++	if (x509_cert_check_with_result(cert, certlen, entity_cert_type, verify_result) != 1) {
+ 		error_print();
+ 		x509_cert_print(stderr, 0, 10, "Invalid Entity Certificate", cert, certlen);
+-		x509_verify_set_result(verify_result, X509_verify_err_certificate);
++		if (!verify_result || *verify_result == X509_verify_ok)
++			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+ 	if ((ret = x509_cert_check_optional_crl(cert, certlen, crl, crl_len)) < 0) {
+@@ -2063,10 +2075,11 @@
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 			return -1;
+ 		}
+-		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type) != 1) {
++		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result) != 1) {
+ 			error_print();
+ 			x509_cert_print(stderr, 0, 10, "Invalid CA Certificate", cacert, cacertlen);
+-			x509_verify_set_result(verify_result, X509_verify_err_certificate);
++			if (!verify_result || *verify_result == X509_verify_ok)
++				x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 			return -1;
+ 		}
+ 		if ((ret = x509_cert_check_optional_crl(cacert, cacertlen, crl, crl_len)) < 0) {
+@@ -2124,9 +2137,10 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_trust_anchor);
+ 		return -1;
+ 	}
+-	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type) != 1) {
+-		error_print();
+-		x509_verify_set_result(verify_result, X509_verify_err_certificate);
++	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result) != 1) {
++		error_print();
++		if (!verify_result || *verify_result == X509_verify_ok)
++			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+ 	if (path_len > depth) {
+@@ -2208,9 +2222,10 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+-	if (x509_cert_check(cert, certlen, sign_cert_type) != 1) {
+-		error_print();
+-		x509_verify_set_result(verify_result, X509_verify_err_certificate);
++	if (x509_cert_check_with_result(cert, certlen, sign_cert_type, verify_result) != 1) {
++		error_print();
++		if (!verify_result || *verify_result == X509_verify_ok)
++			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+ 	if ((ret = x509_cert_check_optional_crl(cert, certlen, crl, crl_len)) < 0) {
+@@ -2230,9 +2245,10 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+-	if (x509_cert_check(kenc_cert, kenc_certlen, kenc_cert_type) != 1) {
+-		error_print();
+-		x509_verify_set_result(verify_result, X509_verify_err_certificate);
++	if (x509_cert_check_with_result(kenc_cert, kenc_certlen, kenc_cert_type, verify_result) != 1) {
++		error_print();
++		if (!verify_result || *verify_result == X509_verify_ok)
++			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+ 	if ((ret = x509_cert_check_optional_crl(kenc_cert, kenc_certlen, crl, crl_len)) < 0) {
+@@ -2264,9 +2280,10 @@
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 			return -1;
+ 		}
+-		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type) != 1) {
+-			error_print();
+-			x509_verify_set_result(verify_result, X509_verify_err_certificate);
++		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result) != 1) {
++			error_print();
++			if (!verify_result || *verify_result == X509_verify_ok)
++				x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 			return -1;
+ 		}
+ 		if ((ret = x509_cert_check_optional_crl(cacert, cacertlen, crl, crl_len)) < 0) {
+@@ -2343,9 +2360,10 @@
+ 		x509_verify_set_result(verify_result, X509_verify_err_trust_anchor);
+ 		return -1;
+ 	}
+-	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type) != 1) {
+-		error_print();
+-		x509_verify_set_result(verify_result, X509_verify_err_certificate);
++	if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result) != 1) {
++		error_print();
++		if (!verify_result || *verify_result == X509_verify_ok)
++			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+ 		return -1;
+ 	}
+ 	if (path_len > depth) {
