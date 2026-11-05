@@ -68,6 +68,7 @@ vcpkg_apply_patches(
     PATCHES
         "${CMAKE_CURRENT_LIST_DIR}/tls12-range-negotiation.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-response.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-peer-key-update-limit.patch"
 )
 
 vcpkg_cmake_configure(
