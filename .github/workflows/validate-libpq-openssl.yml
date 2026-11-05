@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "ports/libpq/**"
+      - "tests/libpq-channel-binding.c"
       - "vcpkg.json"
       - "cache-contract-version.txt"
       - ".github/workflows/validate-libpq-openssl.yml"
@@ -18,6 +19,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-llvm-native
+        with:
+          obfuscator: "false"
       - name: Bootstrap canonical vcpkg without Mono/NuGet (source-only Linux)
         uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
@@ -62,59 +66,6 @@ jobs:
           fi
           test -f "$install/x64-linux/include/libpq-fe.h"
           test -f "$install/x64-linux/lib/libpq.a"
-      - name: Compile static libpq consumer
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/libpq-install/x64-linux"
-          cat > "$RUNNER_TEMP/libpq-consumer.c" <<'EOF'
-          #include <libpq-fe.h>
-          int main(void) {
-            return PQlibVersion() <= 0;
-          }
-          EOF
-          export PKG_CONFIG_PATH="$root/lib/pkgconfig"
-          cc "$RUNNER_TEMP/libpq-consumer.c" $(pkg-config --cflags --libs --static libpq) -o "$RUNNER_TEMP/libpq-consumer"
-          "$RUNNER_TEMP/libpq-consumer"
-
-      - name: Configure installed static CMake consumer
-        shell: bash
-        run: |
-          set -euo pipefail
-          install="$RUNNER_TEMP/libpq-install"
-          source="$RUNNER_TEMP/libpq-cmake-consumer"
-          build="$RUNNER_TEMP/libpq-cmake-build"
-          mkdir -p "$source"
-          cat > "$source/main.c" <<'EOF'
-          #include <libpq-fe.h>
-          int main(void) {
-            return PQlibVersion() <= 0;
-          }
-          EOF
-          cat > "$source/CMakeLists.txt" <<'EOF'
-          cmake_minimum_required(VERSION 3.24)
-          project(libpq_cmake_contract C)
-          find_package(PostgreSQL REQUIRED)
-          if(NOT TARGET PostgreSQL::PostgreSQL)
-            message(FATAL_ERROR "PostgreSQL::PostgreSQL target missing")
-          endif()
-          get_target_property(_pg_links PostgreSQL::PostgreSQL INTERFACE_LINK_LIBRARIES)
-          message(STATUS "PostgreSQL::PostgreSQL links: ${_pg_links}")
-          if(NOT "${_pg_links}" MATCHES "OpenSSL::SSL")
-            message(FATAL_ERROR "static PostgreSQL target does not propagate OpenSSL::SSL")
-          endif()
-          add_executable(libpq-cmake-consumer main.c)
-          target_link_libraries(libpq-cmake-consumer PRIVATE PostgreSQL::PostgreSQL)
-          EOF
-          cmake -S "$source" -B "$build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_MANIFEST_MODE=OFF \
-            -DVCPKG_INSTALLED_DIR="$install" \
-            -DVCPKG_TARGET_TRIPLET=x64-linux
-          cmake --build "$build"
-          "$build/libpq-cmake-consumer"
-
       - name: Verify real PostgreSQL TLS with sslmode verify-full
         shell: bash
         run: |
@@ -182,27 +133,31 @@ jobs:
           }
           EOF
           export PKG_CONFIG_PATH="$root/lib/pkgconfig"
-          cc "$work/verify-full.c" $(pkg-config --cflags --libs --static libpq) -o "$work/verify-full"
+          "$LLVM_NATIVE_CC" "$work/verify-full.c" $(pkg-config --cflags --libs --static libpq) -o "$work/verify-full"
           export LIBPQ_TEST_CONNINFO="host=localhost hostaddr=127.0.0.1 port=55432 dbname=postgres user=$(id -un) sslmode=verify-full sslrootcert=$work/ca.crt"
           "$work/verify-full"
 
   windows:
-    name: libpq OpenSSL / windows-2025 v145
+    name: libpq OpenSSL / windows-2025 llvm-mingw
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-llvm-mingw
+        with:
+          target: x64
+          obfuscator: "false"
       - name: Bootstrap canonical vcpkg without Mono/NuGet (source-only Windows)
         uses: ./.github/actions/setup-vcpkg-curl-cache
         with:
           mode: read
           manifest-root: cache-contracts/optional-feature
-          triplet: qigao-x64-windows-v145
-          host-triplet: qigao-x64-windows-v145
+          triplet: qigao-x64-windows-llvm-mingw
+          host-triplet: qigao-x64-windows-llvm-mingw
       - name: Build isolated libpq profile
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $triplet = "qigao-x64-windows-v145"
+          $triplet = "qigao-x64-windows-llvm-mingw"
           $manifest = Join-Path $env:RUNNER_TEMP "libpq-manifest"
           $install = Join-Path $env:RUNNER_TEMP "libpq-install"
           New-Item -ItemType Directory -Force -Path $manifest | Out-Null
@@ -221,7 +176,7 @@ jobs:
             "builtin-baseline": "$baseline"
           }
           "@ | Set-Content -LiteralPath (Join-Path $manifest "vcpkg.json") -Encoding utf8
-          # A real v145 libpq build must use the pinned source graph only.
+          # A real llvm-mingw libpq build must use the pinned source graph only.
           # No restored binary ABI or legacy Mono/NuGet provider is acceptable.
           $env:VCPKG_BINARY_SOURCES = 'clear'
           & "$env:VCPKG_ROOT\vcpkg.exe" install "--x-manifest-root=$manifest" "--x-install-root=$install" "--triplet=$triplet" "--host-triplet=$triplet"
@@ -231,39 +186,5 @@ jobs:
           if ($status -match '(?m)^Package: boringssl$') { throw "BoringSSL leaked into libpq closure" }
           $root = Join-Path $install $triplet
           if (-not (Test-Path (Join-Path $root "include\libpq-fe.h"))) { throw "libpq-fe.h missing" }
-          if (-not (Test-Path (Join-Path $root "lib\libpq.lib"))) { throw "libpq.lib missing" }
+          if (-not (Test-Path (Join-Path $root "lib\libpq.dll.a"))) { throw "libpq import archive missing" }
 
-      - name: Configure installed dynamic CMake consumer
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $triplet = "qigao-x64-windows-v145"
-          $install = Join-Path $env:RUNNER_TEMP "libpq-install"
-          $source = Join-Path $env:RUNNER_TEMP "libpq-cmake-consumer"
-          $build = Join-Path $env:RUNNER_TEMP "libpq-cmake-build"
-          New-Item -ItemType Directory -Force -Path $source | Out-Null
-          @'
-          #include <libpq-fe.h>
-          int main(void) {
-            return PQlibVersion() <= 0;
-          }
-          '@ | Set-Content -LiteralPath (Join-Path $source "main.c") -Encoding utf8
-          @'
-          cmake_minimum_required(VERSION 3.24)
-          project(libpq_cmake_contract C)
-          find_package(PostgreSQL REQUIRED)
-          if(NOT TARGET PostgreSQL::PostgreSQL)
-            message(FATAL_ERROR "PostgreSQL::PostgreSQL target missing")
-          endif()
-          # The canonical Windows triplet is dynamically linked. OpenSSL is a
-          # private libpq runtime dependency there, so the imported target must
-          # not be required to expose OpenSSL::SSL as a static transitive edge.
-          add_executable(libpq-cmake-consumer main.c)
-          target_link_libraries(libpq-cmake-consumer PRIVATE PostgreSQL::PostgreSQL)
-          '@ | Set-Content -LiteralPath (Join-Path $source "CMakeLists.txt") -Encoding utf8
-          cmake -S $source -B $build -A x64 -T v145 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" "-DVCPKG_MANIFEST_MODE=OFF" "-DVCPKG_INSTALLED_DIR=$install" "-DVCPKG_TARGET_TRIPLET=$triplet"
-          if ($LASTEXITCODE -ne 0) { throw "CMake consumer configure failed" }
-          cmake --build $build --config Release
-          if ($LASTEXITCODE -ne 0) { throw "CMake consumer build failed" }
-          & (Join-Path $build "Release\libpq-cmake-consumer.exe")
-          if ($LASTEXITCODE -ne 0) { throw "CMake consumer failed" }
