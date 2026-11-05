@@ -1,63 +1,40 @@
-# libpq TLS/no-TLS overlay
+# libpq with externally owned TLS
 
-This overlay is copied from the vcpkg `libpq` 16.9 port at baseline
-`b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01`.
+The overlay uses PostgreSQL 16.9 from vcpkg baseline
+`b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01`, with no OpenSSL dependency.
+The `ssl` feature is removed, not aliased to another provider. Unix/MinGW
+configuration explicitly uses `--without-ssl`; MSVC configuration leaves
+its OpenSSL option unset. Default libpq dependencies and its exported CMake
+and pkg-config link interfaces must not pull in OpenSSL or BoringSSL.
 
-## TLS provider boundary
-
-PostgreSQL 16.9 natively targets the OpenSSL API when TLS is enabled. This
-overlay exposes that support as the explicit `ssl` vcpkg feature. The feature
-uses the standard vcpkg `openssl` port (3.5.2 at the pinned baseline) instead
-of BoringSSL.
-
-A build with `default-features=false` and without `ssl` is a true no-SSL
-profile: it does not configure PostgreSQL TLS and its dependency closure must
-contain neither OpenSSL nor BoringSSL.
-
-Provider-specific build settings live in `tls-provider.cmake`; the rest of
-the port consumes that contract. There is no runtime TLS-provider selection and
-no BoringSSL fallback.
-
-The Windows build links vcpkg OpenSSL's `libssl` / `libcrypto` libraries.
-The BoringSSL-only protocol/error/BIO compatibility patches are intentionally
-not applied.
-
-This choice is separate from Salts/CNet's TLS migration: CNet can use native
-GmSSL because it owns a provider-neutral feed/drain engine boundary, while
-libpq keeps its upstream OpenSSL contract rather than carrying a private
-PostgreSQL/GmSSL TLS fork.
-
-## Validation gate
-
-When changing this overlay:
-
-- build both `libpq[ssl]` and no-SSL profiles on supported Windows/Linux triplets;
-- verify TLS-enabled installed CMake wrappers resolve `OpenSSL::SSL` for static consumers;
-- verify a real `sslmode=verify-full` PostgreSQL connection for `libpq[ssl]`;
-- verify the TLS-enabled closure contains `openssl` and no `boringssl`;
-- verify the no-SSL closure contains neither `openssl` nor `boringssl`, and
-  installed pkg-config/CMake consumers link without an OpenSSL dependency.
-
-The no-SSL profile is appropriate only when the database connection is
-intentionally plaintext or protected by a separately designed secure transport.
-It does not silently replace libpq TLS with CNet/GmSSL.
+TLS negotiation, certificate verification and secure transport belong to the
+external connection owner. This recipe neither supplies a TLS engine nor
+silently replaces one. An application requiring TLS must provide that secure
+transport; libpq's upstream sslmode=require/verify-full cannot negotiate TLS
+in this build. sslmode=disable on the libpq side is not evidence that the
+external transport has authenticated a peer.
 
 ## External channel binding
 
-The overlay adds a narrow public extension for externally owned TLS:
+The existing extension remains:
 
 ```c
 int PQsetExternalChannelBinding(PGconn *conn, const char *type,
                                 const void *data, size_t len);
 ```
 
-Only RFC 5929 `tls-server-end-point` is accepted. The bytes are copied into
-bounded private `PGconn` state, must be installed before SASL authentication
-starts, and require `sslmode=disable`. The extension does not set
-`ssl_in_use`, expose an external TLS handle, or create a transport loop.
+Only RFC 5929 tls-server-end-point is accepted. The bytes are copied into
+bounded PGconn state before SASL authentication and require sslmode=disable.
+They must come from the exact externally verified TLS session. This does not
+set ssl_in_use, expose a TLS handle or create a transport loop. Physical
+teardown/PQreset clears the binding, so reconnect requires fresh session bytes.
+channel_binding=require can select SCRAM-SHA-256-PLUS using that binding.
 
-The binding is cleared on physical connection teardown and `PQreset()`, so a
-reconnected `PGconn` must receive fresh bytes from the exact newly verified
-external TLS session. `channel_binding=require` can then select
-`SCRAM-SHA-256-PLUS` in the no-SSL profile while native `libpq[ssl]`
-continues to use its upstream certificate-hash path.
+## Validation
+
+The existing Linux and Windows llvm-mingw source qualification builds the
+actual default-feature libpq graph with zstd, rejects OpenSSL/BoringSSL in the
+resolved closure and runs the native external-channel-binding behavior test.
+No installed CMake consumer project or SSL-provider workflow is retained.
+External TLS handshake and full database authentication remain separate
+application integration requirements.

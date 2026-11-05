@@ -1,4 +1,4 @@
-name: Validate libpq no-SSL profile
+name: Validate libpq external TLS boundary
 
 on:
   pull_request:
@@ -43,7 +43,7 @@ jobs:
             "dependencies": [
               {
                 "name": "libpq",
-                "default-features": false,
+                "default-features": true,
                 "features": ["zstd"]
               }
             ],
@@ -110,7 +110,7 @@ jobs:
             "dependencies": [
               {
                 "name": "libpq",
-                "default-features": false,
+                "default-features": true,
                 "features": ["zstd"]
               }
             ],
