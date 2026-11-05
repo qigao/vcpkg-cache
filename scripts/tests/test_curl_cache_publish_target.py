@@ -88,6 +88,54 @@ class ManualNativePublisherTargetTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unbounded"):
                     self.verify(file)
 
+    def test_miniaudio_arm64_publishes_only_selected_exact_abi(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = plan(Path(directory) / "resolved.config", [
+                ("vcpkg-cmake_arm64-linux", "2024.4.23-vcpkg" + "b" * 64),
+                ("miniaudio_arm64-linux", VERSION),
+                ("zeromq_arm64-linux", "4.3.5-vcpkg" + "c" * 64),
+            ])
+            target = Path(directory) / "packages.config"
+            kwargs = dict(package_set="miniaudio-arm64",
+                          expected_id="miniaudio_arm64-linux",
+                          expected_version=VERSION)
+            contract.target_only_plan(source, target, **kwargs)
+            self.assertEqual(
+                [(entry.attrib["id"], entry.attrib["version"])
+                 for entry in ET.parse(target).getroot()],
+                [("miniaudio_arm64-linux", VERSION)],
+            )
+            contract.target_only_plan(source, target, check=True, **kwargs)
+            with self.assertRaisesRegex(ValueError, "overwrite"):
+                contract.target_only_plan(source, target, **kwargs)
+            target.write_text("<packages/>", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "differs"):
+                contract.target_only_plan(source, target, check=True, **kwargs)
+            with self.assertRaisesRegex(ValueError, "restricted"):
+                contract.target_only_plan(
+                    source, target, package_set="wabt",
+                    expected_id="wabt_x64-linux", expected_version=VERSION,
+                )
+            with self.assertRaisesRegex(ValueError, "must be distinct"):
+                contract.target_only_plan(source, source, **kwargs)
+            with self.assertRaisesRegex(ValueError, "target mismatch"):
+                contract.target_only_plan(source, target,
+                    package_set="miniaudio-arm64",
+                    expected_id="miniaudio_arm64-linux",
+                    expected_version="1.0.42-vcpkg" + "d" * 64)
+
+    def test_target_plan_confuses_neither_native_id_nor_architecture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = plan(Path(directory) / "resolved.config", [
+                ("miniaudio_x64-linux", VERSION),
+            ])
+            with self.assertRaisesRegex(ValueError, "target mismatch"):
+                contract.target_only_plan(
+                    source, Path(directory) / "only.config",
+                    package_set="miniaudio-arm64",
+                    expected_id="miniaudio_arm64-linux", expected_version=VERSION,
+                )
+
     def test_protected_stage_rechecks_sha_attested_package_plan(self):
         src = (ROOT / ".github/workflows/curl-only-vcpkg-producer.yml").read_text()
         producer, publisher = src.split("\n  native-publish:", 1)
