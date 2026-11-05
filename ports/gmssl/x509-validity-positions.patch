@@ -1,0 +1,355 @@
+--- a/include/gmssl/x509_cer.h
++++ b/include/gmssl/x509_cer.h
+@@ -403,11 +403,25 @@
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
++/* Optional zero-based validity-failure position in the presented chain;
++ * (size_t)-1 for success, other failures and local-only trust anchors. */
++int x509_certs_verify_ex(const uint8_t *certs, size_t certslen, int certs_type,
++	const uint8_t *rootcerts, size_t rootcertslen,
++	const uint8_t *crl, size_t crl_len,
++	const uint8_t *ocsp, size_t ocsp_len,
++	int depth, int *verify_result, size_t *verify_index);
+ int x509_certs_verify_tlcp(const uint8_t *certs, size_t certslen, int certs_type,
+ 	const uint8_t *rootcerts, size_t rootcertslen,
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
++/* Optional zero-based validity-failure position in the presented chain;
++ * (size_t)-1 for success, other failures and local-only trust anchors. */
++int x509_certs_verify_tlcp_ex(const uint8_t *certs, size_t certslen, int certs_type,
++	const uint8_t *rootcerts, size_t rootcertslen,
++	const uint8_t *crl, size_t crl_len,
++	const uint8_t *ocsp, size_t ocsp_len,
++	int depth, int *verify_result, size_t *verify_index);
+ int x509_certs_check_name_constraints(const uint8_t *cert_chain, size_t cert_chain_len,
+ 	const uint8_t *rootcacert, size_t rootcacertlen);
+ int x509_certs_check_basic_constraints(const uint8_t *cert_chain, size_t cert_chain_len,
+--- a/src/x509_cer.c
++++ b/src/x509_cer.c
+@@ -2018,6 +2018,16 @@
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result)
+ {
++	return x509_certs_verify_ex(certs, certslen, certs_type, rootcerts, rootcertslen,
++		crl, crl_len, ocsp, ocsp_len, depth, verify_result, NULL);
++}
++
++int x509_certs_verify_ex(const uint8_t *certs, size_t certslen, int certs_type,
++	const uint8_t *rootcerts, size_t rootcertslen,
++	const uint8_t *crl, size_t crl_len,
++	const uint8_t *ocsp, size_t ocsp_len,
++	int depth, int *verify_result, size_t *verify_index)
++{
+ 	int entity_cert_type;
+ 	const uint8_t *cert_chain = certs;
+ 	size_t cert_chain_len = certslen;
+@@ -2028,6 +2038,10 @@
+ 	int ret;
+ 
+ 	int path_len = 0;
++	size_t cert_index = 1;
++	int local_result;
++	if (!verify_result) verify_result = &local_result;
++	if (verify_index) *verify_index = (size_t)-1;
+ 
+ 	x509_verify_set_result(verify_result, X509_verify_ok);
+ 
+@@ -2051,6 +2065,9 @@
+ 		return -1;
+ 	}
+ 	if (x509_cert_check_with_result(cert, certlen, entity_cert_type, verify_result) != 1) {
++		if (verify_index && (*verify_result == X509_verify_err_expired
++			|| *verify_result == X509_verify_err_not_yet_valid))
++			*verify_index = 0;
+ 		error_print();
+ 		x509_cert_print(stderr, 0, 10, "Invalid Entity Certificate", cert, certlen);
+ 		if (!verify_result || *verify_result == X509_verify_ok)
+@@ -2076,6 +2093,9 @@
+ 			return -1;
+ 		}
+ 		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result) != 1) {
++			if (verify_index && (*verify_result == X509_verify_err_expired
++				|| *verify_result == X509_verify_err_not_yet_valid))
++				*verify_index = cert_index;
+ 			error_print();
+ 			x509_cert_print(stderr, 0, 10, "Invalid CA Certificate", cacert, cacertlen);
+ 			if (!verify_result || *verify_result == X509_verify_ok)
+@@ -2123,6 +2143,7 @@
+ 		cert = cacert;
+ 		certlen = cacertlen;
+ 		path_len++;
++		cert_index++;
+ 	}
+ 
+ 	if ((ret = x509_cert_chain_find_root_ca_cert(cert_chain, cert_chain_len,
+@@ -2189,6 +2210,16 @@
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result)
++{
++	return x509_certs_verify_tlcp_ex(certs, certslen, certs_type, rootcerts, rootcertslen,
++		crl, crl_len, ocsp, ocsp_len, depth, verify_result, NULL);
++}
++
++int x509_certs_verify_tlcp_ex(const uint8_t *certs, size_t certslen, int certs_type,
++	const uint8_t *rootcerts, size_t rootcertslen,
++	const uint8_t *crl, size_t crl_len,
++	const uint8_t *ocsp, size_t ocsp_len,
++	int depth, int *verify_result, size_t *verify_index)
+ {
+ 	int sign_cert_type;
+ 	int kenc_cert_type;
+@@ -2203,6 +2234,10 @@
+ 	int ret;
+ 
+ 	int path_len = 0;
++	size_t cert_index = 2;
++	int local_result;
++	if (!verify_result) verify_result = &local_result;
++	if (verify_index) *verify_index = (size_t)-1;
+ 
+ 	x509_verify_set_result(verify_result, X509_verify_ok);
+ 
+@@ -2223,6 +2258,9 @@
+ 		return -1;
+ 	}
+ 	if (x509_cert_check_with_result(cert, certlen, sign_cert_type, verify_result) != 1) {
++		if (verify_index && (*verify_result == X509_verify_err_expired
++			|| *verify_result == X509_verify_err_not_yet_valid))
++			*verify_index = 0;
+ 		error_print();
+ 		if (!verify_result || *verify_result == X509_verify_ok)
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+@@ -2246,6 +2284,9 @@
+ 		return -1;
+ 	}
+ 	if (x509_cert_check_with_result(kenc_cert, kenc_certlen, kenc_cert_type, verify_result) != 1) {
++		if (verify_index && (*verify_result == X509_verify_err_expired
++			|| *verify_result == X509_verify_err_not_yet_valid))
++			*verify_index = 1;
+ 		error_print();
+ 		if (!verify_result || *verify_result == X509_verify_ok)
+ 			x509_verify_set_result(verify_result, X509_verify_err_certificate);
+@@ -2281,6 +2322,9 @@
+ 			return -1;
+ 		}
+ 		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result) != 1) {
++			if (verify_index && (*verify_result == X509_verify_err_expired
++				|| *verify_result == X509_verify_err_not_yet_valid))
++				*verify_index = cert_index;
+ 			error_print();
+ 			if (!verify_result || *verify_result == X509_verify_ok)
+ 				x509_verify_set_result(verify_result, X509_verify_err_certificate);
+@@ -2346,6 +2390,7 @@
+ 		cert = cacert;
+ 		certlen = cacertlen;
+ 		path_len++;
++		cert_index++;
+ 	}
+ 
+ 	if ((ret = x509_cert_chain_find_root_ca_cert(cert, certlen,
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -1213,6 +1213,7 @@
+ 	X509_KEY server_enc_key;
+ 
+ 	int verify_result;
++	size_t verify_certificate_index; /* (size_t)-1 when unavailable */
+ 
+ 
+ 	// transcript hash
+@@ -1979,6 +1980,23 @@
+ 	const uint8_t *host_name, size_t host_name_len,
+ 	int *verify_result,
+ 	int *selected_sig_alg);
++/* verify_index follows x509_certs_verify_ex validity-position semantics. */
++int tls_cert_chain_verify_ex(
++	int protocol, int cert_chain_type, int cipher_suite,
++	int verify_chain,
++	const uint8_t *cert_chain, size_t cert_chain_len,
++	const uint8_t *cacerts, size_t cacerts_len,
++	const uint8_t *crl, size_t crl_len,
++	const uint8_t *ocsp, size_t ocsp_len,
++	int verify_depth,
++	const int *supported_groups, size_t supported_groups_cnt,
++	const int *signature_algorithms, size_t signature_algorithms_cnt,
++	const int *signature_algorithms_cert, size_t signature_algorithms_cert_cnt,
++	const uint8_t *ca_names, size_t ca_names_len,
++	const uint8_t *oid_filters, size_t oid_filters_len,
++	const uint8_t *host_name, size_t host_name_len,
++	int *verify_result,
++	int *selected_sig_alg, size_t *verify_index);
+ 
+ 
+ int tls13_cert_chains_select(const uint8_t *cert_chains, size_t cert_chains_len,
+--- a/src/tls_vrf.c
++++ b/src/tls_vrf.c
+@@ -377,7 +377,34 @@
+ 	int *verify_result,
+ 	int *selected_sig_alg)
+ {
++	return tls_cert_chain_verify_ex(protocol, cert_chain_type, cipher_suite, verify_chain,
++		cert_chain, cert_chain_len, cacerts, cacerts_len, crl, crl_len, ocsp, ocsp_len,
++		verify_depth, supported_groups, supported_groups_cnt,
++		signature_algorithms, signature_algorithms_cnt,
++		signature_algorithms_cert, signature_algorithms_cert_cnt,
++		ca_names, ca_names_len, oid_filters, oid_filters_len, host_name, host_name_len,
++		verify_result, selected_sig_alg, NULL);
++}
++
++int tls_cert_chain_verify_ex(
++	int protocol, int cert_chain_type, int cipher_suite,
++	int verify_chain,
++	const uint8_t *cert_chain, size_t cert_chain_len,
++	const uint8_t *cacerts, size_t cacerts_len,
++	const uint8_t *crl, size_t crl_len,
++	const uint8_t *ocsp, size_t ocsp_len,
++	int verify_depth,
++	const int *supported_groups, size_t supported_groups_cnt,
++	const int *signature_algorithms, size_t signature_algorithms_cnt,
++	const int *signature_algorithms_cert, size_t signature_algorithms_cert_cnt,
++	const uint8_t *ca_names, size_t ca_names_len,
++	const uint8_t *oid_filters, size_t oid_filters_len,
++	const uint8_t *host_name, size_t host_name_len,
++	int *verify_result,
++	int *selected_sig_alg, size_t *verify_index)
++{
+ 	int ret;
++	if (verify_index) *verify_index = (size_t)-1;
+ 
+ 	if (!cert_chain || !cert_chain_len) {
+ 		error_print();
+@@ -433,13 +460,13 @@
+ 
+ 	if (verify_chain) {
+ 		if (protocol == TLS_protocol_tlcp && cert_chain_type == X509_cert_chain_server) {
+-			ret = x509_certs_verify_tlcp(cert_chain, cert_chain_len, cert_chain_type,
++			ret = x509_certs_verify_tlcp_ex(cert_chain, cert_chain_len, cert_chain_type,
+ 				cacerts, cacerts_len, crl, crl_len, ocsp, ocsp_len,
+-				verify_depth, verify_result);
++				verify_depth, verify_result, verify_index);
+ 		} else {
+-			ret = x509_certs_verify(cert_chain, cert_chain_len, cert_chain_type,
++			ret = x509_certs_verify_ex(cert_chain, cert_chain_len, cert_chain_type,
+ 				cacerts, cacerts_len, crl, crl_len, ocsp, ocsp_len,
+-				verify_depth, verify_result);
++				verify_depth, verify_result, verify_index);
+ 		}
+ 		if (ret < 0) {
+ 			error_print();
+--- a/src/tls12.c
++++ b/src/tls12.c
+@@ -1398,7 +1398,7 @@
+ 	assert(conn->ctx->verify_depth > 0 && conn->ctx->verify_depth < 10);
+ 
+ 	// verify server Certificate
+-	if (tls_cert_chain_verify(conn->protocol, X509_cert_chain_server, conn->cipher_suite,
++	if (tls_cert_chain_verify_ex(conn->protocol, X509_cert_chain_server, conn->cipher_suite,
+ 		conn->ctx->external_trust ? 0 : (conn->ctx->cacertslen ? 1 : 0),
+ 		conn->peer_cert_chain, conn->peer_cert_chain_len,
+ 		conn->ctx->cacerts, conn->ctx->cacertslen,
+@@ -1411,7 +1411,7 @@
+ 		NULL, 0,
+ 		NULL, 0,
+ 		conn->host_name, conn->host_name_len,
+-		&verify_result, &server_sig_alg) != 1) {
++		&verify_result, &server_sig_alg, &conn->verify_certificate_index) != 1) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+ 		tls_send_alert(conn, TLS_alert_bad_certificate);
+@@ -2874,7 +2874,7 @@
+ 		tls_send_alert(conn, TLS_alert_unexpected_message);
+ 		return -1;
+ 	}
+-	if (tls_cert_chain_verify(conn->protocol, X509_cert_chain_client, conn->cipher_suite,
++	if (tls_cert_chain_verify_ex(conn->protocol, X509_cert_chain_client, conn->cipher_suite,
+ 		1,
+ 		conn->client_certs, conn->client_certs_len,
+ 		conn->ctx->cacerts, conn->ctx->cacertslen,
+@@ -2887,7 +2887,7 @@
+ 		NULL, 0,
+ 		NULL, 0,
+ 		NULL, 0,
+-		&verify_result, NULL) != 1) {
++		&verify_result, NULL, &conn->verify_certificate_index) != 1) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+ 		tls_send_alert(conn, TLS_alert_bad_certificate);
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -4061,6 +4061,7 @@
+ 
+ 
+ 	memset(conn, 0, sizeof(*conn));
++	conn->verify_certificate_index = (size_t)-1;
+ 
+ 	conn->ctx = ctx;
+ 	conn->signature_algorithms_cert = ctx->signature_algorithms_cert;
+@@ -6402,7 +6403,7 @@
+ 	}
+ 
+ 	// verify server cert_chain
+-	ret = tls_cert_chain_verify(
++	ret = tls_cert_chain_verify_ex(
+ 		conn->protocol, X509_cert_chain_server, conn->cipher_suite,
+ 		conn->ctx->external_trust ? 0 : 1,
+ 		conn->peer_cert_chain, conn->peer_cert_chain_len,
+@@ -6416,7 +6417,7 @@
+ 		ca_names, ca_names_len,
+ 		NULL, 0,
+ 		host_name, host_name_len,
+-		&verify_result, NULL);
++		&verify_result, NULL, &conn->verify_certificate_index);
+ 	if (ret < 0) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+@@ -8890,7 +8891,7 @@
+ 		oid_filters_len = conn->ctx->oid_filters_len;
+ 	}
+ 	// verify client cert_chain
+-	ret = tls_cert_chain_verify(
++	ret = tls_cert_chain_verify_ex(
+ 		conn->protocol, X509_cert_chain_client, conn->cipher_suite,
+ 		1,
+ 		conn->peer_cert_chain, conn->peer_cert_chain_len,
+@@ -8904,7 +8905,7 @@
+ 		ca_names, ca_names_len,
+ 		oid_filters, oid_filters_len,
+ 		NULL, 0,
+-		&verify_result, NULL);
++		&verify_result, NULL, &conn->verify_certificate_index);
+ 	if (ret < 0) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+--- a/src/tlcp.c
++++ b/src/tlcp.c
+@@ -837,7 +837,7 @@
+ 		tls_send_alert(conn, TLS_alert_unexpected_message);
+ 		return -1;
+ 	}
+-	if (tls_cert_chain_verify(conn->protocol, X509_cert_chain_server, conn->cipher_suite,
++	if (tls_cert_chain_verify_ex(conn->protocol, X509_cert_chain_server, conn->cipher_suite,
+ 		conn->ctx->cacertslen ? 1 : 0,
+ 		conn->peer_cert_chain, conn->peer_cert_chain_len,
+ 		conn->ctx->cacerts, conn->ctx->cacertslen,
+@@ -850,7 +850,7 @@
+ 		NULL, 0,
+ 		NULL, 0,
+ 		conn->host_name, conn->host_name_len,
+-		&verify_result, &sig_alg) != 1) {
++		&verify_result, &sig_alg, &conn->verify_certificate_index) != 1) {
+ 		error_print();
+ 		conn->verify_result = verify_result;
+ 		tls_send_alert(conn, TLS_alert_bad_certificate);
+--- a/src/tls.c
++++ b/src/tls.c
+@@ -3535,6 +3535,7 @@
+ 	}
+ 
+ 	memset(conn, 0, sizeof(*conn));
++	conn->verify_certificate_index = (size_t)-1;
+ 
+ 	conn->is_client = ctx->is_client; // TODO: remove conn->is_client
+ 	conn->protocol = ctx->protocol;

@@ -61,3 +61,15 @@
 - Malformed intervals and failed clock reads retain existing generic results;
   TLS1.2 can reject malformed Certificate data before entering verification.
   Qualification belongs to salts-core's formal native/independent tests.
+
+## 2026-11-06 validity certificate positions
+
+- Extended chain verifiers return an optional zero-based peer-chain position
+  only at actual expired/not-yet-valid checks. Normal chains start issuers at
+  index 1; TLCP server chains reserve index 1 for the encryption certificate.
+  Advance the cursor with parsed peer issuers, never with local anchor lookup.
+- Initialize connection/output positions to `(size_t)-1`, including early
+  rejection and verification-disabled paths. Preserve the original public
+  verifier entry points as wrappers and retain the original verification order.
+- The TLS_CONNECT layout changes: qualify the archive and headers together
+  through salts-core's full graph and formal ABI/native/independent CTests.
