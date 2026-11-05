@@ -65,7 +65,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/overlays-03.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/overlays-04.cmake")
 vcpkg_apply_patches(
     SOURCE_PATH "${SOURCE_PATH}"
-    PATCHES "${CMAKE_CURRENT_LIST_DIR}/tls12-range-negotiation.patch"
+    PATCHES
+        "${CMAKE_CURRENT_LIST_DIR}/tls12-range-negotiation.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-response.patch"
 )
 
 vcpkg_cmake_configure(
