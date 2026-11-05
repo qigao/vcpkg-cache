@@ -1,0 +1,49 @@
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -7959,6 +7959,19 @@
+ 			continue;
+ 		}
+ 
++		/* RFC 8446 4.1.2 permits adding/removing/resizing padding after HRR.
++		 * Duplicate extensions were rejected above. RFC 7685 requires zeros,
++		 * including when the padding extension was absent in ClientHello1. */
++		if (ext_type == TLS_extension_padding) {
++			for (size_t i = 0; i < ext_datalen; i++) {
++				if (ext_data[i] != 0) {
++					tls13_send_alert(conn, TLS_alert_illegal_parameter);
++					return -1;
++				}
++			}
++			continue;
++		}
++
+ 		// Find the corresponding ClientHello1 extension by type. The order
+ 		// can change after HRR; early_data is intentionally omitted.
+ 		while (search_exts_len) {
+@@ -8085,7 +8098,7 @@
+ 		}
+ 	}
+ 
+-	// ClientHello2 must not drop any ClientHello1 extension except early_data.
++	// ClientHello2 may drop early_data and padding, but no other extension.
+ 	while (client_hello1_exts_len) {
+ 		int _ext_type;
+ 		const uint8_t *_ext_data;
+@@ -8100,7 +8113,7 @@
+ 			tls13_send_alert(conn, TLS_alert_decode_error);
+ 			return -1;
+ 		}
+-		if (_ext_type == TLS_extension_early_data) {
++		if (_ext_type == TLS_extension_early_data || _ext_type == TLS_extension_padding) {
+ 			continue;
+ 		}
+ 		if (_ext_type == TLS_extension_key_share && key_share) {
+@@ -8355,6 +8368,8 @@
+ 		switch (conn->handshake_state) {
+ 		case TLS_state_client_hello:
++		case TLS_state_client_hello_again:
++			/* HRR has not established handshake traffic keys yet. */
+ 		case TLS_state_server_hello:
+ 		case TLS_state_hello_retry_request:
+ 			memcpy(conn->record, conn->plain_record, conn->plain_recordlen);
+ 			conn->recordlen = conn->plain_recordlen;
