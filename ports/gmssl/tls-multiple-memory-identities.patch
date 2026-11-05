@@ -1,0 +1,77 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -1020,6 +1020,9 @@
+ int tls_ctx_enable_external_trust(TLS_CTX *ctx, int enable);
+ int tls_ctx_set_ca_certificates_der(TLS_CTX *ctx,
+ 	const uint8_t *cacerts, size_t cacertslen, int depth);
++int tls_ctx_add_certificate_and_keys_der(TLS_CTX *ctx,
++ const uint8_t *certs, size_t certslen, const uint8_t *key, size_t keylen,
++ const uint8_t *enc_key, size_t enc_keylen);
+ int tls_ctx_set_certificate_and_keys_der(TLS_CTX *ctx,
+  const uint8_t *certs, size_t certslen, const uint8_t *key, size_t keylen,
+  const uint8_t *enc_key, size_t enc_keylen);
+--- a/src/tls_cert.c
++++ b/src/tls_cert.c
+@@ -434,7 +434,7 @@
+  return !len && !attrslen && x509_public_key_equ(key, pub) == 1 ? 1 : -1;
+ }
+ 
+-int tls_ctx_set_certificate_and_keys_der(TLS_CTX *ctx,
++int tls_ctx_add_certificate_and_keys_der(TLS_CTX *ctx,
+  const uint8_t *certs, size_t certslen, const uint8_t *key, size_t keylen,
+  const uint8_t *enc_key, size_t enc_keylen)
+ {
+@@ -444,8 +444,12 @@
+  uint8_t *out;
+  int ret = -1, tlcp;
+  if (!ctx || !certs || !certslen || !key || !keylen
+-  || !tls_protocol_name(ctx->protocol) || ctx->cert_chains_len || ctx->x509_keys_cnt
+-  || certslen > sizeof(ctx->cert_chains) - 3) return -1;
++  || !tls_protocol_name(ctx->protocol)
++  || ctx->x509_keys_cnt >= sizeof(ctx->x509_keys)/sizeof(ctx->x509_keys[0])
++  || ctx->cert_chains_len > sizeof(ctx->cert_chains) - 3
++  || certslen > sizeof(ctx->cert_chains) - ctx->cert_chains_len - 3
++  || ctx->status_request_ocsp_responses_len > sizeof(ctx->status_request_ocsp_responses) - 3
++  || ctx->signed_certificate_timestamp_lists_len > sizeof(ctx->signed_certificate_timestamp_lists) - 2) return -1;
+  tlcp = ctx->protocol == TLS_protocol_tlcp;
+  if (tlcp && (ctx->is_client || !enc_key || !enc_keylen)) return -1;
+  if (!tlcp && (enc_key || enc_keylen)) return -1;
+@@ -459,16 +463,16 @@
+    || tls_private_key_from_der(&keys[i], &pub, i ? enc_key : key, i ? enc_keylen : keylen) != 1) goto end;
+  }
+  /* No context mutation until both keys and the complete chain pass. */
+- out = ctx->cert_chains;
++ out = ctx->cert_chains + ctx->cert_chains_len;
+  tls_uint24array_to_bytes(certs, certslen, &out, &outlen);
+- ctx->cert_chains_len = outlen;
+- ctx->x509_keys[0] = keys[0];
+- if (tlcp) ctx->enc_keys[0] = keys[1];
+- ctx->x509_keys_cnt = 1;
++ ctx->cert_chains_len += outlen;
++ ctx->x509_keys[ctx->x509_keys_cnt] = keys[0];
++ if (tlcp) ctx->enc_keys[ctx->x509_keys_cnt] = keys[1];
++ ctx->x509_keys_cnt++;
+  if (!tlcp) {
+-  out = ctx->status_request_ocsp_responses;
++  out = ctx->status_request_ocsp_responses + ctx->status_request_ocsp_responses_len;
+   tls_uint24array_to_bytes(NULL, 0, &out, &ctx->status_request_ocsp_responses_len);
+-  out = ctx->signed_certificate_timestamp_lists;
++  out = ctx->signed_certificate_timestamp_lists + ctx->signed_certificate_timestamp_lists_len;
+   tls_uint16array_to_bytes(NULL, 0, &out, &ctx->signed_certificate_timestamp_lists_len);
+  }
+  ret = 1;
+@@ -476,6 +480,14 @@
+  gmssl_secure_clear(keys, sizeof(keys));
+  gmssl_secure_clear(&pub, sizeof(pub));
+  return ret;
++}
++
++int tls_ctx_set_certificate_and_keys_der(TLS_CTX *ctx,
++ const uint8_t *certs, size_t certslen, const uint8_t *key, size_t keylen,
++ const uint8_t *enc_key, size_t enc_keylen)
++{
++ if (!ctx || ctx->cert_chains_len || ctx->x509_keys_cnt) return -1;
++ return tls_ctx_add_certificate_and_keys_der(ctx, certs, certslen, key, keylen, enc_key, enc_keylen);
+ }
+ 
+ int tls_authorities_issued_certificate(const uint8_t *ca_names, size_t ca_names_len, const uint8_t *certs, size_t certslen)
