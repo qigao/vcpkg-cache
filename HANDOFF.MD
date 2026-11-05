@@ -17,3 +17,13 @@
   full NUPKG SHA-256
   `fe3c64ef3c25a28a9e5143bf2e85e3a7f25691f9bf47bec490f3e6be8e461305`.
   Producer run: `41263215892`; do not substitute an Actions artifact ZIP digest.
+
+## 2026-11-05 GmSSL client identity selection
+
+- TLS 1.2 must track CertificateRequest separately from selected client signing
+  credentials: no match sends an empty Certificate and skips CertificateVerify.
+- Range-to-TLS1.2 mTLS needs the retained ClientHello in the raw signature
+  transcript. TLS1.3's PSS offer must not select TLS1.2's PKCS1-only RSA signer.
+- CA hints can name an intermediate issuer. Parse the entire DN vector before
+  selection, even when the local signature intersection is empty. Qualification
+  belongs to salts-core's formal native/independent TLS CTests.
