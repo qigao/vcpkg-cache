@@ -27,3 +27,6 @@
 - CA hints can name an intermediate issuer. Parse the entire DN vector before
   selection, even when the local signature intersection is empty. Qualification
   belongs to salts-core's formal native/independent TLS CTests.
+- The registry intentionally stores only the current GmSSL version entry.
+  Replace that entry when bumping the port; appending historical entries fails
+  the existing registry contract workflow even when the tree hashes are valid.
