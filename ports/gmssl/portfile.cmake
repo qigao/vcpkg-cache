@@ -76,6 +76,7 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls-sni-dns-names.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-hrr-padding.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls-client-identity-selection.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-certificate-signatures.patch"
 )
 
 vcpkg_cmake_configure(
