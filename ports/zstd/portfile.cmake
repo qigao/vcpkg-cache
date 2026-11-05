@@ -27,7 +27,7 @@ vcpkg_copy_pdbs()
 vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/zstd)
 vcpkg_fixup_pkgconfig()
 
-if(VCPKG_TARGET_IS_WINDOWS)
+if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
     foreach(ZSTD_PKGCONFIG_FILE IN ITEMS
             "${CURRENT_PACKAGES_DIR}/lib/pkgconfig/libzstd.pc"
             "${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/libzstd.pc")

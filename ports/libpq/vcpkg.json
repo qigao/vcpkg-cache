@@ -26,8 +26,7 @@
   ],
   "default-features": [
     "lz4",
-    "zlib",
-    "ssl"
+    "zlib"
   ],
   "features": {
     "all": {
@@ -182,13 +181,7 @@
       "dependencies": [
         "zstd"
       ]
-    },
-    "ssl": {
-      "description": "Enable PostgreSQL libpq TLS with OpenSSL",
-      "dependencies": [
-        "openssl"
-      ]
     }
   },
-  "port-version": 1
+  "port-version": 2
 }
