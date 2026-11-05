@@ -6,6 +6,10 @@ inputs:
     description: Remote cache mode. Only read supported; publishing requires a separately qualified curl producer.
     required: false
     default: read
+  restore-packages:
+    description: Require every exact remote ABI package. Set false for normal product builds using the local files cache and pinned source downloads.
+    required: false
+    default: "true"
   token:
     description: GitHub Packages token; defaults to github.token.
     required: false
@@ -50,6 +54,7 @@ runs:
       shell: bash
       env:
         CACHE_MODE: ${{ inputs.mode  }}
+        RESTORE_PACKAGES: ${{ inputs.restore-packages }}
         TARGET_TRIPLET: ${{ inputs.triplet  }}
       run: |
         set -euo pipefail
@@ -57,6 +62,10 @@ runs:
           echo "NuGet/Mono writes are forbidden: qualified curl-only publisher required." >&2
           exit 1
         fi
+        case "$RESTORE_PACKAGES" in
+          true|false) ;;
+          *) echo 'restore-packages must be true or false' >&2; exit 1 ;;
+        esac
         if [[ ! "$TARGET_TRIPLET" =~ ^[A-Za-z0-9_.+-]+$ ]]; then
           echo "An exact target triplet is mandatory for curl-only ABI restore." >&2
           exit 1
@@ -72,7 +81,7 @@ runs:
         $root = (Resolve-Path (Join-Path '${{ github.action_path  }}' '../../..')).Path
         python (Join-Path $root 'scripts/setup-vcpkg-curl-cache.py') $root
         if ($LASTEXITCODE -ne 0) { throw 'Canonical vcpkg bootstrap failed' }
-    - name: Download exact GitHub NuGet V3 ABI packages using curl
+    - name: Validate product inputs and apply the selected cache policy
       shell: pwsh
       env:
         GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token  }}
@@ -80,6 +89,7 @@ runs:
         INPUT_HOST_TRIPLET: ${{ inputs.host-triplet  }}
         INPUT_MANIFEST_ROOT: ${{ inputs.manifest-root  }}
         INPUT_FEATURES: ${{ inputs.features }}
+        INPUT_RESTORE_PACKAGES: ${{ inputs.restore-packages }}
       run: |
         $ErrorActionPreference = 'Stop'
         $root = (Resolve-Path (Join-Path '${{ github.action_path  }}' '../../..')).Path
@@ -95,5 +105,7 @@ runs:
             $features += @('--feature', $feature)
           }
         }
-        python (Join-Path $root 'scripts/restore-manifest-cache.py') --manifest-root $manifest --triplet $env:INPUT_TRIPLET --host-triplet $hostTriplet @features
-        if ($LASTEXITCODE -ne 0) { throw 'curl-only GitHub Packages restore failed' }
+        $restoreArguments = @()
+        if ($env:INPUT_RESTORE_PACKAGES -eq 'false') { $restoreArguments += '--validate-only' }
+        python (Join-Path $root 'scripts/restore-manifest-cache.py') --manifest-root $manifest --triplet $env:INPUT_TRIPLET --host-triplet $hostTriplet @features @restoreArguments
+        if ($LASTEXITCODE -ne 0) { throw 'Product manifest validation or curl-only GitHub Packages restore failed' }

@@ -4,6 +4,10 @@ vcpkg_from_git(
     REF 7c9f02904ef33e59c87b4f16621cc8fd434e7579
     PATCHES
         p256-ecdsa-der-signature-parsing.patch
+        shangmi-secret-cleanup.patch
+        sm2-uncompressed-point-validation.patch
+        sm9-state-cleanup.patch
+        tlcp-signature-extension.patch
 )
 
 # Upstream overrides CMAKE_INSTALL_PREFIX on MSVC. vcpkg owns the install root.
@@ -59,6 +63,16 @@ include("${CMAKE_CURRENT_LIST_DIR}/overlays-01.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/overlays-02.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/overlays-03.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/overlays-04.cmake")
+vcpkg_apply_patches(
+    SOURCE_PATH "${SOURCE_PATH}"
+    PATCHES
+        "${CMAKE_CURRENT_LIST_DIR}/tls12-range-negotiation.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-response.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-peer-key-update-limit.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-memory-credentials.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-cipher-version-filter.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-signature-policy.patch"
+)
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
@@ -71,13 +85,13 @@ vcpkg_cmake_configure(
         -DENABLE_SHA1=ON
         -DENABLE_CHACHA20=OFF
         -DENABLE_GHASH=OFF
-        -DENABLE_SM9=OFF
-        -DENABLE_CMS=OFF
+        -DENABLE_SM9=ON
+        -DENABLE_CMS=ON
         -DENABLE_LMS=OFF
         -DENABLE_XMSS=OFF
         -DENABLE_SPHINCS=OFF
         -DENABLE_KYBER=OFF
-        -DENABLE_ZUC=OFF
+        -DENABLE_ZUC=ON
         -DENABLE_SKF=OFF
         -DENABLE_SDF=OFF
 )

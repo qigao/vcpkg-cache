@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "package_id": "Qigao.Lemon.Binary",
+  "package_version": "1.0.0",
+  "repository": "sqlite/sqlite",
+  "sqlite_version": "3.54.0",
+  "commit": "6932c59ee5c280599dfae9e7b431698a7cab9687",
+  "files": {
+    "lemon.c": "18ae355d4379fed459e81accdda481e3d2a15c543bd148fd83890ecc0a55d0ee",
+    "lempar.c": "72e998c9c61753acd8d3ee8f6b2057269669dae8aa1bb833c01d793f1a341498"
+  }
+}

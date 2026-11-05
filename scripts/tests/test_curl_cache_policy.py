@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -198,6 +200,62 @@ class ExactArchive404Classification(unittest.TestCase):
         self.assertEqual(feed.calls, [
             ("archive", "simde_x64-windows", "0.0.0-vcpkg" + ABI, True),
         ])
+
+
+
+class ProductBuildManifestAdmission(unittest.TestCase):
+    def invoke(self, root, *options):
+        arguments = ["restore-manifest-cache.py", "--manifest-root", str(root),
+                     "--triplet", "x64-linux", "--host-triplet", "x64-linux", *options]
+        with mock.patch.object(restore.sys, "argv", arguments):
+            return restore.main()
+
+    def test_product_mode_validates_real_manifest_without_resolving_or_downloading(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work)
+            manifest = root / "vcpkg.json"
+            manifest.write_text(json.dumps({
+                "name": "product", "version-string": "1",
+                "dependencies": ["simde"],
+                "features": {"network": {"dependencies": ["c-ares"]}},
+            }), encoding="utf-8")
+            original = manifest.read_bytes()
+            with mock.patch.dict(os.environ, {}, clear=True), \
+                    mock.patch.object(restore.subprocess, "run") as run:
+                self.assertEqual(self.invoke(root, "--validate-only", "--feature", "network"), 0)
+            run.assert_not_called()
+            self.assertEqual(manifest.read_bytes(), original)
+            self.assertEqual(list(root.iterdir()), [manifest])
+
+    def test_product_mode_rejects_missing_manifest_invalid_triplets_and_features(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work)
+            with mock.patch.object(restore.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "manifest is missing"):
+                    self.invoke(root, "--validate-only")
+                (root / "vcpkg.json").write_text(
+                    '{"name":"product","version-string":"1","dependencies":["simde"]}',
+                    encoding="utf-8")
+                for option, value, error in (
+                        ("--triplet", "../target", "invalid triplet"),
+                        ("--host-triplet", "../host", "invalid host_triplet"),
+                        ("--feature", "undeclared", "undeclared product feature")):
+                    with self.subTest(option=option):
+                        with self.assertRaisesRegex(ValueError, error):
+                            self.invoke(root, "--validate-only", option, value)
+            run.assert_not_called()
+
+    def test_omitting_product_mode_still_requires_the_canonical_vcpkg_executable(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work)
+            (root / "vcpkg.json").write_text(
+                '{"name":"product","version-string":"1","dependencies":["simde"]}',
+                encoding="utf-8")
+            with mock.patch.dict(os.environ, {"VCPKG_ROOT": str(root)}, clear=True), \
+                    mock.patch.object(restore.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "canonical vcpkg executable is missing"):
+                    self.invoke(root)
+            run.assert_not_called()
 
 
 if __name__ == "__main__":

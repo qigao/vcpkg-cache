@@ -1,0 +1,72 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -888,6 +888,7 @@
+ 	int key_update;
+ 	size_t key_update_seq_num_limit;
+ 	size_t key_update_data_size_limit;
++	size_t peer_key_update_limit; /* zero disables consecutive-update admission */
+ 
+ 
+ 	// extensions
+@@ -1045,6 +1046,7 @@
+ #define TLS13_DEFAULT_KEY_UPDATE_SEQ_NUM_LIMIT (1 << 20)
+ int tls13_ctx_enable_key_update(TLS_CTX *ctx, int enable);
+ int tls13_ctx_set_key_update_seq_num_limit(TLS_CTX *ctx, size_t max_seq_num);
++int tls13_ctx_set_peer_key_update_limit(TLS_CTX *ctx, size_t limit);
+ 
+ 
+ 
+@@ -1270,6 +1272,7 @@
+ 	// KeyUpdate
+ 	int key_update; // 标志位，send之前看这个值，如果为1的话就先做keyUpdate
+ 	int key_update_sending; /* pending encrypted control record, not application data */
++	size_t consecutive_peer_key_updates;
+ 	size_t client_data_size;
+ 	size_t server_data_size;
+ 
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -1530,6 +1530,8 @@
+ 	case TLS_record_application_data:
+ 		conn->data = conn->plain_record + 5;
+ 		conn->datalen = conn->plain_recordlen - 5;
++		/* Empty authenticated records are not application progress. */
++		if (conn->datalen) conn->consecutive_peer_key_updates = 0;
+ 		break;
+ 
+ 	case TLS_record_handshake:
+@@ -1560,6 +1562,17 @@
+ 			if (tls13_record_get_handshake_key_update(conn->plain_record, &update_requested) != 1) {
+ 				error_print();
+ 				return -1;
++			}
++
++			/* Count authenticated, well-formed updates of either request kind.
++			 * Bound work before deriving another traffic secret. The counter
++			 * spans recv calls and resets only on nonempty application data. */
++			if (conn->ctx->peer_key_update_limit) {
++				if (conn->consecutive_peer_key_updates >= conn->ctx->peer_key_update_limit) {
++					error_print();
++					return -1;
++				}
++				conn->consecutive_peer_key_updates++;
+ 			}
+ 
+ 			/* RFC 8446 4.6.3: peer requests are mandatory regardless of
+@@ -3771,6 +3784,16 @@
+ 	return 1;
+ }
+ 
++int tls13_ctx_set_peer_key_update_limit(TLS_CTX *ctx, size_t limit)
++{
++	if (!ctx || ctx->protocol != TLS_protocol_tls13) {
++		error_print();
++		return -1;
++	}
++	ctx->peer_key_update_limit = limit;
++	return 1;
++}
++
+ // ChangeCipherSpec
+ 
+ int tls13_ctx_set_change_cipher_spec_compat(TLS_CTX *ctx, int enable)

@@ -24,12 +24,12 @@ on:
         required: true
         type: string
       expected_native_id:
-        description: Exact selected target package ID (e.g. wabt_x64-linux); required to publish
+        description: Exact selected target package ID (e.g. wabt_x64-linux); required for miniaudio-arm64 and publish=true
         required: false
         type: string
         default: ""
       expected_native_version:
-        description: Exact 64-hex native ABI version, including vcpkg prefix; required to publish
+        description: Exact 64-hex native ABI version, including vcpkg prefix; required for miniaudio-arm64 and publish=true
         required: false
         type: string
         default: ""
@@ -69,6 +69,9 @@ jobs:
         shell: bash
         env:
           EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+          PACKAGE_SET: ${{ inputs.package_set }}
+          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
+          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -77,6 +80,12 @@ jobs:
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
           test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
+          # The ARM64 lane derives a single approved target even in dry-run.
+          # Reject missing intent before bootstrap or source compilation.
+          if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]; then
+            test "$EXPECTED_NATIVE_ID" = miniaudio_arm64-linux
+            [[ "$EXPECTED_NATIVE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}$ ]]
+          fi
       - name: Prepare native compiler and source build tools
         shell: bash
         env:

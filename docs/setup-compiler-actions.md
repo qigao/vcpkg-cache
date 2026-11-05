@@ -1,9 +1,29 @@
 # Compiler setup: opt-in whole-product obfuscation
 
+## Native compiler cache
+
+`setup-ccache` installs official ccache 4.14.2 for Linux, macOS and Windows
+x64/ARM64, using pinned archive digests and the existing curl downloader.
+It adds the native executable directory to PATH and returns `version`.
+Product workflows own CMake compiler launchers, cache directories, size limits,
+restore/save keys and hit statistics. The action does not replace compiler
+selection, publish binary packages or run a compiler verification project.
+
+```yaml
+- uses: qigao/vcpkg-cache/.github/actions/setup-ccache@v0.1.4
+```
+
+Use CMake's C/C++ compiler launcher settings for an unprotected build. Keep
+toolchain/profile cache namespaces separate, persist successful compilations
+before tests, and let ccache validate compiler, source/header and command-line
+inputs on every build. Do not overwrite an existing obfuscation launcher.
+
+## Compiler obfuscation
+
 Both existing compiler Actions expose **one** switch:
 
 ```yaml
-- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@PINNED_COMMIT
+- uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@v0.1.4
   with:
     build-type: Release
     obfuscator: "true"

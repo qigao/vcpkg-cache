@@ -1,0 +1,49 @@
+name: Native ugrep protocol
+on:
+  pull_request:
+    paths:
+      - 'ports/ugrep/**'
+      - 'triplets/qigao-x64-windows-llvm-mingw-static.cmake'
+      - 'tests/search-tools/**'
+      - '.github/workflows/search-tools.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+jobs:
+  ugrep:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, triplet: x64-linux}
+          - {runner: macos-15, triplet: arm64-osx}
+          - {runner: windows-2025, triplet: qigao-x64-windows-llvm-mingw-static}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: qigao/vcpkg-cache/.github/actions/setup-llvm-mingw@v0.1.5
+        if: runner.os == 'Windows'
+        with:
+          target: x64
+          obfuscator: 'false'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.5
+        with:
+          mode: read
+          restore-packages: 'false'
+          manifest-root: cache-contracts/optional-feature
+          triplet: ${{ matrix.triplet }}
+          host-triplet: ${{ matrix.triplet }}
+      - name: Build the actual candidate tool and run its protocol suite
+        shell: pwsh
+        env:
+          TOOL_TRIPLET: ${{ matrix.triplet }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $IsWindows) { $env:CC = 'clang'; $env:CXX = 'clang++' }
+          python tests/search-tools/run.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

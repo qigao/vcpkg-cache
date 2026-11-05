@@ -1,0 +1,209 @@
+name: Lemon binary package
+
+on:
+  pull_request:
+    paths:
+      - packaging/lemon/**
+      - cmake/QigaoLemon.cmake
+      - cmake/QigaoNativeDependency.cmake
+      - scripts/restore-native-dependency.py
+      - scripts/publish-vcpkg-curl-cache.py
+      - .github/workflows/release-vcpkg-cache-v0.1.003.yml
+      - .github/workflows/release-vcpkg-cache-v0.1.4.yml
+      - .github/workflows/lemon-tools-package.yml
+  push:
+    branches: [master]
+    paths:
+      - packaging/lemon/**
+      - cmake/QigaoLemon.cmake
+      - .github/workflows/lemon-tools-package.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the exact qualified immutable Lemon nupkg
+        type: boolean
+        default: false
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build native Lemon / ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-22.04, rid: linux-x64, target: x64}
+          - {os: ubuntu-24.04-arm, rid: linux-arm64, target: arm64}
+          - {os: macos-15-intel, rid: macos-x64, target: x64}
+          - {os: macos-15, rid: macos-arm64, target: arm64}
+          - {os: windows-2025, rid: windows-x64, target: x64}
+          - {os: windows-11-arm, rid: windows-arm64, target: arm64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-llvm-native
+        id: native
+        if: runner.os != 'Windows'
+      - uses: ./.github/actions/setup-llvm-mingw
+        if: runner.os == 'Windows'
+        with:
+          target: ${{ matrix.target }}
+          build-type: toolchain-only
+      - name: Fetch the exact paired SQLite sources over checksum-verified curl
+        shell: pwsh
+        run: |
+          python packaging/lemon/package.py fetch --source upstream/lemon
+          if ($LASTEXITCODE -ne 0) { throw 'Locked Lemon source fetch failed' }
+      - name: Build and stage the native host executable and its template
+        shell: pwsh
+        env:
+          NATIVE_CC: ${{ steps.native.outputs.cc }}
+          LEMON_RID: ${{ matrix.rid }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $configuration = @('-S', 'packaging/lemon', '-B', 'build/lemon', '-G', 'Ninja',
+            '-DCMAKE_BUILD_TYPE=Release', "-DLEMON_SOURCE_DIR=$PWD/upstream/lemon")
+          if ($IsWindows) {
+            $configuration += @("-DCMAKE_TOOLCHAIN_FILE=$env:LLVM_MINGW_TOOLCHAIN_FILE", '-DCMAKE_EXE_LINKER_FLAGS=-static')
+          } else {
+            $configuration += @("-DCMAKE_C_COMPILER=$env:NATIVE_CC")
+          }
+          & cmake @configuration
+          if ($LASTEXITCODE -ne 0) { throw 'Lemon configure failed' }
+          cmake --build build/lemon --target lemon --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Lemon build failed' }
+          python packaging/lemon/package.py stage --source upstream/lemon --build build/lemon --rid $env:LEMON_RID --output stage
+          if ($LASTEXITCODE -ne 0) { throw 'Lemon pair staging failed' }
+          $exe = if ($IsWindows) { 'lemon.exe' } else { 'lemon' }
+          $tool = (Resolve-Path "stage/tools/$env:LEMON_RID/bin/$exe").Path
+          $originalPath = $env:PATH
+          try {
+            if ($IsWindows) { $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot" }
+            & $tool -x
+            if ($LASTEXITCODE -ne 0) { throw 'Staged native Lemon cannot execute independently' }
+          } finally {
+            $env:PATH = $originalPath
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lemon-host-${{ matrix.rid }}
+          path: stage/tools
+          if-no-files-found: error
+
+  pack:
+    name: Pack paired host tools using Python (no dotnet/NuGet)
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: lemon-host-*
+          path: package/tools
+          merge-multiple: true
+      - name: Build and verify the immutable six-host nupkg and lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
+          python packaging/lemon/package.py pack --root package --output dist
+          python packaging/lemon/package.py verify --archive dist/*.nupkg --lock dist/lemon.lock.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lemon-binary-nuget
+          path: dist
+          if-no-files-found: error
+
+  qualify:
+    name: Packed Lemon parser / ${{ matrix.rid }} / ${{ matrix.os }}
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-22.04, rid: linux-x64, target: x64}
+          - {os: ubuntu-24.04, rid: linux-x64, target: x64}
+          - {os: ubuntu-24.04-arm, rid: linux-arm64, target: arm64}
+          - {os: macos-15-intel, rid: macos-x64, target: x64}
+          - {os: macos-15, rid: macos-arm64, target: arm64}
+          - {os: windows-2025, rid: windows-x64, target: x64}
+          - {os: windows-11-arm, rid: windows-arm64, target: arm64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: lemon-binary-nuget
+          path: dist
+      - uses: ./.github/actions/setup-llvm-native
+        id: native
+        if: runner.os != 'Windows'
+      - uses: ./.github/actions/setup-llvm-mingw
+        if: runner.os == 'Windows'
+        with:
+          target: ${{ matrix.target }}
+          build-type: toolchain-only
+      - name: Restore through CMake, generate C11 parser, compile and run it
+        shell: pwsh
+        env:
+          NATIVE_CC: ${{ steps.native.outputs.cc }}
+          LEMON_RID: ${{ matrix.rid }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = (Get-ChildItem dist/*.nupkg).FullName
+          $lock = (Resolve-Path dist/lemon.lock.json).Path
+          python packaging/lemon/package.py verify --archive $archive --lock $lock
+          if ($LASTEXITCODE -ne 0) { throw 'Packed Lemon verification failed' }
+          $configuration = @('-S', 'packaging/lemon', '-B', 'build/paired parser', '-G', 'Ninja',
+            '-DCMAKE_BUILD_TYPE=Release', "-DLEMON_PACKAGE_LOCK=$lock",
+            "-DLEMON_PACKAGE_ARCHIVE=$archive", "-DLEMON_HOST_RID=$env:LEMON_RID")
+          if ($IsWindows) {
+            $configuration += @("-DCMAKE_TOOLCHAIN_FILE=$env:LLVM_MINGW_TOOLCHAIN_FILE", '-DCMAKE_EXE_LINKER_FLAGS=-static')
+          } else {
+            $configuration += @("-DCMAKE_C_COMPILER=$env:NATIVE_CC")
+          }
+          & cmake @configuration
+          if ($LASTEXITCODE -ne 0) { throw 'Paired Lemon CMake restore failed' }
+          cmake --build 'build/paired parser' --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Packed Lemon parser generation/build failed' }
+          ctest --test-dir 'build/paired parser' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Generated parser semantic tests failed' }
+
+  publish:
+    name: Publish exact tested Lemon package using curl
+    needs: qualify
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: lemon-binary-nuget
+          path: dist
+      - name: Publish with exact hash readback, no overwrite or duplicate bypass
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python packaging/lemon/package.py publish --archive dist/*.nupkg --lock dist/lemon.lock.json

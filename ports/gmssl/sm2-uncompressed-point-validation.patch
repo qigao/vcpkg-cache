@@ -1,0 +1,13 @@
+diff --git a/src/sm2_z256.c b/src/sm2_z256.c
+--- a/src/sm2_z256.c
++++ b/src/sm2_z256.c
+@@ -1939,8 +1939,7 @@ int sm2_z256_point_from_octets(SM2_Z256_POINT *P, const uint8_t *in, size_t inlen)
+ 			error_print();
+ 			return -1;
+ 		}
+-		sm2_z256_point_from_bytes(P, in + 1);
+-		if (sm2_z256_point_is_on_curve(P) != 1) {
++		if (sm2_z256_point_from_bytes(P, in + 1) != 1) {
+ 			error_print();
+ 			return -1;
+ 		}

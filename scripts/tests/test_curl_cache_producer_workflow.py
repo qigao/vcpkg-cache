@@ -22,6 +22,13 @@ class CanonicalCurlProducerWorkflowPolicy(unittest.TestCase):
         cls.publisher = publisher
         cls.reader = reader
 
+    def test_arm64_dry_run_requires_exact_intent_before_source_build(self):
+        early = self.producer.split("      - name: Prepare native compiler", 1)[0]
+        self.assertIn('if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]', early)
+        self.assertIn('test "$EXPECTED_NATIVE_ID" = miniaudio_arm64-linux', early)
+        self.assertIn('"$EXPECTED_NATIVE_VERSION" =~', early)
+        self.assertNotIn('"$DO_PUBLISH"', early)
+
     def test_source_build_job_never_receives_package_write_permission(self):
         self.assertIn("permissions:\n  contents: read\n  packages: read", self.header)
         self.assertIn("expected_master_sha:", self.header)

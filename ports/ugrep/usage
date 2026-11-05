@@ -1,0 +1,16 @@
+ugrep installs command-line tools, not a linkable library:
+
+    <installed-prefix>/tools/ugrep/ugrep[.exe]
+    <installed-prefix>/tools/ugrep/ugrep-indexer[.exe]
+
+PCRE2 is required for -P. This port builds without optional compression libraries,
+Boost.Regex, ug aliases, or shell wrappers. Native Linux/macOS and Windows
+x86/x64 builds are admitted; cross compilation and UWP are not supported.
+The qigao-x64-windows-llvm-mingw-static triplet builds the LLVM-MinGW tool
+with static PCRE2 and C++ runtime linkage. Windows system DLLs remain required.
+
+For build-time use, declare { "name": "ugrep", "host": true } in your manifest
+and locate the executable under the host installed prefix.
+
+For runtime use, select a package for the actual runtime platform. A build-host
+tool is not a runtime-target executable when cross compiling.

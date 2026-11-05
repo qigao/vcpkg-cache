@@ -9,18 +9,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import ntpath
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import posixpath
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 import urllib.parse
-import urllib.request
 import zipfile
 
 LOCK = Path(__file__).resolve().parents[1] / "compiler-contracts/release-obfuscation.json"
@@ -53,37 +54,93 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verified_download(url: str, destination: Path, expected_sha256: str, limit: int) -> None:
-    ensure(bool(re.fullmatch(r"[0-9a-f]{64}", expected_sha256)), "missing source SHA256")
+def _download_url_allowed(url: str, hosts: tuple[str, ...]) -> bool:
     parsed = urllib.parse.urlsplit(url)
-    ensure(parsed.scheme == "https" and parsed.hostname in ("github.com", "raw.githubusercontent.com")
-           and not parsed.username and not parsed.password and parsed.port in (None, 443),
+    return (parsed.scheme == "https" and parsed.hostname in hosts
+            and not parsed.username and not parsed.password
+            and parsed.port in (None, 443) and not any(c in url for c in "\r\n\x00"))
+
+
+def _curl_response(url: str, destination: Path, limit: int,
+                   timeout: float) -> tuple[int, str, int, str]:
+    """Stream one HTTP response through curl; the caller admits each redirect."""
+    command = [
+        "curl", "--disable", "--fail", "--silent", "--show-error",
+        "--proto", "=https", "--connect-timeout", "30",
+        "--max-time", str(max(1, int(timeout))), "--max-filesize", str(limit),
+        "--user-agent", "qigao-vcpkg-cache-compiler-setup/1",
+        "--write-out", "%{stderr}%{http_code}\n%{redirect_url}\n", "--url", url,
+    ]
+    digest = hashlib.sha256()
+    length = 0
+    # Metadata/errors are kept separate from the archive stream. In particular,
+    # never print signed redirect URLs as part of a curl failure diagnostic.
+    with tempfile.TemporaryFile() as metadata, destination.open("wb") as output:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=metadata)
+        assert process.stdout is not None
+        try:
+            while chunk := process.stdout.read(64 * 1024):
+                length += len(chunk)
+                ensure(length <= limit, "compiler download exceeds the size bound")
+                digest.update(chunk)
+                output.write(chunk)
+            result = process.wait(timeout=10)
+        except BaseException:
+            process.kill()
+            process.wait()
+            raise
+        finally:
+            process.stdout.close()
+        if result == 63:  # CURLE_FILESIZE_EXCEEDED, including Content-Length rejection.
+            raise AdmissionError("compiler download exceeds the size bound")
+        if result != 0:
+            raise OSError(f"curl source download failed (exit {result})")
+        metadata.seek(0)
+        lines = metadata.read().decode("utf-8").splitlines()
+    ensure(len(lines) in (1, 2) and re.fullmatch(r"[0-9]{3}", lines[0]) is not None,
+           "invalid curl response metadata")
+    return int(lines[0]), lines[1] if len(lines) == 2 else "", length, digest.hexdigest()
+
+
+def verified_download(url: str, destination: Path, expected_sha256: str, limit: int, *,
+                      initial_hosts: tuple[str, ...] = ("github.com", "raw.githubusercontent.com"),
+                      redirect_hosts: tuple[str, ...] = (
+                          "github.com", "raw.githubusercontent.com",
+                          "release-assets.githubusercontent.com", "objects.githubusercontent.com",
+                          "github-releases.githubusercontent.com")) -> None:
+    ensure(bool(re.fullmatch(r"[0-9a-f]{64}", expected_sha256)), "missing source SHA256")
+    ensure(limit > 0, "invalid compiler download size bound")
+    ensure(_download_url_allowed(url, initial_hosts),
            "untrusted initial compiler download URL")
     destination.parent.mkdir(parents=True, exist_ok=True)
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            request = urllib.request.Request(url, headers={"User-Agent": "qigao-vcpkg-cache-compiler-setup/1"})
-            with urllib.request.urlopen(request, timeout=60) as response:
-                final = urllib.parse.urlsplit(response.geturl())
-                ensure(final.scheme == "https" and final.hostname in (
-                    "github.com", "raw.githubusercontent.com",
-                    "release-assets.githubusercontent.com", "objects.githubusercontent.com",
-                    "github-releases.githubusercontent.com"),
-                    "untrusted compiler download redirect")
-                length = 0
-                with destination.open("wb") as output:
-                    while chunk := response.read(1024 * 1024):
-                        length += len(chunk)
-                        ensure(length <= limit, "compiler download exceeds the size bound")
-                        output.write(chunk)
-            ensure(length > 0, "empty compiler download")
-            ensure(sha256(destination) == expected_sha256,
-                   "compiler download SHA256 mismatch: no fallback allowed")
-            return
-        except (OSError, ValueError) as exc:
+            with tempfile.TemporaryDirectory(prefix=".qigao-download-",
+                                             dir=destination.parent) as temporary:
+                staged = Path(temporary) / "archive"
+                current = url
+                deadline = time.monotonic() + 180
+                for hop in range(6):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OSError("compiler download deadline exceeded")
+                    status, redirect, length, digest = _curl_response(
+                        current, staged, limit, remaining)
+                    if status in (301, 302, 303, 307, 308):
+                        ensure(hop < 5, "compiler download redirect limit exceeded")
+                        ensure(_download_url_allowed(redirect, redirect_hosts),
+                               "untrusted compiler download redirect")
+                        current = redirect
+                        continue
+                    ensure(200 <= status < 300, "unexpected compiler download HTTP status")
+                    ensure(length > 0, "empty compiler download")
+                    ensure(digest == expected_sha256,
+                           "compiler download SHA256 mismatch: no fallback allowed")
+                    staged.replace(destination)
+                    return
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
             last_exc = exc
-            destination.unlink(missing_ok=True)
             # A corrupt or malicious archive is not a transient connection error.
             if isinstance(exc, AdmissionError):
                 break
@@ -92,12 +149,21 @@ def verified_download(url: str, destination: Path, expected_sha256: str, limit: 
     raise AdmissionError(f"verified source download failed: {last_exc}")
 
 
+def windows_reserved(name: str) -> bool:
+    # ntpath is portable on Unix too. Python 3.15 removes pathlib.is_reserved;
+    # retain only the Python 3.12 fallback where ntpath.isreserved is absent.
+    if hasattr(ntpath, "isreserved"):
+        return ntpath.isreserved(name)
+    return PureWindowsPath(name).is_reserved()
+
+
 def safe_path(name: str) -> tuple[str, ...]:
     ensure(bool(name) and not name.startswith(("/", "\\")) and "\\" not in name and
            "\x00" not in name, "unsafe absolute/backslash archive entry")
     parts = name.rstrip("/").split("/")
     ensure(bool(parts) and all(p not in ("", ".", "..") and
-           ":" not in p and not p.endswith((" ", ".")) for p in parts),
+           not any(ord(c) < 32 or c in ':<>"|?*' for c in p) and
+           not p.endswith((" ", ".")) and not windows_reserved(p) for p in parts),
            f"unsafe archive member: {name}")
     return tuple(parts)
 
@@ -128,13 +194,17 @@ def validate_members(members: list[tuple[str, bool, int]]) -> None:
 
 def safe_extract(archive: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=False)
-    if archive.name.endswith(".zip"):
+    if archive.name.endswith((".zip", ".nupkg")):
         with zipfile.ZipFile(archive) as zf:
             descriptors = []
             for entry in zf.infolist():
                 mode = entry.external_attr >> 16
                 ftype = stat.S_IFMT(mode)
                 ensure(ftype in (0, stat.S_IFREG, stat.S_IFDIR), "zip links/devices forbidden")
+                ensure(entry.orig_filename == entry.filename and
+                       not (ftype == stat.S_IFDIR and not entry.is_dir()) and
+                       not (ftype == stat.S_IFREG and entry.is_dir()),
+                       "inconsistent zip member name/type")
                 descriptors.append((entry.filename, entry.is_dir(), entry.file_size))
             validate_members(descriptors)
             for entry in zf.infolist():
@@ -145,6 +215,8 @@ def safe_extract(archive: Path, destination: Path) -> None:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(entry) as source, path.open("xb") as output:
                         shutil.copyfileobj(source, output)
+                    # Preserve execute bits, never setuid or group/world-write bits.
+                    path.chmod(0o644 | ((entry.external_attr >> 16) & 0o111))
     elif archive.name.endswith(".tar.xz"):
         with tarfile.open(archive, "r:xz") as tf:
             members = tf.getmembers()

@@ -1,0 +1,118 @@
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -5873,6 +5873,12 @@
+ 
+ 	}
+ 
++	/* RFC8446 4.2.3: without a separate certificate list, the signature
++	 * extension also constrains certificate signatures. */
++	if (!signature_algorithms_cert && !signature_algorithms_cert_cnt) {
++		signature_algorithms_cert = signature_algorithms;
++		signature_algorithms_cert_cnt = signature_algorithms_cnt;
++	}
+ 	// signature_algorithms_cert
+ 	if (signature_algorithms_cert && signature_algorithms_cert_cnt) {
+ 		if ((ret = tls_cert_chain_match_signature_algorithms_cert(cert_chain, cert_chain_len,
+@@ -5914,6 +5920,8 @@
+ 	const uint8_t **certs, size_t *certs_len, size_t *certs_idx, int *prefered_sig_alg) // optional
+ {
+ 	size_t i;
++	int handshake_schemes[8];
++	size_t handshake_schemes_cnt = 0;
+ 
+ 	if (!cert_chains || !cert_chains_len) {
+ 		error_print();
+@@ -5924,6 +5932,33 @@
+ 		return -1;
+ 	}
+ 
++	/* PKCS#1 is permitted for certificate signatures, never TLS1.3
++	 * CertificateVerify. Preserve the original list for chain matching. */
++	if (!signature_algorithms_cert && !signature_algorithms_cert_cnt) {
++		signature_algorithms_cert = signature_algorithms;
++		signature_algorithms_cert_cnt = signature_algorithms_cnt;
++	}
++	if (signature_algorithms_cnt > sizeof(handshake_schemes)/sizeof(handshake_schemes[0])) {
++		error_print();
++		return -1;
++	}
++	for (i = 0; i < signature_algorithms_cnt; i++) {
++		switch (signature_algorithms[i]) {
++		case TLS_sig_sm2sig_sm3:
++		case TLS_sig_ecdsa_secp256r1_sha256:
++		case TLS_sig_ecdsa_secp384r1_sha384:
++		case TLS_sig_rsa_pss_rsae_sha256:
++			handshake_schemes[handshake_schemes_cnt++] = signature_algorithms[i];
++			break;
++		}
++	}
++	if (!handshake_schemes_cnt) {
++		if (certs) *certs = NULL;
++		if (certs_len) *certs_len = 0;
++		if (certs_idx) *certs_idx = 0;
++		if (prefered_sig_alg) *prefered_sig_alg = 0;
++		return 0;
++	}
+ 	for (i = 1; cert_chains_len; i++) {
+ 		const uint8_t *cert_chain;
+ 		size_t cert_chain_len;
+@@ -5937,7 +5972,7 @@
+ 		}
+ 
+ 		if ((ret = tls_cert_chain_match_extensions(cert_chain, cert_chain_len,
+-			signature_algorithms, signature_algorithms_cnt,
++			handshake_schemes, handshake_schemes_cnt,
+ 			signature_algorithms_cert, signature_algorithms_cert_cnt,
+ 			ca_names, ca_names_len,
+ 			oid_filters, oid_filters_len,
+--- a/src/tls_vrf.c
++++ b/src/tls_vrf.c
+@@ -335,6 +335,29 @@
+ 		return 0;
+ 	}
+ 	return 1;
++}
++
++/* Validate the top presented certificate using the same authenticated root
++ * selection as x509_certs_verify. Its issuer need not be transmitted. */
++static int tls_cert_chain_check_anchor_signature(const uint8_t *certs, size_t certslen,
++    const uint8_t *cacerts, size_t cacertslen, const int *schemes, size_t schemes_cnt)
++{
++    const uint8_t *last, *anchor;
++    size_t last_len, anchor_len;
++    X509_KEY key;
++    int alg, group, scheme;
++    if (x509_certs_get_last(certs, certslen, &last, &last_len) != 1
++        || x509_cert_chain_find_root_ca_cert(certs, certslen, cacerts, cacertslen,
++            &anchor, &anchor_len, SM2_DEFAULT_ID, SM2_DEFAULT_ID_LENGTH) != 1) return -1;
++    /* The trust anchor's own signature is outside this policy. */
++    if (last_len == anchor_len && memcmp(last, anchor, last_len) == 0) return 1;
++    if (x509_cert_get_signature_algor(last, last_len, &alg) != 1
++        || x509_cert_get_subject_public_key(anchor, anchor_len, &key) != 1) return -1;
++    if (key.algor == OID_ec_public_key) group = key.algor_param;
++    else if (key.algor == OID_rsa_encryption) group = OID_undef;
++    else return -1;
++    scheme = tls_signature_scheme_from_algorithm_and_group_oid(alg, group);
++    return scheme && tls_type_is_in_list(scheme, schemes, schemes_cnt) ? 1 : 0;
+ }
+ 
+ int tls_cert_chain_verify(
+@@ -428,6 +451,18 @@
+ 		}
+ 	}
+ 
++	if (verify_chain && protocol != TLS_protocol_tlcp) {
++		const int *schemes = signature_algorithms_cert ? signature_algorithms_cert : signature_algorithms;
++		size_t count = signature_algorithms_cert ? signature_algorithms_cert_cnt : signature_algorithms_cnt;
++		if (schemes && count) {
++			ret = tls_cert_chain_check_anchor_signature(cert_chain, cert_chain_len,
++				cacerts, cacerts_len, schemes, count);
++			if (ret != 1) {
++				tls_cert_verify_set_result(verify_result, X509_verify_err_tls_extensions);
++				return ret;
++			}
++		}
++	}
+ 	tls_cert_verify_set_result(verify_result, X509_verify_ok);
+ 	return 1;
+ }

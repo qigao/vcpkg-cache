@@ -1,0 +1,178 @@
+name: Publish versioned vcpkg-cache source v0.1.003
+
+# One-time source release using the existing byte-verified Lemon publication.
+# The exact PR HEAD must pass both existing qualification workflows.
+# This does not write or relabel any native NuGet ABI package.
+on:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/release-vcpkg-cache-v0.1.003.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcpkg-cache-source-release-v0.1.003
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish exact master tag and GitHub Release
+    if: >-
+      github.repository == 'qigao/vcpkg-cache' &&
+      github.ref == 'refs/heads/master' &&
+      github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+      packages: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify authoritative master, pinned source, and release invariants
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
+          test "$GITHUB_REF" = refs/heads/master
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          remote_master="$(git ls-remote --exit-code \
+            https://github.com/qigao/vcpkg-cache.git refs/heads/master | cut -f1)"
+          test "$remote_master" = "$GITHUB_SHA"
+          if git ls-remote --exit-code \
+            https://github.com/qigao/vcpkg-cache.git refs/tags/v0.1.003 >/dev/null 2>&1; then
+            echo "v0.1.003 tag already exists: immutable release cannot be recreated" >&2
+            exit 1
+          fi
+          if gh release view v0.1.003 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v0.1.003 Release already exists: refusing overwrite" >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          repo, commit = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/{path}'], text=True))
+          associated = api(f'commits/{commit}/pulls')
+          matches = [p for p in associated if p.get('merge_commit_sha') == commit
+                     and p.get('merged_at') and p['base']['ref'] == 'master']
+          assert len(matches) == 1, 'release must be the exact merge of one approved PR'
+          pull = api(f"pulls/{matches[0]['number']}")
+          assert pull['merged'] and pull['base']['ref'] == 'master'
+          assert pull['merge_commit_sha'] == commit, 'release must be the exact approved PR merge'
+          approved = pull['head']['sha']
+          approved_tree = api(f'git/commits/{approved}')['tree']['sha']
+          current_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          assert current_tree == approved_tree, 'merged source differs from approved PR tree'
+          runs = api(f'actions/runs?head_sha={approved}&event=pull_request&per_page=100')['workflow_runs']
+          for name in ('Validate vcpkg cache contract', 'Curl-only GitHub Packages transport qualification', 'Lemon binary package'):
+              matching = [r for r in runs if r['name'] == name and r['head_sha'] == approved]
+              assert matching, f'missing exact-HEAD CI: {name}'
+              latest = max(matching, key=lambda r: (r['id'], r.get('run_attempt', 1)))
+              assert latest['status'] == 'completed' and latest['conclusion'] == 'success', name
+          assert Path('cache-contract-version.txt').read_text().strip() == '8'
+          for path in ('docs/releases/v0.1.003.md', 'scripts/restore-native-dependency.py',
+                       'cmake/QigaoNativeDependency.cmake', 'cmake/QigaoLemon.cmake',
+                       'packaging/lemon/source-lock.json',
+                       '.github/actions/setup-native-dependency/action.yml'):
+              assert Path(path).is_file(), path
+          original = subprocess.check_output(['git', 'rev-parse', 'v0.1.0^{commit}'], text=True).strip()
+          assert original == '05a10d73a5b1d01598e59d8cf34074513bd49df4', 'v0.1.0 must remain immutable'
+          previous = subprocess.check_output(['git', 'rev-parse', 'v0.1.002^{commit}'], text=True).strip()
+          assert previous == 'd9f34af3f7bcad5ae2c8abf4ec95c7e93ad5d761', 'v0.1.002 must remain immutable'
+          print(f"Admitted exact PR #{pull['number']} source {approved} for source release {commit}")
+          PY
+
+      - name: Test existing native cache transport and protected publisher contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p 'test_curl_cache_*.py' -v
+
+      - name: Reuse the exact qualified and byte-verified published Lemon run
+        id: lemon
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          repo, commit = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/{path}'], text=True))
+          # This exact run uploaded 1.0.0 and verified the same bytes on retry.
+          # Never rebuild another archive under an already-published version.
+          run_id = 41599361348
+          published_head = 'e60cb414fa8ecd4e366ceb636b18b1659a819ffe'
+          run = api(f'actions/runs/{run_id}')
+          assert run['head_sha'] == published_head and run['event'] == 'workflow_dispatch'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', published_head, commit], check=True)
+          all_jobs = api(f'actions/runs/{run_id}/jobs?filter=all&per_page=100')['jobs']
+          latest = {}
+          for job in all_jobs:
+              if job['id'] > latest.get(job['name'], {}).get('id', 0):
+                  latest[job['name']] = job
+          assert len([n for n in latest if n.startswith('Build native Lemon / ')]) == 6
+          assert len([n for n in latest if n.startswith('Packed Lemon parser / ')]) == 7
+          assert latest['Pack paired host tools using Python (no dotnet/NuGet)']['conclusion'] == 'success'
+          assert latest['Publish exact tested Lemon package using curl']['conclusion'] == 'success'
+          assert all(j['conclusion'] == 'success' for j in latest.values())
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'run_id={run_id}\n')
+          print(f'Reusing verified immutable Lemon publication run {run_id}')
+          PY
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: lemon-binary-nuget
+          path: dist
+          run-id: ${{ steps.lemon.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify tested artifact and published package before releasing downstream tools
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 packaging/lemon/package.py verify --archive dist/*.nupkg --lock dist/lemon.lock.json
+          python3 scripts/restore-native-dependency.py locked dist/lemon.lock.json \
+            --destination "$RUNNER_TEMP/lemon-release-readback" --payload tools/linux-x64 \
+            --require share/lemon/lempar.c --require share/lemon/source.json --executable bin/lemon
+
+      - name: Create one immutable-name release tag on exact approved commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v0.1.003 \
+            dist/*.nupkg dist/lemon.lock.json dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "vcpkg-cache v0.1.003" \
+            --latest \
+            --notes-file docs/releases/v0.1.003.md
+          ref_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.1.003" \
+            --jq '.object.sha')"
+          test "$ref_sha" = "$GITHUB_SHA"
+          gh release view v0.1.003 --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,url

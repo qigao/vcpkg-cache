@@ -3,6 +3,8 @@ set(VCPKG_TARGET_ARCHITECTURE arm64)
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE dynamic)
 set(VCPKG_CMAKE_SYSTEM_NAME MinGW)
+# Track the native host-tool version, not its runner-specific install path.
+list(APPEND VCPKG_ENV_PASSTHROUGH QIGAO_PKGCONF_VERSION)
 # vcpkg invokes compiler detection and port builds inside a filtered
 # environment. Explicitly retain the immutable setup action's toolchain paths
 # without hashing runner-specific temporary directories into package ABIs.
