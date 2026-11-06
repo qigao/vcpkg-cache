@@ -83,6 +83,8 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/x509-verification-time.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-purpose-diagnostics.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-signature-positions.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-byte-limit.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-derivation-errors.patch"
 )
 
 vcpkg_cmake_configure(
