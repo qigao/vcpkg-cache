@@ -85,3 +85,15 @@
 - This option only controls certificate validity: CRL/OCSP and additional peer
   policy freshness clocks keep their existing contracts. Qualification lives
   in salts-core's formal native/independent CTests, not a separate consumer.
+
+## 2026-11-06 purpose diagnostics
+
+- Retain the existing x509_exts_check entry point as a wrapper. Its extended
+  form reports purpose only for complete decoded KU/EKU role mismatches;
+  successful calls, parse errors and unrelated constraints leave the result
+  untouched. Do not change acceptance or validation order to obtain diagnostics.
+- CA EKU restrictions have a separate check: propagate its mismatch result too,
+  while retaining the existing CA anyExtendedKeyUsage rule. Normal/TLCP cursors
+  report the peer position; local anchor failures stay unknown.
+- Qualification belongs to salts-core's formal provider/native/independent
+  tests, including parsing negatives, both endpoint roles and TLCP dual leaves.

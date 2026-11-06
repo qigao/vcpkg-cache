@@ -1,0 +1,172 @@
+--- a/include/gmssl/x509_cer.h
++++ b/include/gmssl/x509_cer.h
+@@ -393,6 +393,7 @@
+ 	X509_verify_err_hostname,
+ 	X509_verify_err_not_yet_valid,
+ 	X509_verify_err_expired,
++	X509_verify_err_purpose,
+ } X509_VERIFY_RESULT;
+ 
+ #define X509_MAX_VERIFY_DEPTH	6
+@@ -403,7 +404,7 @@
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
+-/* Optional zero-based validity-failure position in the presented chain;
++/* Optional zero-based validity/purpose-failure position in the presented chain;
+  * (size_t)-1 for success, other failures and local-only trust anchors.
+  * verification_time is an optional borrowed certificate-validity Unix time;
+  * NULL uses the system clock. Revocation clocks are not modified. */
+@@ -417,7 +418,7 @@
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
+-/* Optional zero-based validity-failure position in the presented chain;
++/* Optional zero-based validity/purpose-failure position in the presented chain;
+  * (size_t)-1 for success, other failures and local-only trust anchors.
+  * verification_time is an optional borrowed certificate-validity Unix time;
+  * NULL uses the system clock. Revocation clocks are not modified. */
+--- a/include/gmssl/x509_ext.h
++++ b/include/gmssl/x509_ext.h
+@@ -609,6 +609,9 @@
+ 
+ int x509_ext_check_critical(int oid, int is_ca, int critical);
+ int x509_exts_check(const uint8_t *exts, size_t extslen, int cert_type);
++/* On a decoded KU/EKU mismatch, set X509_verify_err_purpose.
++ * Parsing/other failures and successful checks leave verify_result unchanged. */
++int x509_exts_check_ex(const uint8_t *exts, size_t extslen, int cert_type, int *verify_result);
+ 
+ /*
+ AuthorityInfoAccessSyntax ::= SEQUENCE OF AccessDescription
+--- a/src/x509_ext.c
++++ b/src/x509_ext.c
+@@ -2960,6 +2960,11 @@
+ }
+ 
+ int x509_exts_check(const uint8_t *exts, size_t extslen, int cert_type)
++{
++	return x509_exts_check_ex(exts, extslen, cert_type, NULL);
++}
++
++int x509_exts_check_ex(const uint8_t *exts, size_t extslen, int cert_type, int *verify_result)
+ {
+ 	int oid;
+ 	uint32_t nodes[32];
+@@ -3020,8 +3025,14 @@
+ 				error_print();
+ 				// conforming CAs SHOULD mark this extension as critical.
+ 			}
+-			if (asn1_bits_from_der(&key_usage, &val, &vlen) != 1
+-				|| x509_key_usage_check(key_usage, cert_type) != 1) {
++			if (asn1_bits_from_der(&key_usage, &val, &vlen) != 1) {
++				error_print();
++				return -1;
++			}
++			if (x509_key_usage_check(key_usage, cert_type) != 1) {
++				/* Only attribute a complete, nonempty, recognized KU value. */
++				if (verify_result && !vlen && key_usage > 0 && key_usage < (X509_KU_DECIPHER_ONLY << 1))
++					*verify_result = X509_verify_err_purpose;
+ 				error_print();
+ 				return -1;
+ 			}
+@@ -3073,6 +3084,8 @@
+ 			}
+ 			if (!is_ca
+ 				&& x509_ext_key_usage_check(ext_key_usages, ext_key_usages_cnt, cert_type) != 1) {
++				if (verify_result && !vlen && ext_key_usages_cnt)
++					*verify_result = X509_verify_err_purpose;
+ 				error_print();
+ 				return -1;
+ 			}
+--- a/src/x509_cer.c
++++ b/src/x509_cer.c
+@@ -1879,7 +1879,7 @@
+ 		return -1;
+ 	}
+ 
+-	if (x509_exts_check(exts, extslen, cert_type) != 1) {
++	if (x509_exts_check_ex(exts, extslen, cert_type, verify_result) != 1) {
+ 		error_print();
+ 		return -1;
+ 	}
+@@ -1962,7 +1962,7 @@
+ }
+ 
+ static int x509_cert_check_ca_key_purpose(const uint8_t *cert, size_t certlen,
+-	int entity_cert_type)
++	int entity_cert_type, int *verify_result)
+ {
+ 	const uint8_t *exts;
+ 	size_t extslen;
+@@ -1998,15 +1998,18 @@
+ 			return 1;
+ 		}
+ 	}
+-	return x509_ext_key_usage_check(
+-		key_purposes, key_purposes_cnt, entity_cert_type) == 1 ? 1 : 0;
++	if (x509_ext_key_usage_check(key_purposes, key_purposes_cnt, entity_cert_type) != 1) {
++		if (verify_result && key_purposes_cnt) *verify_result = X509_verify_err_purpose;
++		return 0;
++	}
++	return 1;
+ }
+ 
+ static int x509_cert_check_ca_for_purpose(const uint8_t *cert, size_t certlen,
+ 	int entity_cert_type, int *verify_result, const time_t *verification_time)
+ {
+ 	if (x509_cert_check_with_result(cert, certlen, X509_cert_ca, verify_result, verification_time) != 1
+-		|| x509_cert_check_ca_key_purpose(cert, certlen, entity_cert_type) != 1) {
++		|| x509_cert_check_ca_key_purpose(cert, certlen, entity_cert_type, verify_result) != 1) {
+ 		error_print();
+ 		return -1;
+ 	}
+@@ -2067,7 +2070,8 @@
+ 	}
+ 	if (x509_cert_check_with_result(cert, certlen, entity_cert_type, verify_result, verification_time) != 1) {
+ 		if (verify_index && (*verify_result == X509_verify_err_expired
+-			|| *verify_result == X509_verify_err_not_yet_valid))
++			|| *verify_result == X509_verify_err_not_yet_valid
++			|| *verify_result == X509_verify_err_purpose))
+ 			*verify_index = 0;
+ 		error_print();
+ 		x509_cert_print(stderr, 0, 10, "Invalid Entity Certificate", cert, certlen);
+@@ -2095,7 +2099,8 @@
+ 		}
+ 		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, entity_cert_type, verify_result, verification_time) != 1) {
+ 			if (verify_index && (*verify_result == X509_verify_err_expired
+-				|| *verify_result == X509_verify_err_not_yet_valid))
++				|| *verify_result == X509_verify_err_not_yet_valid
++				|| *verify_result == X509_verify_err_purpose))
+ 				*verify_index = cert_index;
+ 			error_print();
+ 			x509_cert_print(stderr, 0, 10, "Invalid CA Certificate", cacert, cacertlen);
+@@ -2260,7 +2265,8 @@
+ 	}
+ 	if (x509_cert_check_with_result(cert, certlen, sign_cert_type, verify_result, verification_time) != 1) {
+ 		if (verify_index && (*verify_result == X509_verify_err_expired
+-			|| *verify_result == X509_verify_err_not_yet_valid))
++			|| *verify_result == X509_verify_err_not_yet_valid
++			|| *verify_result == X509_verify_err_purpose))
+ 			*verify_index = 0;
+ 		error_print();
+ 		if (!verify_result || *verify_result == X509_verify_ok)
+@@ -2286,7 +2292,8 @@
+ 	}
+ 	if (x509_cert_check_with_result(kenc_cert, kenc_certlen, kenc_cert_type, verify_result, verification_time) != 1) {
+ 		if (verify_index && (*verify_result == X509_verify_err_expired
+-			|| *verify_result == X509_verify_err_not_yet_valid))
++			|| *verify_result == X509_verify_err_not_yet_valid
++			|| *verify_result == X509_verify_err_purpose))
+ 			*verify_index = 1;
+ 		error_print();
+ 		if (!verify_result || *verify_result == X509_verify_ok)
+@@ -2324,7 +2331,8 @@
+ 		}
+ 		if (x509_cert_check_ca_for_purpose(cacert, cacertlen, sign_cert_type, verify_result, verification_time) != 1) {
+ 			if (verify_index && (*verify_result == X509_verify_err_expired
+-				|| *verify_result == X509_verify_err_not_yet_valid))
++				|| *verify_result == X509_verify_err_not_yet_valid
++				|| *verify_result == X509_verify_err_purpose))
+ 				*verify_index = cert_index;
+ 			error_print();
+ 			if (!verify_result || *verify_result == X509_verify_ok)
