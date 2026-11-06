@@ -1,0 +1,31 @@
+--- a/src/pkcs8.c
++++ b/src/pkcs8.c
+@@ -31,6 +31,12 @@
+ static const size_t oid_hmac_sha384_cnt = sizeof(oid_hmac_sha384)/sizeof(oid_hmac_sha384[0]);
+ static const uint32_t oid_hmac_sha512[] = { 1,2,840,113549,2,11 };
+ static const size_t oid_hmac_sha512_cnt = sizeof(oid_hmac_sha512)/sizeof(oid_hmac_sha512[0]);
++static const uint32_t oid_hmac_sha224[] = { 1,2,840,113549,2,8 };
++static const size_t oid_hmac_sha224_cnt = sizeof(oid_hmac_sha224)/sizeof(oid_hmac_sha224[0]);
++static const uint32_t oid_hmac_sha512_224[] = { 1,2,840,113549,2,12 };
++static const size_t oid_hmac_sha512_224_cnt = sizeof(oid_hmac_sha512_224)/sizeof(oid_hmac_sha512_224[0]);
++static const uint32_t oid_hmac_sha512_256[] = { 1,2,840,113549,2,13 };
++static const size_t oid_hmac_sha512_256_cnt = sizeof(oid_hmac_sha512_256)/sizeof(oid_hmac_sha512_256[0]);
+ 
+ char *pbkdf2_prf_name(int oid)
+ {
+@@ -98,6 +104,15 @@
+ 	} else if (asn1_object_identifier_equ(nodes, nodes_cnt,
+ 			oid_hmac_sha512, oid_hmac_sha512_cnt) == 1) {
+ 		*oid = OID_hmac_sha512;
++	} else if (asn1_object_identifier_equ(nodes, nodes_cnt,
++			oid_hmac_sha224, oid_hmac_sha224_cnt) == 1) {
++		*oid = OID_hmac_sha224;
++	} else if (asn1_object_identifier_equ(nodes, nodes_cnt,
++			oid_hmac_sha512_224, oid_hmac_sha512_224_cnt) == 1) {
++		*oid = OID_hmac_sha512_224;
++	} else if (asn1_object_identifier_equ(nodes, nodes_cnt,
++			oid_hmac_sha512_256, oid_hmac_sha512_256_cnt) == 1) {
++		*oid = OID_hmac_sha512_256;
+ 	} else {
+ 		error_print();
+ 		return -1;

@@ -79,6 +79,7 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls-certificate-signatures.patch"
         "${CMAKE_CURRENT_LIST_DIR}/pkcs8-aes-key-sizes.patch"
         "${CMAKE_CURRENT_LIST_DIR}/pkcs8-sha2-prfs.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/pkcs8-sha2-family.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-validity-diagnostics.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-validity-positions.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-verification-time.patch"
