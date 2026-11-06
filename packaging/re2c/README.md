@@ -24,27 +24,19 @@ Unix executable bits, so Linux/macOS consumers run `chmod +x` on the restored bi
 Android is intentionally not included: re2c runs on the host and generates source code
 before the Android cross-build.
 
-## Linux x64 compatibility and publication
+## Build and publication
 
-Packaging revision 5 builds Linux x64 on Ubuntu 22.04 with the explicit system
-GCC 11 compilers. The packed executable must require no newer versions than
-`GLIBC_2.35`, `GLIBCXX_3.4.29` and `CXXABI_1.3.13`. This check remains necessary
-even when a CI image happens to have newer C++ runtime libraries installed.
-The Linux ARM64, macOS ARM64 and Windows x64 producers retain their native
-build hosts; the Linux x64 baseline does not qualify other host architectures.
+The workflow builds Linux x64 on Ubuntu 22.04 with the runner's Clang.
+Linux ARM64, macOS x64/ARM64 and Windows x64/ARM64 use native build hosts.
 
-The workflow packs once, records the NuGet SHA256, and runs that exact package
-on both Ubuntu 22.04 and Ubuntu 24.04. Each job checks the ABI floor, executes
-`re2c --version`, verifies the canonical Unicode 17 table hashes, generates a
-C11 lexer using the packaged syntax and both tables, compiles it, and executes
-UTF-8 classification and decimal-category cases. The report records the
-package and executable hashes, host RID set, runtime requirements and smoke
-result. A failing job blocks publication.
+The workflow checks the staged payload files, packs once and records the NuGet
+SHA256. CI does not run unit tests, compatibility tests or executable smoke
+checks. The Linux package verifier and its tests remain available locally.
 
-The publishing job downloads the same tested package and verifies its SHA256;
+The publishing job downloads the same packed artifact and verifies its SHA256;
 it never rebuilds it. Pull requests cannot publish. Existing NuGet versions
 are errors rather than successful duplicate skips, so an older payload cannot
-be mistaken for the newly validated package. Consumers must pin a published
+be mistaken for the newly built package. Consumers must pin a published
 package version and digest; changing the action's script revision alone does
 not identify a package payload.
 
@@ -53,11 +45,11 @@ The original 4.6.4 package was produced on Ubuntu 24.04 with GCC 13.3.0 in
 Its NuGet SHA256 is
 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`.
 Its Linux x64 executable requires `GLIBCXX_3.4.32`; it is a concrete negative
-input for the new compatibility gate. The immutable 4.6.6 package added all six
+input for the local compatibility verifier. The immutable 4.6.6 package added all six
 host RIDs, but its Windows binaries require llvm-mingw runtime DLLs that were
 present only on the producer PATH. Version 4.6.7 links the Windows runtime
-statically and executes the staged binary with a system-only PATH before
-packing.
+statically. Its original producer also checked the staged binary with a
+system-only PATH before packing.
 
 Upstream project: https://github.com/skvadrik/re2c
 

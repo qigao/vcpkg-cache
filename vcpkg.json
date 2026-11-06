@@ -9,8 +9,7 @@
       "name": "bfs",
       "platform": "native & (linux | osx)"
     },
-    "c-ares",
-    "catch2",
+    "c-ares", 
     "cxxopts",
     "gmssl",
     "kcp",

@@ -109,7 +109,7 @@ The historical 4.6.4 package has SHA-256
 `9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269` and includes
 Linux x64/ARM64, macOS ARM64 and Windows x64. There is no macOS x64 fallback.
 Its Linux x64 binary requires `GLIBCXX_3.4.32` and fails on the affected
-Ubuntu 22.04 host. Its reader regression fixtures remain unchanged.
+Ubuntu 22.04 host.
 
 GitHub Releases are separate from GitHub Packages: native SDK NuGet packages
 are downloaded using their authenticated NuGet V3 metadata and URL; publicly

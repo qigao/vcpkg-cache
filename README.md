@@ -63,8 +63,8 @@ The release tag versions infrastructure source and Action code; it is not a
 binary cache ABI and does not imply every platform's immutable NuGet ZIP is
 published. Native packages continue to be identified only by complete
 vcpkg ABI hashes and accepted through the existing strict cache gates.
-See [release v0.1.5](docs/releases/v0.1.5.md) and the historical
-[release v0.1.0](docs/releases/v0.1.0.md).
+See [release v0.1.5](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.5) and the historical
+[release v0.1.0](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.0).
 
 ## Shared vcpkg baseline
 
@@ -74,7 +74,7 @@ The reference dependency manifest at the repository root uses:
 b1b19307e2d2ec1eefbdb7ea069de7d4bcd31f01
 ```
 
-The root `vcpkg.json` is a reference dependency set for infrastructure validation. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product. Products own dependency installation through their normal builds; there is no cache prewarming prerequisite or automatic warm workflow.
+The root `vcpkg.json` is a reference dependency set for infrastructure and manual shared-cache production. It is **not** a dependency contract for Salts, SaltsUtils, FlowMQ, TurboDB, TurboRaft, TurboWasm, STUN, Praktor, or any other product. Products own dependency installation through their normal builds; there is no cache prewarming prerequisite or automatic warm workflow.
 
 The setup action bootstraps the official vcpkg executable selected by
 `vcpkg-scripts-revision.txt`, then checks it against `vcpkg-tool-version.txt`.
@@ -93,7 +93,6 @@ Bootstrap or identity failures stop setup before dependency restoration.
 - `libpq`
 - `zstd`
 - `wabt`
-- [`wtl`](ports/wtl/vcpkg.json) — full upstream WTL 10.0.10320 headers/Samples/AppWizard, immutable GitHub release SHA512; no dependency on Microsoft's `atl` vcpkg detection port. Applications link their own `OpenATL::ATL` source-tree target. This header-only port does **not** install an OpenATL SDK.
 - [`tre`](ports/tre/README.md) (retired for new work; historical compatibility overlay only)
 - `ugrep` 7.8.5 (CLI tools, PCRE2 enabled; native Linux/macOS and Windows MSVC x86/x64)
 - `bfs` 4.1.5 (POSIX find CLI; native Linux/macOS)
@@ -117,8 +116,9 @@ overlay remains only for historical consumers during migration; immutable
 release tags and old packages are not rewritten. Removing a consumer's TRE
 dependency requires a real PCRE2 API/semantic migration in that consumer.
 
-Manifest or port changes do not trigger cache prewarming. Explicit immutable
-package publication, when needed, uses the protected manual curl-only publisher.
+Manifest or port changes do not trigger cache prewarming. The manually dispatched
+[shared cache producer](docs/vcpkg-cache-production.md) builds the root reference
+manifest and can publish immutable ABI packages through the shared curl transport.
 The existing versioned `v0.1.0` source release does not acquire new overlays
 retroactively.
 
@@ -163,12 +163,6 @@ or permission change before it can compile its declared dependencies.
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
-The `cache-contracts/header-only/vcpkg.json` profile keeps an isolated simde
-dependency graph for explicit publication and read-only cache contract checks.
-Its exact ABI is derived by vcpkg; it cannot be substituted with an ABI from a
-larger dependency graph. Consumers that explicitly require binary-only restore
-still report missing exact packages as failures.
-
 ## Cache contract identity
 
 The shared cache exposes a machine-readable contract identity.
@@ -210,7 +204,17 @@ Consumer L1 caches should include both the central cache revision and their own 
       ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 ```
 
-## Product-owned cache production
+## Shared and product-owned cache production
+
+`curl-only-vcpkg-producer.yml` builds the root reference manifest for a selected
+native Linux, macOS or Windows x64/ARM64 platform. Its default dispatch saves
+ABI ZIPs as a workflow artifact; `publish: true` also uploads them to GitHub
+Packages through the existing `native-cache-publish` environment. It runs no
+tests. See [dispatch and setup instructions](docs/vcpkg-cache-production.md).
+
+Downstream apps can restore these packages when their resolved ABI matches,
+including port versions, features, triplets, compiler and dependency ABIs.
+A package from a different dependency graph is reusable only if its ABI matches.
 
 Product-specific dependency closures and binary-cache producers belong in the product repository. For example, TurboMedia owns its media overlays and media binary-cache production rather than delegating those packages back to this infrastructure repository.
 
@@ -249,15 +253,14 @@ The 4.6.7 archive was published from
 [producer commit 63b29115780a01f429e23cbba791ca40c779b26e](https://github.com/qigao/vcpkg-cache/commit/63b29115780a01f429e23cbba791ca40c779b26e)
 in [run 41263215892](https://github.com/qigao/vcpkg-cache/actions/runs/41263215892).
 Its actual Ubuntu 22.04 and 24.04 verification receipts and the successful
-publisher agree on the digest above. The curl reader matrix now also includes
-Linux, macOS and Windows x64/ARM64 hosts to check every published payload.
+publisher agree on the digest above. The package producer includes Linux,
+macOS and Windows x64/ARM64 hosts to build every published payload.
 
 For historical comparison, the 4.6.4 package
 (`9e1eb668eb818e81c6ba50d9342f874247b2ea66f33a00d2e253053ef1474269`)
 contains Linux x64/ARM64, macOS ARM64 and Windows x64 payloads, with no macOS
 x64 payload. Its Linux x64 binary requires `GLIBCXX_3.4.32` and cannot run on
-the affected Ubuntu 22.04 host. The 4.6.4 reader regression fixtures remain
-unchanged; historical identity and current package qualification are distinct.
+the affected Ubuntu 22.04 host.
 
 The direct CLI requires both arguments, with no implicit version selection:
 
@@ -271,9 +274,9 @@ python scripts/github-packages.py re2c "$RUNNER_TEMP/qigao-re2c-binary" \
 
 Allowed workflows in this repository are infrastructure workflows only:
 
-- `curl-only-vcpkg-producer.yml` — explicitly dispatched, protected immutable package publication; no automatic prewarming.
-- `validate-cache-contract.yml` — validates the shared vcpkg contract and cross-platform identity.
-- vcpkg port-specific validation workflows, where the subject is a central overlay port rather than a product.
+- `lemon-tools-package.yml` — builds, packages and publishes the paired `Qigao.Lemon.Binary` host tools.
 - `re2c-tools-package.yml` — builds and publishes `Qigao.Re2c.Binary`.
+- `curl-only-vcpkg-producer.yml` — manually builds and optionally publishes shared vcpkg ABI packages.
 
 Product SDK packaging and publishing must live in the product repository.
+CI workflows build, package and publish infrastructure artifacts; they do not run tests.

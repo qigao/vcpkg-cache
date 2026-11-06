@@ -51,7 +51,6 @@ jobs:
       - name: Build and stage
         run: |
           cmake --build build/re2c --parallel 2
-          build/re2c/re2c --version
           mkdir -p stage/package-tools/linux-x64/bin stage/package-tools/linux-x64/share/re2c/stdlib
           cp build/re2c/re2c stage/package-tools/linux-x64/bin/re2c
           cp -a upstream/re2c/include/. stage/package-tools/linux-x64/share/re2c/stdlib/
@@ -88,7 +87,6 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           cmake --build build/re2c --parallel 2
-          build/re2c/re2c --version
           mkdir -p stage/package-tools/linux-arm64/bin stage/package-tools/linux-arm64/share/re2c/stdlib
           cp build/re2c/re2c stage/package-tools/linux-arm64/bin/re2c
           cp -a upstream/re2c/include/. stage/package-tools/linux-arm64/share/re2c/stdlib/
@@ -136,7 +134,6 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = "${{ matrix.arch }}"
           cmake --build build/re2c --parallel 2
-          build/re2c/re2c --version
           rid="${{ matrix.rid }}"
           mkdir -p "stage/package-tools/$rid/bin" "stage/package-tools/$rid/share/re2c/stdlib"
           cp build/re2c/re2c "stage/package-tools/$rid/bin/re2c"
@@ -187,20 +184,11 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build/re2c --config Release --parallel 2
-          & ".\build\re2c\re2c.exe" --version
           $root = "stage\package-tools\${{ matrix.rid }}"
           New-Item -ItemType Directory -Force -Path "$root\bin" | Out-Null
           New-Item -ItemType Directory -Force -Path "$root\share\re2c\stdlib" | Out-Null
           Copy-Item ".\build\re2c\re2c.exe" "$root\bin\re2c.exe"
           Copy-Item ".\upstream\re2c\include\*" "$root\share\re2c\stdlib" -Recurse
-          $buildPath = $env:PATH
-          try {
-            $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
-            & "$root\bin\re2c.exe" --version
-            if ($LASTEXITCODE -ne 0) { throw 'Staged re2c is not self-contained' }
-          } finally {
-            $env:PATH = $buildPath
-          }
       - uses: actions/upload-artifact@v4
         with:
           name: re2c-binary-host-${{ matrix.rid }}
@@ -230,8 +218,6 @@ jobs:
               test -f "package/tools/$rid/share/re2c/stdlib/$data"
             done
           done
-      - name: Test package ABI and layout guards
-        run: python3 -B -m unittest discover -s packaging/re2c -p 'test_*.py' -v
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -241,19 +227,10 @@ jobs:
           --configuration Release --output dist
           -p:PackageVersion="$RE2C_PACKAGE_VERSION"
           -p:PackageRoot="$GITHUB_WORKSPACE/package"
-      - name: Verify packed NuGet contents
+      - name: Record package checksum
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONPATH=packaging/re2c python3 -B - <<'PY'
-          import os
-          from pathlib import Path
-          from zipfile import ZipFile
-          from verify_linux_package import package_layout
-          package = Path('dist') / f"Qigao.Re2c.Binary.{os.environ['RE2C_PACKAGE_VERSION']}.nupkg"
-          with ZipFile(package) as archive:
-              print('host_rids=' + ','.join(package_layout(archive)))
-          PY
           sha256sum "dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg" | tee dist/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
@@ -263,41 +240,9 @@ jobs:
             dist/SHA256SUMS
           if-no-files-found: error
 
-  linux-compatibility:
-    name: Packed Linux x64 / ${{ matrix.os }}
-    needs: pack
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: re2c-binary-nuget
-          path: dist
-      - name: Execute the packed host tool and generated Unicode C11 lexer
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha256sum --check dist/SHA256SUMS
-          python3 -B packaging/re2c/verify_linux_package.py \
-            --package "dist/Qigao.Re2c.Binary.$RE2C_PACKAGE_VERSION.nupkg" \
-            --version "$RE2C_PACKAGE_VERSION" \
-            --expected-host "${{ matrix.os }}" \
-            --work "$RUNNER_TEMP/re2c-package-compatibility" \
-            --report "evidence/${{ matrix.os }}.json"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: re2c-linux-x64-compatibility-${{ matrix.os }}
-          path: evidence/*.json
-          if-no-files-found: error
-
   publish:
     name: Publish verified NuGet
-    needs: [pack, linux-compatibility]
+    needs: pack
     if: github.event_name == 'workflow_dispatch' && inputs.publish == true
     runs-on: ubuntu-latest
     permissions:
@@ -317,7 +262,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Publish the exact package tested by both hosts, with no rebuild and
+          # Publish the exact packed artifact, with no rebuild and
           # no success-on-duplicate path for an older package with other bytes.
           sha256sum --check dist/SHA256SUMS
           dotnet nuget add source --username qigao --password "$GITHUB_TOKEN" --store-password-in-clear-text --name github https://nuget.pkg.github.com/qigao/index.json

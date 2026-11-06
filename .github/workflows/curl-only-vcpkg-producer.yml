@@ -1,63 +1,43 @@
-name: Explicit native GitHub Packages cache producer (curl-only)
+name: Build and publish shared vcpkg cache (curl-only)
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/curl-only-vcpkg-producer.yml"
-      - "scripts/ci/verify-native-publish-target.py"
-      - "scripts/tests/test_curl_cache_publish_target.py"
-      - "scripts/tests/test_curl_cache_producer_workflow.py"
   workflow_dispatch:
     inputs:
-      package_set:
-        description: Bounded, audited native vcpkg package set to compile and publish
+      platform:
+        description: Native platform for the shared reference manifest
         required: true
         type: choice
-        options: [simde, wabt, miniaudio-arm64]
+        default: linux-x64
+        options:
+          - linux-x64
+          - linux-arm64
+          - macos-x64
+          - macos-arm64
+          - windows-x64
+          - windows-arm64
       publish:
-        description: Actually upload new immutable NuGet V3 versions (false = dry-run)
+        description: Upload exact ABI packages to GitHub Packages after building
         required: true
         type: boolean
         default: false
-      expected_master_sha:
-        description: Exact 40-hex master commit; wrong HEAD fails closed
-        required: true
-        type: string
-      expected_native_id:
-        description: Exact selected target package ID (e.g. wabt_x64-linux); required for miniaudio-arm64 and publish=true
-        required: false
-        type: string
-        default: ""
-      expected_native_version:
-        description: Exact 64-hex native ABI version, including vcpkg prefix; required for miniaudio-arm64 and publish=true
-        required: false
-        type: string
-        default: ""
-      require_new_upload:
-        description: Qualify a real new NuGet V3 PUT, not just reuse an existing package
-        required: true
-        type: boolean
-        default: true
 
 permissions:
   contents: read
   packages: read
 
 concurrency:
-  group: curl-vcpkg-producer-${{ inputs.package_set }}
+  group: shared-vcpkg-producer-${{ inputs.platform }}
   cancel-in-progress: false
 
 jobs:
-  native-producer:
-    name: Native Linux selected ABI source build and read-only admission
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/master' &&
-      github.repository == 'qigao/vcpkg-cache'
-    runs-on: ${{ inputs.package_set == 'miniaudio-arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    timeout-minutes: 90
+  build:
+    name: Build shared dependencies / ${{ inputs.platform }}
+    if: github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master'
+    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-x64":"macos-15-intel","macos-arm64":"macos-15","windows-x64":"windows-2025","windows-arm64":"windows-11-arm"}')[inputs.platform] }}
+    timeout-minutes: 240
     env:
-      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/curl-native-producer/cache
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-producer/cache
+      ABI_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw"}')[inputs.platform] }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,176 +45,88 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Require exact approved source checkout
+      - name: Install Linux source-build tools
+        if: runner.os == 'Linux'
         shell: bash
-        env:
-          EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
-          PACKAGE_SET: ${{ inputs.package_set }}
-          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
-          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
-        run: |
-          set -euo pipefail
-          [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
-          test "$GITHUB_REF" = refs/heads/master
-          test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
-          test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
-          # The ARM64 lane derives a single approved target even in dry-run.
-          # Reject missing intent before bootstrap or source compilation.
-          if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]; then
-            test "$EXPECTED_NATIVE_ID" = miniaudio_arm64-linux
-            [[ "$EXPECTED_NATIVE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-vcpkg[0-9a-f]{64}$ ]]
-          fi
-      - name: Prepare native compiler and source build tools
-        shell: bash
-        env:
-          PACKAGE_SET: ${{ inputs.package_set }}
         run: |
           set -euo pipefail
           sudo apt-get update
-          if [[ "$PACKAGE_SET" == "miniaudio-arm64" ]]; then
-            test "$(uname -m)" = aarch64
-            sudo apt-get install -y --no-install-recommends \
-              ninja-build pkg-config autoconf automake libtool
-            # Mirror the real arm64-linux reader's LLVM ABI inputs.
-            printf 'CC=clang\nCXX=clang++\n' >> "$GITHUB_ENV"
-          else
-            sudo apt-get install -y --no-install-recommends \
-              ninja-build pkg-config nasm autoconf automake libtool curl
-          fi
-          command -v cc
-          command -v c++
-          command -v ninja
-          command -v curl
-      - name: Bootstrap canonical vcpkg without Mono or NuGet
-        shell: bash
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool ninja-build pkg-config nasm bison flex \
+            libudev-dev curl zip unzip
+      - uses: ./.github/actions/setup-llvm-native
+        if: runner.os != 'Windows'
+      - uses: ./.github/actions/setup-llvm-mingw
+        if: runner.os == 'Windows'
+        with:
+          target: ${{ inputs.platform == 'windows-arm64' && 'arm64' || 'x64' }}
+          build-type: toolchain-only
+      - name: Bootstrap canonical vcpkg and isolated files cache
+        shell: pwsh
         run: |
-          set -euo pipefail
-          rm -rf "$GITHUB_WORKSPACE/build/curl-native-producer"
-          mkdir -p "$VCPKG_BINARY_CACHE"
-          python scripts/setup-vcpkg-curl-cache.py "$GITHUB_WORKSPACE"
-      - name: Select one explicit vcpkg manifest
-        shell: bash
-        env:
-          PACKAGE_SET: ${{ inputs.package_set }}
+          $ErrorActionPreference = 'Stop'
+          python scripts/setup-vcpkg-curl-cache.py $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0) { throw 'Canonical vcpkg bootstrap failed' }
+      - name: Resolve exact ABIs and build dependencies from source
+        shell: pwsh
         run: |
-          set -euo pipefail
-          case "$PACKAGE_SET" in
-            simde) manifest="$GITHUB_WORKSPACE/cache-contracts/header-only"; triplet=x64-linux ;;
-            wabt) manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer"; triplet=x64-linux ;;
-            miniaudio-arm64) manifest="$GITHUB_WORKSPACE/cache-contracts/miniaudio-arm64"; triplet=arm64-linux ;;
-            *) echo "Unqualified producer package set" >&2; exit 1 ;;
-          esac
-          test -f "$manifest/vcpkg.json"
-          echo "ABI_MANIFEST=$manifest" >> "$GITHUB_ENV"
-          echo "ABI_TRIPLET=$triplet" >> "$GITHUB_ENV"
-          echo "Producer manifest: $manifest / $triplet"
-      - name: Build native artifacts from the pinned source graph into local L1
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -x "$VCPKG_ROOT/vcpkg"
-          test -n "$VCPKG_BINARY_CACHE"
-          mkdir -p "$VCPKG_BINARY_CACHE"
-          # Write-only files source forces a real source build. It cannot read
-          # an older ABI from NuGet, Mono or any remote provider.
-          export VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"
-          if [[ "$ABI_TRIPLET" == arm64-linux ]]; then
-            # The canonical ARM64 producer clears this before ABI resolution.
-            unset VCPKG_FORCE_SYSTEM_BINARIES
-          fi
-          "$VCPKG_ROOT/vcpkg" install \
-            "--x-manifest-root=$ABI_MANIFEST" \
-            "--x-install-root=$RUNNER_TEMP/native-producer-install" \
-            --triplet="$ABI_TRIPLET" --host-triplet="$ABI_TRIPLET"
-          test "$(find "$VCPKG_BINARY_CACHE" -type f -name '*.zip' | wc -l)" -gt 0
-          echo "Local native ABI build completed"
-      - name: Derive exact ABI and check existing remote versions (read only)
-        shell: bash
+          $ErrorActionPreference = 'Stop'
+          if (-not $IsWindows) {
+            $env:CC = $env:LLVM_NATIVE_CC
+            $env:CXX = $env:LLVM_NATIVE_CXX
+          }
+          $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,write"
+          $exe = if ($IsWindows) { 'vcpkg.exe' } else { 'vcpkg' }
+          $vcpkg = Join-Path $env:VCPKG_ROOT $exe
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'build/vcpkg-producer'
+          $plan = Join-Path $stage 'packages.config'
+          $install = Join-Path $env:RUNNER_TEMP 'shared-vcpkg-installed'
+          $arguments = @('install', "--x-manifest-root=$env:GITHUB_WORKSPACE",
+            "--triplet=$env:ABI_TRIPLET",
+            "--host-triplet=$env:ABI_TRIPLET")
+          & $vcpkg @arguments "--x-install-root=$install"
+          if ($LASTEXITCODE -ne 0) { throw 'Shared dependency source build failed' }
+          $planRoot = Join-Path $env:RUNNER_TEMP 'shared-vcpkg-abi-plan'
+          & $vcpkg @arguments "--x-install-root=$planRoot" --dry-run "--x-write-nuget-packages-config=$plan"
+          if ($LASTEXITCODE -ne 0) { throw 'Exact vcpkg ABI resolution failed' }
+          @{
+            source_sha = $env:GITHUB_SHA
+            triplet = $env:ABI_TRIPLET
+            host_triplet = $env:ABI_TRIPLET
+            cache_revision = $env:VCPKG_CACHE_REVISION
+            scripts_revision = $env:VCPKG_SCRIPTS_REVISION
+            tool_revision = $env:VCPKG_TOOL_REVISION
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'source.json') -Encoding utf8
+      - name: Package exact ABI archives without uploading
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          PACKAGE_SET: ${{ inputs.package_set }}
-          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
-          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
-          DO_PUBLISH: ${{ inputs.publish }}
         run: |
-          set -euo pipefail
-          export VCPKG_BINARY_SOURCES="clear;files,$VCPKG_BINARY_CACHE,write"
-          if [[ "$ABI_TRIPLET" == arm64-linux ]]; then
-            unset VCPKG_FORCE_SYSTEM_BINARIES
-          fi
-          stage="$GITHUB_WORKSPACE/build/curl-native-producer"
-          plan="$stage/packages.config"
-          resolved="$plan"
-          if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]; then
-            resolved="$stage/resolved-packages.config"
-          fi
-          # Use a genuinely empty install root for a source-derived plan.
-          probe="$RUNNER_TEMP/native-producer-abi-probe"
-          test ! -e "$probe"
-          "$VCPKG_ROOT/vcpkg" install \
-            "--x-manifest-root=$ABI_MANIFEST" \
-            "--x-install-root=$probe" \
-            --triplet="$ABI_TRIPLET" --host-triplet="$ABI_TRIPLET" \
-            --dry-run "--x-write-nuget-packages-config=$resolved"
-          test -s "$resolved"
-          test "$VCPKG_BINARY_SOURCES" = "clear;files,$VCPKG_BINARY_CACHE,write"
-          if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]; then
-            # Preserve the real full plan; publish ONLY the approved exact ABI.
-            # A different compiler or port hash MUST fail before any upload.
-            python3 scripts/ci/verify-native-publish-target.py \
-              --plan "$resolved" --package-set "$PACKAGE_SET" \
-              --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION" \
-              --write-target-plan "$plan"
-            test -s "$plan"
-          fi
-          # Source-build producer is read-only, but must verify the intended
-          # immutable target before any future authorized write stage.
-          if [[ "$DO_PUBLISH" == "true" || -n "$EXPECTED_NATIVE_ID" || -n "$EXPECTED_NATIVE_VERSION" ]]; then
-            python3 scripts/ci/verify-native-publish-target.py \
-              --plan "$plan" --package-set "$PACKAGE_SET" \
-              --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION"
-          fi
-          python3 scripts/publish-vcpkg-curl-cache.py \
-            --packages-config "$plan" --cache "$VCPKG_BINARY_CACHE" \
-            | tee "$stage/curl-publish-proof.txt"
-          grep -E 'publish_summary total=[1-9][0-9]*' "$stage/curl-publish-proof.txt"
-          if grep -Eq 'uploaded=[1-9][0-9]*' "$stage/curl-publish-proof.txt"; then
-            echo 'Read-only native ABI producer unexpectedly reported remote upload' >&2
-            exit 1
-          fi
-          printf 'source_sha=%s\npackage_set=%s\ntriplet=%s\nexpected_id=%s\nexpected_version=%s\n' \
-            "$GITHUB_SHA" "$PACKAGE_SET" "$ABI_TRIPLET" "$EXPECTED_NATIVE_ID" "$EXPECTED_NATIVE_VERSION" \
-            > "$stage/source-proof.txt"
-          (
-            cd "$stage"
-            find cache -type f -name '*.zip' -print0 \
-              | sort -z | xargs -0 -r sha256sum > SHA256SUMS
-            sha256sum packages.config source-proof.txt >> SHA256SUMS
-            if [[ -f resolved-packages.config ]]; then
-              sha256sum resolved-packages.config >> SHA256SUMS
-            fi
-            test -s SHA256SUMS
-            sha256sum --check --status SHA256SUMS
-          )
-      - name: Preserve native ABI ZIPs for a separately approved write job
-        uses: actions/upload-artifact@v4
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'build/vcpkg-producer'
+          python scripts/publish-vcpkg-curl-cache.py --packages-config "$stage/packages.config" --cache $env:VCPKG_BINARY_CACHE
+          if ($LASTEXITCODE -ne 0) { throw 'Native cache package preparation failed' }
+          $checksums = Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName | ForEach-Object {
+            $relative = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/')
+            $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $relative"
+          }
+          [IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS'),
+            (($checksums -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+      - uses: actions/upload-artifact@v4
         with:
-          name: curl-native-abi-${{ inputs.package_set }}-${{ github.run_id }}
-          path: build/curl-native-producer/
+          name: vcpkg-cache-${{ inputs.platform }}-${{ github.run_id }}
+          path: build/vcpkg-producer/
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
 
-  native-publish:
-    name: Protected immutable NuGet V3 curl upload (opt-in only)
-    if: >-
-      inputs.publish == true &&
-      github.repository == 'qigao/vcpkg-cache' &&
-      github.ref == 'refs/heads/master'
-    needs: native-producer
+  publish:
+    name: Publish immutable ABI packages / ${{ inputs.platform }}
+    needs: build
+    if: inputs.publish == true && github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 60
     environment: native-cache-publish
     permissions:
       contents: read
@@ -246,183 +138,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # Required reviewers and an environment-scoped secret must be configured
-      # by the repository administrator. Merely naming the Environment can
-      # auto-create an unprotected environment on GitHub.
-      - name: Require separately armed, protected native publish environment
+      - name: Require the existing native publication setting
         shell: bash
         env:
           NATIVE_CACHE_PUBLISH_ARM: ${{ secrets.NATIVE_CACHE_PUBLISH_ARM }}
         run: |
           set -euo pipefail
-          if [[ "${NATIVE_CACHE_PUBLISH_ARM:-}" != "native-cache-publish-v1" ]]; then
-            echo 'Protected native-cache-publish environment is not explicitly armed' >&2
+          if [[ "${NATIVE_CACHE_PUBLISH_ARM:-}" != native-cache-publish-v1 ]]; then
+            echo 'Configure NATIVE_CACHE_PUBLISH_ARM in the native-cache-publish environment' >&2
             exit 1
           fi
       - uses: actions/download-artifact@v4
         with:
-          name: curl-native-abi-${{ inputs.package_set }}-${{ github.run_id }}
-          path: build/curl-native-producer
-      - name: Validate immutable source and transferred ABI files
-        shell: bash
-        env:
-          EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
-          PACKAGE_SET: ${{ inputs.package_set }}
-          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
-          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
-        run: |
-          set -euo pipefail
-          [[ "$EXPECTED_MASTER_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$EXPECTED_MASTER_SHA" = "$GITHUB_SHA"
-          test "$EXPECTED_MASTER_SHA" = "$(git rev-parse HEAD)"
-          # A master update during approval must not turn an old artifact
-          # into a new immutable cache publication.
-          remote_master="$(git ls-remote --exit-code \
-            https://github.com/qigao/vcpkg-cache.git refs/heads/master | cut -f1)"
-          [[ "$remote_master" =~ ^[0-9a-f]{40}$ ]]
-          test "$remote_master" = "$EXPECTED_MASTER_SHA"
-          test "$GITHUB_REPOSITORY" = qigao/vcpkg-cache
-          test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF" = refs/heads/master
-          cd build/curl-native-producer
-          grep -Fx "source_sha=$EXPECTED_MASTER_SHA" source-proof.txt
-          grep -Fx 'package_set=${{ inputs.package_set }}' source-proof.txt
-          case "$PACKAGE_SET" in
-            miniaudio-arm64) native_triplet=arm64-linux ;;
-            simde|wabt) native_triplet=x64-linux ;;
-            *) echo "Unqualified protected target" >&2; exit 1 ;;
-          esac
-          grep -Fx "triplet=$native_triplet" source-proof.txt
-          grep -Fx "expected_id=$EXPECTED_NATIVE_ID" source-proof.txt
-          grep -Fx "expected_version=$EXPECTED_NATIVE_VERSION" source-proof.txt
-          sha256sum --check --status SHA256SUMS
-          test -s packages.config
-          # Revalidate the exact operator intent AFTER environment approval,
-          # from the downloaded, SHA-attested source ABI plan.
-          python3 "$GITHUB_WORKSPACE/scripts/ci/verify-native-publish-target.py" \
-            --plan packages.config --package-set "$PACKAGE_SET" \
-            --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION"
-          if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]; then
-            test -s resolved-packages.config
-            python3 "$GITHUB_WORKSPACE/scripts/ci/verify-native-publish-target.py" \
-              --plan resolved-packages.config --package-set "$PACKAGE_SET" \
-              --expected-id "$EXPECTED_NATIVE_ID" --expected-version "$EXPECTED_NATIVE_VERSION" \
-              --check-target-plan packages.config
-          fi
-      - name: Upload exact immutable ABI through canonical native curl producer
+          name: vcpkg-cache-${{ inputs.platform }}-${{ github.run_id }}
+          path: build/vcpkg-producer
+      - name: Publish the same source-built ABI archives through curl
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUIRE_NEW_UPLOAD: ${{ inputs.require_new_upload }}
         run: |
           set -euo pipefail
-          stage="$GITHUB_WORKSPACE/build/curl-native-producer"
-          python3 scripts/publish-vcpkg-curl-cache.py \
-            --packages-config "$stage/packages.config" \
-            --cache "$stage/cache" --publish \
-            | tee "$RUNNER_TEMP/approved-native-publish-proof.txt"
-          grep -E 'publish_summary total=[1-9][0-9]*' \
-            "$RUNNER_TEMP/approved-native-publish-proof.txt"
-          if [[ "$REQUIRE_NEW_UPLOAD" == "true" ]]; then
-            if ! grep -Eq 'uploaded=[1-9][0-9]*' \
-              "$RUNNER_TEMP/approved-native-publish-proof.txt"; then
-              echo 'No real newly published package: existing-only verification cannot qualify curl upload' >&2
-              exit 1
-            fi
-          fi
-      - name: Retain approved exact upload attestation
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: curl-native-upload-${{ inputs.package_set }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/approved-native-publish-proof.txt
-          if-no-files-found: warn
-          retention-days: 30
-
-  read-back:
-    name: "Fresh runner: exact binary-only GitHub Packages read-back"
-    if: ${{ inputs.publish }}
-    needs: native-publish
-    runs-on: ${{ inputs.package_set == 'miniaudio-arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install native compiler tools required for ABI detection
-        shell: bash
-        env:
-          PACKAGE_SET: ${{ inputs.package_set }}
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          if [[ "$PACKAGE_SET" == miniaudio-arm64 ]]; then
-            test "$(uname -m)" = aarch64
-            sudo apt-get install -y --no-install-recommends \
-              ninja-build pkg-config autoconf automake libtool
-            printf 'CC=clang\nCXX=clang++\n' >> "$GITHUB_ENV"
-          else
-            sudo apt-get install -y --no-install-recommends ninja-build pkg-config curl
-          fi
-      - name: Start with empty native ARM64 L1 cache
-        if: inputs.package_set == 'miniaudio-arm64'
-        shell: bash
-        run: |
-          set -euo pipefail
-          empty="$RUNNER_TEMP/empty-miniaudio-arm64-l1"
-          test ! -e "$empty"
-          mkdir -p "$empty"
-          echo "VCPKG_BINARY_CACHE=$empty" >> "$GITHUB_ENV"
-      - name: Read exact immutable ABI from NuGet V3 with curl
-        uses: ./.github/actions/setup-vcpkg-curl-cache
-        with:
-          mode: read
-          triplet: ${{ inputs.package_set == 'miniaudio-arm64' && 'arm64-linux' || 'x64-linux' }}
-          host-triplet: ${{ inputs.package_set == 'miniaudio-arm64' && 'arm64-linux' || 'x64-linux' }}
-          # ARM64 uses the empty manifest to bootstrap; the exact package
-          # is restored after matching the producer's ARM64 vcpkg env.
-          manifest-root: ${{ inputs.package_set == 'miniaudio-arm64' && 'cache-contracts/optional-feature' || inputs.package_set == 'simde' && 'cache-contracts/header-only' || 'cache-contracts/wabt-producer' }}
-      - name: Require binary-only native install from fresh L1 without Mono
-        shell: bash
-        env:
-          PACKAGE_SET: ${{ inputs.package_set }}
-          EXPECTED_NATIVE_ID: ${{ inputs.expected_native_id }}
-          EXPECTED_NATIVE_VERSION: ${{ inputs.expected_native_version }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test "$VCPKG_BINARY_SOURCES" = "clear;files,$VCPKG_BINARY_CACHE,readwrite"
-          manifest="$GITHUB_WORKSPACE/cache-contracts/header-only"
-          triplet=x64-linux
-          if [[ "$PACKAGE_SET" == "wabt" ]]; then
-            manifest="$GITHUB_WORKSPACE/cache-contracts/wabt-producer"
-          elif [[ "$PACKAGE_SET" == "miniaudio-arm64" ]]; then
-            triplet=arm64-linux
-            manifest="$GITHUB_WORKSPACE/cache-contracts/miniaudio-arm64"
-            # The ARM64 consumer and producer MUST use identical tool inputs.
-            unset VCPKG_FORCE_SYSTEM_BINARIES
-            python3 scripts/restore-manifest-cache.py \
-              --manifest-root "$manifest" --triplet "$triplet" --host-triplet "$triplet"
-            python3 scripts/ci/verify-native-publish-target.py \
-              --plan "$RUNNER_TEMP/qigao-curl-vcpkg-abi/packages.config" \
-              --package-set "$PACKAGE_SET" --expected-id "$EXPECTED_NATIVE_ID" \
-              --expected-version "$EXPECTED_NATIVE_VERSION"
-          fi
-          "$VCPKG_ROOT/vcpkg" install \
-            "--x-manifest-root=$manifest" \
-            "--x-install-root=$RUNNER_TEMP/verified-native-abi" \
-            --triplet="$triplet" --host-triplet="$triplet" --only-binarycaching \
-            2>&1 | tee "$RUNNER_TEMP/fresh-binary-verify.log"
-          if grep -Eq '^Building ' "$RUNNER_TEMP/fresh-binary-verify.log"; then
-            echo 'A source build is forbidden during immutable cache readback' >&2
-            exit 1
-          fi
-          grep -Eq 'Restored [1-9][0-9]* package\(s\)' "$RUNNER_TEMP/fresh-binary-verify.log"
-          if [[ "$PACKAGE_SET" == "miniaudio-arm64" ]]; then
-            test -f "$RUNNER_TEMP/verified-native-abi/arm64-linux/include/miniaudio.h"
-          elif [[ "$PACKAGE_SET" == "simde" ]]; then
-            test -f "$RUNNER_TEMP/verified-native-abi/x64-linux/include/simde/x86/sse.h"
-          else
-            test -x "$RUNNER_TEMP/verified-native-abi/x64-linux/tools/wabt/wast2json"
-          fi
+          cd build/vcpkg-producer
+          sha256sum --check SHA256SUMS
+          python "$GITHUB_WORKSPACE/scripts/publish-vcpkg-curl-cache.py" \
+            --packages-config packages.config --cache cache --publish

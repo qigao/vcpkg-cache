@@ -66,18 +66,15 @@ used for pre-publication package qualification and works without credentials.
 Repeated configure reuses the matching local installation and rechecks the
 executable/template hashes. Conflicting imported targets fail explicitly.
 
-## Build, qualify and publish
+## Build, package and publish
 
 `lemon-tools-package.yml` builds six native host binaries, packs one nupkg and
 emits `lemon.lock.json`/`SHA256SUMS` as the `lemon-binary-nuget` artifact.
-Seven reader jobs (including Ubuntu 22.04 and 24.04) restore that exact nupkg
-through the CMake module, generate a C11 parser with its paired template,
-compile and run it. The parser checks precedence, parentheses and invalid-input
-rejection. This is the actual tool package's test, not an SDK installer or
-synthetic consumer project. There are no compiler version/probe CI jobs.
+CI checks the package layout, source pairing and hashes without running tests
+or generated-parser consumer projects. Parser tests remain available locally.
 
 Publication requires an explicit manual master dispatch with `publish: true`,
-after every packed-reader job passes. It uploads those tested bytes using curl
+after packaging succeeds. It uploads the packed bytes using curl
 and requires exact SHA-256 readback; it never overwrites a different existing
 version. The shared generic Action from `v0.1.003` can also
 restore the package using `lock-file`, `payload: tools/<host-rid>`,
