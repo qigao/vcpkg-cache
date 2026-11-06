@@ -91,6 +91,7 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls13-post-handshake-framing.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-peer-update-spacing.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-alert-direction.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls12-certificate-signatures.patch"
 )
 
 vcpkg_cmake_configure(

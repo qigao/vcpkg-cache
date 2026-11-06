@@ -1,0 +1,142 @@
+--- a/src/tls.c
++++ b/src/tls.c
+@@ -3559,6 +3559,7 @@
+ 
+ 
+ 	conn->ctx = ctx;
++	conn->signature_algorithms_cert = ctx->signature_algorithms_cert;
+ 
+ 	conn->key_exchanges_cnt = ctx->key_exchanges_cnt;
+ 
+--- a/src/tls12.c
++++ b/src/tls12.c
+@@ -974,6 +974,15 @@
+ 
+ // TODO: Client Handshake
+ 
++static const int *tls12_local_certificate_signatures(const TLS_CTX *ctx)
++{
++	return ctx->certificate_signature_algorithms_cnt ? ctx->certificate_signature_algorithms : ctx->signature_algorithms;
++}
++static size_t tls12_local_certificate_signature_count(const TLS_CTX *ctx)
++{
++	return ctx->certificate_signature_algorithms_cnt ? ctx->certificate_signature_algorithms_cnt : ctx->signature_algorithms_cnt;
++}
++
+ int tls_send_client_hello(TLS_CONNECT *conn)
+ {
+ 	int ret;
+@@ -1019,6 +1028,13 @@
+ 				error_print();
+ 				return -1;
+ 			}
++		}
++
++		if (conn->signature_algorithms_cert
++			&& tls13_signature_algorithms_cert_ext_to_bytes(tls12_local_certificate_signatures(conn->ctx),
++				tls12_local_certificate_signature_count(conn->ctx), &pexts, &extslen) != 1) {
++			error_print();
++			return -1;
+ 		}
+ 
+ 		// trusted_ca_keys
+@@ -1384,8 +1400,8 @@
+ 
+ 	// check certificate-chain signatures match ClientHello.signature_algorithms_cert
+ 	if (conn->signature_algorithms_cert) {
+-		signature_algorithms_cert = conn->ctx->signature_algorithms;
+-		signature_algorithms_cert_cnt = conn->ctx->signature_algorithms_cnt;
++		signature_algorithms_cert = tls12_local_certificate_signatures(conn->ctx);
++		signature_algorithms_cert_cnt = tls12_local_certificate_signature_count(conn->ctx);
+ 	} else if (conn->ctx->signature_algorithms_cnt) {
+ 		signature_algorithms_cert = conn->ctx->signature_algorithms;
+ 		signature_algorithms_cert_cnt = conn->ctx->signature_algorithms_cnt;
+@@ -1615,6 +1631,7 @@
+ 	size_t local_sig_algs_cnt;
+ 	int common_sig_algs[32];
+ 	int signing_sig_algs[32];
++	int certificate_sig_algs[32];
+ 	size_t signing_sig_algs_cnt = 0;
+ 	size_t common_sig_algs_cnt = 0;
+ 	const uint8_t *ca_names;
+@@ -1686,6 +1703,19 @@
+ 		error_print();
+ 		tls_send_alert(conn, TLS_alert_decode_error);
+ 		return -1;
++	}
++
++	/* TLS1.2 CertificateRequest has one list for handshake and certificate
++	 * signatures. Preserve that peer constraint independently of local policy. */
++	const int *selected_certificate_sigs = common_sig_algs;
++	size_t selected_certificate_sigs_cnt = common_sig_algs_cnt;
++	if (conn->ctx->certificate_signature_algorithms_cnt) {
++		ret = tls_process_signature_algorithms(sig_algs, sig_algs_len,
++			tls12_local_certificate_signatures(conn->ctx), tls12_local_certificate_signature_count(conn->ctx),
++			certificate_sig_algs, &selected_certificate_sigs_cnt,
++			sizeof(certificate_sig_algs)/sizeof(certificate_sig_algs[0]));
++		if (ret < 0) { tls_send_alert(conn, TLS_alert_decode_error); return -1; }
++		selected_certificate_sigs = certificate_sig_algs;
+ 	}
+ 
+ 	/* The range context also advertises TLS1.3 PSS. TLS1.2's local signer
+@@ -1705,7 +1735,7 @@
+ 	conn->sig_alg = 0;
+ 	cp = conn->ctx->cert_chains;
+ 	len = conn->ctx->cert_chains_len;
+-	for (size_t idx = 1; len && signing_sig_algs_cnt; idx++) {
++	for (size_t idx = 1; len && signing_sig_algs_cnt && selected_certificate_sigs_cnt; idx++) {
+ 		const uint8_t *chain;
+ 		size_t chain_len;
+ 		if (tls_uint24array_from_bytes(&chain, &chain_len, &cp, &len) != 1
+@@ -1731,7 +1761,7 @@
+ 		if (ret < 0) { tls_send_alert(conn, TLS_alert_bad_certificate); return -1; }
+ 		if (!ret) continue;
+ 		ret = tls_cert_chain_match_signature_algorithms_cert(chain, chain_len,
+-			common_sig_algs, common_sig_algs_cnt);
++			selected_certificate_sigs, selected_certificate_sigs_cnt);
+ 		if (ret < 0) { tls_send_alert(conn, TLS_alert_bad_certificate); return -1; }
+ 		if (!ret) continue;
+ 		if (chain_len > sizeof(conn->client_certs)) {
+@@ -2437,7 +2467,7 @@
+ 
+ 	if (signature_algorithms_cert) {
+ 		if ((ret = tls_process_signature_algorithms(signature_algorithms_cert, signature_algorithms_cert_len,
+-			conn->ctx->signature_algorithms, conn->ctx->signature_algorithms_cnt,
++			tls12_local_certificate_signatures(conn->ctx), tls12_local_certificate_signature_count(conn->ctx),
+ 			common_signature_algorithms_cert, &common_signature_algorithms_cert_cnt,
+ 			sizeof(common_signature_algorithms_cert)/sizeof(common_signature_algorithms_cert[0]))) < 0) {
+ 			error_print();
+@@ -2448,11 +2478,23 @@
+ 			tls_send_alert(conn, TLS_alert_handshake_failure);
+ 			return -1;
+ 		}
++		cert_signature_algorithms = common_signature_algorithms_cert;
++		cert_signature_algorithms_cnt = common_signature_algorithms_cert_cnt;
++	} else if (signature_algorithms && conn->ctx->certificate_signature_algorithms_cnt) {
++		ret = tls_process_signature_algorithms(signature_algorithms, signature_algorithms_len,
++			tls12_local_certificate_signatures(conn->ctx), tls12_local_certificate_signature_count(conn->ctx),
++			common_signature_algorithms_cert, &common_signature_algorithms_cert_cnt,
++			sizeof(common_signature_algorithms_cert)/sizeof(common_signature_algorithms_cert[0]));
++		if (ret < 0) { tls_send_alert(conn, TLS_alert_decode_error); return -1; }
++		if (!ret) { tls_send_alert(conn, TLS_alert_handshake_failure); return -1; }
+ 		cert_signature_algorithms = common_signature_algorithms_cert;
+ 		cert_signature_algorithms_cnt = common_signature_algorithms_cert_cnt;
+ 	} else if (signature_algorithms) {
+ 		cert_signature_algorithms = common_signature_algorithms;
+ 		cert_signature_algorithms_cnt = common_signature_algorithms_cnt;
++	} else if (conn->ctx->certificate_signature_algorithms_cnt) {
++		cert_signature_algorithms = tls12_local_certificate_signatures(conn->ctx);
++		cert_signature_algorithms_cnt = tls12_local_certificate_signature_count(conn->ctx);
+ 	}
+ 
+ 	if (application_layer_protocol_negotiation) {
+@@ -2884,7 +2926,8 @@
+ 		conn->ctx->verify_depth,
+ 		NULL, 0,
+ 		conn->ctx->signature_algorithms, conn->ctx->signature_algorithms_cnt,
+-		NULL, 0,
++		conn->ctx->certificate_signature_algorithms_cnt ? conn->ctx->certificate_signature_algorithms : NULL,
++		conn->ctx->certificate_signature_algorithms_cnt,
+ 		NULL, 0,
+ 		NULL, 0,
+ 		NULL, 0,
