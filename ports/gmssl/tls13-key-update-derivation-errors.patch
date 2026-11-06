@@ -1,0 +1,24 @@
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -9115,8 +9115,8 @@
+ 		// xxxxxxxx
+ 		conn->record_offset = 0;
+ 
+-		tls13_update_client_application_secret(conn);
+-		tls13_generate_client_application_keys(conn);
++		if (tls13_update_client_application_secret(conn) != 1
++			|| tls13_generate_client_application_keys(conn) != 1) return -1;
+ 
+ 		conn->local_key_plaintext_bytes = 0;
+ 		conn->key_update = 0;
+@@ -9169,8 +9169,8 @@
+ 
+ 		conn->record_offset = 0;
+ 
+-		tls13_update_server_application_secret(conn);
+-		tls13_generate_server_application_keys(conn);
++		if (tls13_update_server_application_secret(conn) != 1
++			|| tls13_generate_server_application_keys(conn) != 1) return -1;
+ 
+ 		conn->local_key_plaintext_bytes = 0;
+ 		conn->key_update = 0;
