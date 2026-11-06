@@ -13,7 +13,7 @@
  
  
 -int tls13_process_new_session_ticket(TLS_CONNECT *conn);
-+int tls13_process_new_session_ticket(TLS_CONNECT *conn, const uint8_t *record);
++int tls13_process_new_session_ticket(TLS_CONNECT *conn, uint8_t *record);
  
  
  
@@ -175,12 +175,21 @@
  #include <stdlib.h>
  #include <string.h>
  #include <assert.h>
+@@ -385,7 +386,7 @@
+ 		error_print();
+ 		return -1;
+ 	}
+-	if (!ticketlen) {
++	if (!ticketlen || !*ticketlen) {
+ 		error_print();
+ 		return -1;
+ 	}
 @@ -756,7 +757,7 @@
  }
  
  // 这个函数是有点问题的，还是应该改为recv_new_session_ticket
 -int tls13_process_new_session_ticket(TLS_CONNECT *conn)
-+int tls13_process_new_session_ticket(TLS_CONNECT *conn, const uint8_t *record)
++int tls13_process_new_session_ticket(TLS_CONNECT *conn, uint8_t *record)
  {
  	int ret;
  	/*
