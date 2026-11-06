@@ -1,7 +1,7 @@
 {
   "versions": [
     {
-      "git-tree": ":ports/gmssl",
+      "git-tree": "a7c8b0869ea36d16c9ce67d34243ec9ec0be306a",
       "version": "3.2.0",
       "port-version": 38
     },
