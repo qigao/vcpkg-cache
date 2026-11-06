@@ -89,6 +89,7 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls13-duplex-records.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-post-handshake-framing.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-peer-update-spacing.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-alert-direction.patch"
 )
 
 vcpkg_cmake_configure(
