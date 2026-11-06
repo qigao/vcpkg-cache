@@ -1,0 +1,65 @@
+--- a/src/x509_cer.c
++++ b/src/x509_cer.c
+@@ -2130,6 +2130,7 @@
+ 			SM2_DEFAULT_ID, SM2_DEFAULT_ID_LENGTH) != 1) {
+ 			error_print();
+ 			x509_verify_set_result(verify_result, X509_verify_err_cert_chain);
++			if (verify_index) *verify_index = cert_index - 1;
+ 			return -1;
+ 		}
+ 		if (path_len == 0) {
+@@ -2356,6 +2357,7 @@
+ 				SM2_DEFAULT_ID, SM2_DEFAULT_ID_LENGTH) != 1) {
+ 				error_print();
+ 				x509_verify_set_result(verify_result, X509_verify_err_cert_chain);
++				if (verify_index) *verify_index = 1;
+ 				return -1;
+ 			}
+ 		}
+@@ -2369,6 +2371,7 @@
+ 			SM2_DEFAULT_ID, SM2_DEFAULT_ID_LENGTH) != 1) {
+ 			error_print();
+ 			x509_verify_set_result(verify_result, X509_verify_err_cert_chain);
++			if (verify_index) *verify_index = path_len == 0 ? 0 : cert_index - 1;
+ 			return -1;
+ 		}
+ 		if (path_len == 0) {
+@@ -2432,6 +2435,7 @@
+ 			SM2_DEFAULT_ID, SM2_DEFAULT_ID_LENGTH) != 1) {
+ 			error_print();
+ 			x509_verify_set_result(verify_result, X509_verify_err_cert_chain);
++			if (verify_index) *verify_index = 1;
+ 			return -1;
+ 		}
+ 		if ((ret = x509_cert_check_optional_ocsp(cert, certlen,
+--- a/include/gmssl/x509_cer.h
++++ b/include/gmssl/x509_cer.h
+@@ -404,7 +404,7 @@
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
+-/* Optional zero-based validity/purpose-failure position in the presented chain;
++/* Optional zero-based validity/purpose/signature-failure position in the presented chain;
+  * (size_t)-1 for success, other failures and local-only trust anchors.
+  * verification_time is an optional borrowed certificate-validity Unix time;
+  * NULL uses the system clock. Revocation clocks are not modified. */
+@@ -418,7 +418,7 @@
+ 	const uint8_t *crl, size_t crl_len,
+ 	const uint8_t *ocsp, size_t ocsp_len,
+ 	int depth, int *verify_result);
+-/* Optional zero-based validity/purpose-failure position in the presented chain;
++/* Optional zero-based validity/purpose/signature-failure position in the presented chain;
+  * (size_t)-1 for success, other failures and local-only trust anchors.
+  * verification_time is an optional borrowed certificate-validity Unix time;
+  * NULL uses the system clock. Revocation clocks are not modified. */
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -1982,7 +1982,7 @@
+ 	const uint8_t *host_name, size_t host_name_len,
+ 	int *verify_result,
+ 	int *selected_sig_alg);
+-/* verify_index follows x509_certs_verify_ex validity-position semantics. */
++/* verify_index follows x509_certs_verify_ex verification-failure position semantics. */
+ int tls_cert_chain_verify_ex(
+ 	int protocol, int cert_chain_type, int cipher_suite,
+ 	int verify_chain,
