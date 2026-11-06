@@ -1,0 +1,223 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -1162,6 +1162,12 @@
+ 	uint8_t record[TLS_MAX_RECORD_SIZE];
+ 	size_t record_offset; // offset of processed record
+ 	size_t recordlen;
++	/* Established TLS1.3 RX must never overwrite pending TX/handshake state.
++	 * Decrypted RX plaintext uses the existing databuf and data/datalen. */
++	uint8_t tls13_recv_record[TLS_MAX_RECORD_SIZE];
++	size_t tls13_recv_record_offset;
++	size_t tls13_recv_recordlen;
++	size_t tls13_recv_plain_recordlen;
+ 	/* Owned by the handshake progress caller; bounded across nonblocking retries. */
+ 	uint8_t handshake_fragment[TLS_MAX_RECORD_SIZE];
+ 	size_t handshake_fragment_len;
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -1451,14 +1451,14 @@
+ 
+ 	switch (conn->recv_state) {
+ 	case 0:
+-		conn->record_offset = 0;
+-		conn->recordlen = TLS_RECORD_HEADER_SIZE;
++		conn->tls13_recv_record_offset = 0;
++		conn->tls13_recv_recordlen = TLS_RECORD_HEADER_SIZE;
+ 		conn->recv_state = TLS_state_recv_record_header;
+ 
+ 	case TLS_state_recv_record_header:
+-		while (conn->recordlen) {
+-
+-			n = tls_io_recv(conn, conn->record + conn->record_offset, conn->recordlen, 0);
++		while (conn->tls13_recv_recordlen) {
++
++			n = tls_io_recv(conn, conn->tls13_recv_record + conn->tls13_recv_record_offset, conn->tls13_recv_recordlen, 0);
+ 			if (n < 0) {
+ 				int err = tls_socket_get_error();
+ 				tls_socket_err_t type = tls_socket_get_error_type(err, 1);
+@@ -1472,28 +1472,28 @@
+ 			} else if (n == 0) {
+ 				return TLS_ERROR_TCP_CLOSED;
+ 			}
+-			conn->recordlen -= n;
+-			conn->record_offset += n;
+-		}
+-		if (tls_record_type(conn->record) != TLS_record_application_data) {
+-			error_print();
+-			return -1;
+-		}
+-		if (tls_record_protocol(conn->record) != TLS_protocol_tls12) {
+-			error_print();
+-			return -1;
+-		}
+-		if (tls_record_data_length(conn->record) > TLS_MAX_RECORD_SIZE - TLS_RECORD_HEADER_SIZE) {
+-			error_print();
+-			return -1;
+-		}
+-		conn->recordlen = tls_record_data_length(conn->record);
++			conn->tls13_recv_recordlen -= n;
++			conn->tls13_recv_record_offset += n;
++		}
++		if (tls_record_type(conn->tls13_recv_record) != TLS_record_application_data) {
++			error_print();
++			return -1;
++		}
++		if (tls_record_protocol(conn->tls13_recv_record) != TLS_protocol_tls12) {
++			error_print();
++			return -1;
++		}
++		if (tls_record_data_length(conn->tls13_recv_record) > TLS_MAX_RECORD_SIZE - TLS_RECORD_HEADER_SIZE) {
++			error_print();
++			return -1;
++		}
++		conn->tls13_recv_recordlen = tls_record_data_length(conn->tls13_recv_record);
+ 		conn->recv_state = TLS_state_recv_record_data;
+ 		// pass through
+ 
+ 	case TLS_state_recv_record_data:
+-		while (conn->recordlen) {
+-			n = tls_io_recv(conn, conn->record + conn->record_offset, conn->recordlen, 0);
++		while (conn->tls13_recv_recordlen) {
++			n = tls_io_recv(conn, conn->tls13_recv_record + conn->tls13_recv_record_offset, conn->tls13_recv_recordlen, 0);
+ 			if (n < 0) {
+ 				int err = tls_socket_get_error();
+ 				tls_socket_err_t type = tls_socket_get_error_type(err, 1);
+@@ -1507,8 +1507,8 @@
+ 			} else if (n == 0) {
+ 				return TLS_ERROR_TCP_CLOSED;
+ 			}
+-			conn->recordlen -= n;
+-			conn->record_offset += n;
++			conn->tls13_recv_recordlen -= n;
++			conn->tls13_recv_record_offset += n;
+ 		}
+ 		conn->recv_state = 0;
+ 		break;
+@@ -1519,10 +1519,10 @@
+ 		return -1;
+ 	}
+ 
+-	conn->recordlen = tls_record_length(conn->record);
++	conn->tls13_recv_recordlen = tls_record_length(conn->tls13_recv_record);
+ 
+ 	if(conn->verbose) tls_trace("recv {Record}\n");
+-	if(conn->verbose) tls13_record_print(stderr, 0, 0, conn->record, conn->recordlen);
++	if(conn->verbose) tls13_record_print(stderr, 0, 0, conn->tls13_recv_record, conn->tls13_recv_recordlen);
+ 
+ 
+ 	if (conn->is_client) {
+@@ -1544,20 +1544,20 @@
+ 		//format_print(stderr, 0, 0, "\n");
+ 	}
+ 
+-	if (tls13_record_decrypt(conn->cipher_suite, key, iv, seq_num, conn->record, conn->recordlen,
+-		conn->plain_record, &conn->plain_recordlen) != 1) {
++	if (tls13_record_decrypt(conn->cipher_suite, key, iv, seq_num, conn->tls13_recv_record, conn->tls13_recv_recordlen,
++		conn->databuf, &conn->tls13_recv_plain_recordlen) != 1) {
+ 		error_print();
+ 		return -1;
+ 	}
+ 	tls_seq_num_incr(seq_num);
+ 
+-	if(conn->verbose) tls13_record_print(stderr, 0, 0, conn->plain_record, conn->plain_recordlen);
+-
+-
+-	switch (tls_record_type(conn->plain_record)) {
++	if(conn->verbose) tls13_record_print(stderr, 0, 0, conn->databuf, conn->tls13_recv_plain_recordlen);
++
++
++	switch (tls_record_type(conn->databuf)) {
+ 	case TLS_record_application_data:
+-		conn->data = conn->plain_record + 5;
+-		conn->datalen = conn->plain_recordlen - 5;
++		conn->data = conn->databuf + 5;
++		conn->datalen = conn->tls13_recv_plain_recordlen - 5;
+ 		/* Empty authenticated records are not application progress. */
+ 		if (conn->datalen) conn->consecutive_peer_key_updates = 0;
+ 		break;
+@@ -1569,7 +1569,7 @@
+ 		size_t handshake_datalen;
+ 		int update_requested;
+ 
+-		if (tls_record_get_handshake(conn->plain_record, &handshake_type, &handshake_data, &handshake_datalen) != 1) {
++		if (tls_record_get_handshake(conn->databuf, &handshake_type, &handshake_data, &handshake_datalen) != 1) {
+ 			error_print();
+ 			return -1;
+ 		}
+@@ -1587,7 +1587,7 @@
+ 
+ 
+ 		case TLS_handshake_key_update:
+-			if (tls13_record_get_handshake_key_update(conn->plain_record, &update_requested) != 1) {
++			if (tls13_record_get_handshake_key_update(conn->databuf, &update_requested) != 1) {
+ 				error_print();
+ 				return -1;
+ 			}
+@@ -1630,7 +1630,7 @@
+ 		int alert_level;
+ 		int alert_description;
+ 
+-		if (tls_record_get_alert(conn->plain_record, &alert_level, &alert_description) != 1) {
++		if (tls_record_get_alert(conn->databuf, &alert_level, &alert_description) != 1) {
+ 			error_print();
+ 			return -1;
+ 		}
+@@ -1638,9 +1638,9 @@
+ 			conn->close_notify_received = 1;
+ 			conn->data = NULL;
+ 			conn->datalen = 0;
+-			conn->record_offset = 0;
+-			conn->recordlen = 0;
+-			conn->plain_recordlen = 0;
++			conn->tls13_recv_record_offset = 0;
++			conn->tls13_recv_recordlen = 0;
++			conn->tls13_recv_plain_recordlen = 0;
+ 			return 0;
+ 		}
+ 		}
+@@ -1675,9 +1675,9 @@
+ 			if (conn->datalen) {
+ 				break;
+ 			}
+-			conn->record_offset = 0;
+-			conn->recordlen = 0;
+-			conn->plain_recordlen = 0;
++			conn->tls13_recv_record_offset = 0;
++			conn->tls13_recv_recordlen = 0;
++			conn->tls13_recv_plain_recordlen = 0;
+ 		}
+ 	}
+ 	*recvlen = outlen <= conn->datalen ? outlen : conn->datalen;
+@@ -1687,7 +1687,7 @@
+ 
+ 	// 这里接受完成之后，应该recordlen = 0
+ 
+-	conn->recordlen = 0;
++	conn->tls13_recv_recordlen = 0;
+ 
+ 
+ 	return 1;
+@@ -1724,9 +1724,9 @@
+ 	// 需要考虑统一的record状态更新
+ 	// 还需要考虑 tls13_recv 如何消费掉 early_data
+ 
+-	conn->record_offset = 0;
+-	conn->recordlen = 0;
+-	conn->plain_recordlen = 0;
++	conn->tls13_recv_record_offset = 0;
++	conn->tls13_recv_recordlen = 0;
++	conn->tls13_recv_plain_recordlen = 0;
+ 
+ 	return 1;
+ }
+--- a/src/tls_psk.c
++++ b/src/tls_psk.c
+@@ -776,7 +776,7 @@
+ 	size_t max_early_data_size;
+ 
+ 	// only cheching encoding
+-	if ((ret = tls13_record_get_handshake_new_session_ticket(conn->plain_record,
++	if ((ret = tls13_record_get_handshake_new_session_ticket(conn->databuf,
+ 		&ticket_lifetime, &ticket_age_add, &ticket_nonce, &ticket_nonce_len,
+ 		&ticket, &ticketlen, &exts, &extslen)) != 1) {
+ 		error_print();
