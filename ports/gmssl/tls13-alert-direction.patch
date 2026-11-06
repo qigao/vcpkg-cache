@@ -1,0 +1,29 @@
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -8477,15 +8477,22 @@
+ 			memcpy(conn->record, conn->plain_record, conn->plain_recordlen);
+ 			conn->recordlen = conn->plain_recordlen;
+ 			break;
+-		default:
++		default: {
++			/* Alerts use the local sending direction, including client failures
++			 * before server Finished. Never reuse or advance the receiving nonce. */
++			const BLOCK_CIPHER_KEY *key = conn->is_client ? &conn->client_write_key : &conn->server_write_key;
++			const uint8_t *iv = conn->is_client ? conn->client_write_iv : conn->server_write_iv;
++			uint8_t *seq = conn->is_client ? conn->client_seq_num : conn->server_seq_num;
+ 			tls13_padding_len_rand(&padding_len);
+-			if (tls13_record_encrypt(conn->cipher_suite, &conn->server_write_key, conn->server_write_iv,
+-				conn->server_seq_num, conn->plain_record, conn->plain_recordlen, padding_len,
++			if (tls13_record_encrypt(conn->cipher_suite, key, iv,
++				seq, conn->plain_record, conn->plain_recordlen, padding_len,
+ 				conn->record, &conn->recordlen) != 1) {
+ 				error_print();
+ 				return -1;
+ 			}
+-			tls_seq_num_incr(conn->server_seq_num);
++			tls_seq_num_incr(seq);
++			break;
++		}
+ 		}
+ 	}
+ 
