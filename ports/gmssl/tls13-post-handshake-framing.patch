@@ -30,7 +30,7 @@
 +	size_t offset = TLS_RECORD_HEADER_SIZE;
 +	size_t end = conn->tls13_recv_plain_recordlen;
 +	uint8_t *message = conn->handshake_fragment + TLS_RECORD_HEADER_SIZE;
-+	if (end <= offset || end > TLS_RECORD_HEADER_SIZE + TLS_MAX_PLAINTEXT_SIZE
++	if (conn->handshake_state != TLS_state_handshake_over || end <= offset || end > TLS_RECORD_HEADER_SIZE + TLS_MAX_PLAINTEXT_SIZE
 +		|| conn->post_handshake_message_len > TLS_MAX_PLAINTEXT_SIZE) return -1;
 +	for (;;) {
 +		size_t wanted = TLS_HANDSHAKE_HEADER_SIZE;
