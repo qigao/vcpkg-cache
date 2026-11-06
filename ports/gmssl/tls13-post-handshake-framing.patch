@@ -1,0 +1,284 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -1173,6 +1173,7 @@
+ 	size_t handshake_fragment_len;
+ 	size_t handshake_fragment_offset;
+ 	size_t handshake_message_len;
++	size_t post_handshake_message_len; /* reuses the consumed handshake fragment array */
+ 	int handshake_message_pending;
+ 	uint8_t plain_record[TLS_MAX_RECORD_SIZE];
+ 	size_t plain_recordlen;
+@@ -1963,7 +1964,7 @@
+ 
+ 
+ 
+-int tls13_process_new_session_ticket(TLS_CONNECT *conn);
++int tls13_process_new_session_ticket(TLS_CONNECT *conn, uint8_t *record);
+ 
+ 
+ 
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -1441,6 +1441,65 @@
+ 	return ret;
+ }
+ 
++/* The initial handshake has consumed handshake_fragment at Finished.
++ * Reuse that fixed storage; databuf remains the independent decrypted input. */
++static int tls13_process_post_handshake_record(TLS_CONNECT *conn)
++{
++	size_t offset = TLS_RECORD_HEADER_SIZE;
++	size_t end = conn->tls13_recv_plain_recordlen;
++	uint8_t *message = conn->handshake_fragment + TLS_RECORD_HEADER_SIZE;
++	if (conn->handshake_state != TLS_state_handshake_over || end <= offset || end > TLS_RECORD_HEADER_SIZE + TLS_MAX_PLAINTEXT_SIZE
++		|| conn->post_handshake_message_len > TLS_MAX_PLAINTEXT_SIZE) return -1;
++	for (;;) {
++		size_t wanted = TLS_HANDSHAKE_HEADER_SIZE;
++		if (conn->post_handshake_message_len) {
++			if (message[0] != TLS_handshake_key_update
++				&& (message[0] != TLS_handshake_new_session_ticket || !conn->is_client)) return -1;
++		}
++		if (conn->post_handshake_message_len >= TLS_HANDSHAKE_HEADER_SIZE) {
++			size_t body = ((size_t)message[1] << 16) | ((size_t)message[2] << 8) | message[3];
++			if (body > TLS_MAX_HANDSHAKE_DATA_SIZE
++				|| (message[0] == TLS_handshake_key_update && body != 1u)) return -1;
++			wanted += body;
++			if (conn->post_handshake_message_len > wanted) return -1;
++			if (conn->post_handshake_message_len == wanted) {
++				conn->handshake_fragment[0] = TLS_record_handshake;
++				conn->handshake_fragment[1] = 3;
++				conn->handshake_fragment[2] = 3;
++				conn->handshake_fragment[3] = (uint8_t)(wanted >> 8);
++				conn->handshake_fragment[4] = (uint8_t)wanted;
++				if (message[0] == TLS_handshake_key_update) {
++					int update_requested;
++					/* RFC 8446 5.1: a key-changing message ends its record. */
++					if (offset != end || tls13_record_get_handshake_key_update(
++						conn->handshake_fragment, &update_requested) != 1) return -1;
++					if (conn->ctx->peer_key_update_limit) {
++						if (conn->consecutive_peer_key_updates >= conn->ctx->peer_key_update_limit) return -1;
++						conn->consecutive_peer_key_updates++;
++					}
++					if (conn->is_client) {
++						if (tls13_update_server_application_secret(conn) != 1
++							|| tls13_generate_server_application_keys(conn) != 1) return -1;
++					} else {
++						if (tls13_update_client_application_secret(conn) != 1
++							|| tls13_generate_client_application_keys(conn) != 1) return -1;
++					}
++					if (update_requested) conn->key_update = 1;
++				} else if (tls13_process_new_session_ticket(conn, conn->handshake_fragment) != 1) return -1;
++				conn->post_handshake_message_len = 0;
++				if (offset == end) return 1;
++				continue;
++			}
++		}
++		if (offset == end) return 1;
++		size_t count = wanted - conn->post_handshake_message_len;
++		if (count > end - offset) count = end - offset;
++		memcpy(message + conn->post_handshake_message_len, conn->databuf + offset, count);
++		conn->post_handshake_message_len += count;
++		offset += count;
++	}
++}
++
+ int tls13_do_recv(TLS_CONNECT *conn)
+ {
+ 	tls_ret_t n;
+@@ -1554,75 +1613,17 @@
+ 	if(conn->verbose) tls13_record_print(stderr, 0, 0, conn->databuf, conn->tls13_recv_plain_recordlen);
+ 
+ 
++	if (conn->post_handshake_message_len && tls_record_type(conn->databuf) != TLS_record_handshake) return -1;
+ 	switch (tls_record_type(conn->databuf)) {
+ 	case TLS_record_application_data:
+ 		conn->data = conn->databuf + 5;
+ 		conn->datalen = conn->tls13_recv_plain_recordlen - 5;
+-		/* Empty authenticated records are not application progress. */
+ 		if (conn->datalen) conn->consecutive_peer_key_updates = 0;
+ 		break;
+-
+ 	case TLS_record_handshake:
+-		{
+-		int handshake_type;
+-		const uint8_t *handshake_data;
+-		size_t handshake_datalen;
+-		int update_requested;
+-
+-		if (tls_record_get_handshake(conn->databuf, &handshake_type, &handshake_data, &handshake_datalen) != 1) {
+-			error_print();
+-			return -1;
+-		}
+-		switch (handshake_type) {
+-
+-		// NewSessionTicket 也不应该是被单独接收的，只能在解密并解析了handshake之后才可以
+-		case TLS_handshake_new_session_ticket:
+-			if (tls13_process_new_session_ticket(conn) != 1) {
+-				error_print();
+-				return -1;
+-			}
+-			conn->data = NULL;
+-			conn->datalen = 0;
+-			break;
+-
+-
+-		case TLS_handshake_key_update:
+-			if (tls13_record_get_handshake_key_update(conn->databuf, &update_requested) != 1) {
+-				error_print();
+-				return -1;
+-			}
+-
+-			/* Count authenticated, well-formed updates of either request kind.
+-			 * Bound work before deriving another traffic secret. The counter
+-			 * spans recv calls and resets only on nonempty application data. */
+-			if (conn->ctx->peer_key_update_limit) {
+-				if (conn->consecutive_peer_key_updates >= conn->ctx->peer_key_update_limit) {
+-					error_print();
+-					return -1;
+-				}
+-				conn->consecutive_peer_key_updates++;
+-			}
+-
+-			/* RFC 8446 4.6.3: peer requests are mandatory regardless of
+-			 * automatic local rotation policy or current record count. */
+-			if (conn->is_client) {
+-				if (tls13_update_server_application_secret(conn) != 1
+-					|| tls13_generate_server_application_keys(conn) != 1) return -1;
+-			} else {
+-				if (tls13_update_client_application_secret(conn) != 1
+-					|| tls13_generate_client_application_keys(conn) != 1) return -1;
+-			}
+-			if (update_requested) conn->key_update = 1;
+-
+-
+-			conn->data = NULL;
+-			conn->datalen = 0;
+-			break;
+-		default:
+-			error_print();
+-			return -1;
+-		}
+-		}
++		conn->data = NULL;
++		conn->datalen = 0;
++		if (tls13_process_post_handshake_record(conn) != 1) return -1;
+ 		break;
+ 
+ 	case TLS_record_alert:
+--- a/src/tls_psk.c
++++ b/src/tls_psk.c
+@@ -10,6 +10,7 @@
+ 
+ #include <time.h>
+ #include <stdio.h>
++#include <limits.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <assert.h>
+@@ -385,7 +386,7 @@
+ 		error_print();
+ 		return -1;
+ 	}
+-	if (!ticketlen) {
++	if (!ticketlen || !*ticketlen) {
+ 		error_print();
+ 		return -1;
+ 	}
+@@ -756,7 +757,7 @@
+ }
+ 
+ // 这个函数是有点问题的，还是应该改为recv_new_session_ticket
+-int tls13_process_new_session_ticket(TLS_CONNECT *conn)
++int tls13_process_new_session_ticket(TLS_CONNECT *conn, uint8_t *record)
+ {
+ 	int ret;
+ 	/*
+@@ -776,7 +777,7 @@
+ 	size_t max_early_data_size;
+ 
+ 	// only cheching encoding
+-	if ((ret = tls13_record_get_handshake_new_session_ticket(conn->databuf,
++	if ((ret = tls13_record_get_handshake_new_session_ticket(record,
+ 		&ticket_lifetime, &ticket_age_add, &ticket_nonce, &ticket_nonce_len,
+ 		&ticket, &ticketlen, &exts, &extslen)) != 1) {
+ 		error_print();
+@@ -813,50 +814,43 @@
+ 		}
+ 	}
+ 
+-	uint8_t resumption_master_secret[48];
+-	size_t dgstlen = 32;
+-	uint8_t pre_shared_key[32];
+-
+-	// generate resumption_master_secret
+-	/* [14] */ tls13_derive_secret(conn->master_secret, "res master", &conn->dgst_ctx, resumption_master_secret);
+-
+-	// pre_shared_key = HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce, Hash.length)
+-	tls13_hkdf_expand_label(conn->digest, resumption_master_secret, "resumption",
+-		ticket_nonce, ticket_nonce_len, dgstlen, pre_shared_key);
+-
++	uint8_t resumption_master_secret[48] = {0};
++	uint8_t pre_shared_key[32] = {0};
+ 	uint8_t session[512];
+ 	uint8_t *p = session;
+ 	size_t sessionlen = 0;
+-
+-	uint32_t ticket_issue_time = (uint32_t)time(NULL);
+-
+-	if (tls13_session_to_bytes(conn->protocol, conn->cipher_suite, pre_shared_key, 32,
+-		ticket_issue_time, ticket_lifetime, ticket_age_add, ticket, ticketlen,
+-		&p, &sessionlen) != 1) {
+-		error_print();
+-		return -1;
+-	}
+-	if (conn->verbose == TLS_verbose_print_key) {
+-		tls13_session_print(stderr, 0, 0, "SESSION", session, sessionlen);
+-	}
+-
++	int result = -1;
++	time_t now = time(NULL);
++	if (conn->new_session_ticket < 0 || conn->new_session_ticket == INT_MAX
++		|| now < 0 || (uint64_t)now > UINT32_MAX) goto end;
++	/* The serializer has no capacity argument. Preflight its exact encoding
++	 * before deriving any secret or writing the fixed output buffer. */
++	if (tls13_session_to_bytes(conn->protocol, conn->cipher_suite, pre_shared_key, sizeof(pre_shared_key),
++		(uint32_t)now, ticket_lifetime, ticket_age_add, ticket, ticketlen, NULL, &sessionlen) != 1
++		|| sessionlen > sizeof(session)) goto end;
++	sessionlen = 0;
++	if (tls13_derive_secret(conn->master_secret, "res master", &conn->dgst_ctx, resumption_master_secret) != 1
++		|| tls13_hkdf_expand_label(conn->digest, resumption_master_secret, "resumption",
++			ticket_nonce, ticket_nonce_len, sizeof(pre_shared_key), pre_shared_key) != 1) goto end;
++	if (tls13_session_to_bytes(conn->protocol, conn->cipher_suite, pre_shared_key, sizeof(pre_shared_key),
++		(uint32_t)now, ticket_lifetime, ticket_age_add, ticket, ticketlen, &p, &sessionlen) != 1) goto end;
++	if (conn->verbose == TLS_verbose_print_key) tls13_session_print(stderr, 0, 0, "SESSION", session, sessionlen);
+ 	if (conn->session_out) {
+-		FILE *fp;
+-
+-		if (!(fp = fopen(conn->session_out, conn->new_session_ticket ? "ab" : "wb"))) {
+-			error_print();
+-			return -1;
+-		}
++		FILE *fp = fopen(conn->session_out, conn->new_session_ticket ? "ab" : "wb");
++		if (!fp) goto end;
+ 		if (fwrite(session, 1, sessionlen, fp) != sessionlen) {
+-			error_print();
+ 			fclose(fp);
+-			return -1;
+-		}
+-		fclose(fp);
++			goto end;
++		}
++		if (fclose(fp) != 0) goto end;
+ 	}
+ 	conn->new_session_ticket++;
+-
+-	return 1;
++	result = 1;
++end:
++	gmssl_secure_clear(resumption_master_secret, sizeof(resumption_master_secret));
++	gmssl_secure_clear(pre_shared_key, sizeof(pre_shared_key));
++	gmssl_secure_clear(session, sizeof(session));
++	return result;
+ }
+ 
+ int tls13_new_session_ticket_print(FILE *fp, int fmt, int ind, const uint8_t *d, size_t dlen)
