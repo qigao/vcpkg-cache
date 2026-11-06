@@ -85,6 +85,8 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/x509-signature-positions.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-byte-limit.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-derivation-errors.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-key-update-time-limit.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-duplex-records.patch"
 )
 
 vcpkg_cmake_configure(

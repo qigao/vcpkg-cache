@@ -1,0 +1,153 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -892,6 +892,9 @@
+ 	size_t key_update_data_size_limit;
+ 	size_t peer_key_update_limit; /* zero disables consecutive-update admission */
+ 	uint64_t key_update_byte_limit; /* zero disables local plaintext-byte budget */
++	uint32_t key_update_interval_ms;
++	int (*key_update_clock_ms)(void *user, uint64_t *now);
++	void *key_update_clock_user; /* immutable, borrowed for context lifetime */
+ 
+ 
+ 	// extensions
+@@ -1060,6 +1063,10 @@
+ int tls13_ctx_set_peer_key_update_limit(TLS_CTX *ctx, size_t limit);
+ #define TLS13_MAX_KEY_UPDATE_BYTE_LIMIT (UINT64_C(1) << 34)
+ int tls13_ctx_set_key_update_byte_limit(TLS_CTX *ctx, uint64_t limit);
++/* Zero disables and clears the borrowed clock; nonzero requires a clock.
++ * The exclusive connection owner invokes it; return 1 with monotonic ms. */
++int tls13_ctx_set_key_update_interval(TLS_CTX *ctx, uint32_t interval_ms,
++	int (*clock_ms)(void *user, uint64_t *now), void *user);
+ 
+ 
+ 
+@@ -1288,6 +1295,9 @@
+ 	int key_update_sending; /* pending encrypted control record, not application data */
+ 	size_t consecutive_peer_key_updates;
+ 	uint64_t local_key_plaintext_bytes; /* charged once when a record is encrypted */
++	uint64_t local_key_started_ms;
++	uint64_t key_update_last_clock_ms;
++	int key_update_timer_started;
+ 	size_t client_data_size;
+ 	size_t server_data_size;
+ 
+--- a/src/tls.c
++++ b/src/tls.c
+@@ -3708,9 +3708,19 @@
+ 	case TLS_protocol_tls12:
+ 		if (conn->is_client) return tls12_do_connect(conn);
+ 		else return tls12_do_accept(conn);
+-	case TLS_protocol_tls13:
+-		if (conn->is_client) return tls13_do_connect(conn);
+-		else return tls13_do_accept(conn);
++	case TLS_protocol_tls13: {
++		int ret = conn->is_client ? tls13_do_connect(conn) : tls13_do_accept(conn);
++		/* Start exactly once, when handshake completion is first observed. */
++		if (ret == 1 && conn->handshake_state == TLS_state_handshake_over
++			&& conn->ctx->key_update_interval_ms && !conn->key_update_timer_started) {
++			uint64_t now;
++			if (!conn->ctx->key_update_clock_ms
++				|| conn->ctx->key_update_clock_ms(conn->ctx->key_update_clock_user, &now) != 1) return -1;
++			conn->local_key_started_ms = conn->key_update_last_clock_ms = now;
++			conn->key_update_timer_started = 1;
++		}
++		return ret;
++	}
+ 	}
+ 	error_print();
+ 	return -1;
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -1280,6 +1280,16 @@
+ 
+ 
+ 
++/* Called only for a new application/control record, never pending ciphertext. */
++static int tls13_key_update_time_sample(TLS_CONNECT *conn, uint64_t *now)
++{
++	if (!conn->key_update_timer_started || !conn->ctx->key_update_clock_ms
++		|| conn->ctx->key_update_clock_ms(conn->ctx->key_update_clock_user, now) != 1
++		|| *now < conn->key_update_last_clock_ms || *now < conn->local_key_started_ms) return -1;
++	conn->key_update_last_clock_ms = *now;
++	return 1;
++}
++
+ int tls13_send(TLS_CONNECT *conn, const uint8_t *data, size_t datalen, size_t *sentlen)
+ {
+ 	int ret = 1;
+@@ -1306,6 +1316,12 @@
+ 		size_t padding_len = 0;
+ 
+ 		int request_update = 0;
++		int time_expired = 0;
++		if (conn->ctx->key_update_interval_ms) {
++			uint64_t now;
++			if (tls13_key_update_time_sample(conn, &now) != 1) return -1;
++			time_expired = now - conn->local_key_started_ms >= conn->ctx->key_update_interval_ms;
++		}
+ 
+ 		if (conn->is_client) {
+ 			key = &conn->client_write_key;
+@@ -1331,7 +1347,8 @@
+ 		if ((conn->ctx->key_update
+ 			&& GETU64(seq_num) >= conn->ctx->key_update_seq_num_limit)
+ 			|| (conn->ctx->key_update_byte_limit
+-				&& conn->local_key_plaintext_bytes == conn->ctx->key_update_byte_limit)) {
++				&& conn->local_key_plaintext_bytes == conn->ctx->key_update_byte_limit)
++			|| time_expired) {
+ 			if (!conn->key_update) {
+ 				conn->key_update = 1;
+ 				request_update = 1;
+@@ -3802,6 +3819,16 @@
+ 	return 1;
+ }
+ 
++int tls13_ctx_set_key_update_interval(TLS_CTX *ctx, uint32_t interval_ms,
++	int (*clock_ms)(void *user, uint64_t *now), void *user)
++{
++	if (!ctx || ctx->protocol != TLS_protocol_tls13 || (interval_ms && !clock_ms)) return -1;
++	ctx->key_update_interval_ms = interval_ms;
++	ctx->key_update_clock_ms = interval_ms ? clock_ms : NULL;
++	ctx->key_update_clock_user = interval_ms ? user : NULL;
++	return 1;
++}
++
+ int tls13_ctx_set_peer_key_update_limit(TLS_CTX *ctx, size_t limit)
+ {
+ 	if (!ctx || ctx->protocol != TLS_protocol_tls13) {
+@@ -9092,6 +9119,9 @@
+ 
+ 	if (conn->recordlen == 0) {
+ 		size_t padding_len = 0;
++		uint64_t key_started_ms = 0;
++		if (conn->ctx->key_update_interval_ms
++			&& tls13_key_update_time_sample(conn, &key_started_ms) != 1) return -1;
+ 
+ 		if(conn->verbose) tls_trace("send client {KeyUpdate}\n");
+ 
+@@ -9117,6 +9147,7 @@
+ 
+ 		if (tls13_update_client_application_secret(conn) != 1
+ 			|| tls13_generate_client_application_keys(conn) != 1) return -1;
++		if (conn->ctx->key_update_interval_ms) conn->local_key_started_ms = key_started_ms;
+ 
+ 		conn->local_key_plaintext_bytes = 0;
+ 		conn->key_update = 0;
+@@ -9149,6 +9180,9 @@
+ 
+ 	if (conn->recordlen == 0) {
+ 		size_t padding_len = 0;
++		uint64_t key_started_ms = 0;
++		if (conn->ctx->key_update_interval_ms
++			&& tls13_key_update_time_sample(conn, &key_started_ms) != 1) return -1;
+ 
+ 		if(conn->verbose) tls_trace("send server {KeyUpdate}\n");
+ 
+@@ -9171,6 +9205,7 @@
+ 
+ 		if (tls13_update_server_application_secret(conn) != 1
+ 			|| tls13_generate_server_application_keys(conn) != 1) return -1;
++		if (conn->ctx->key_update_interval_ms) conn->local_key_started_ms = key_started_ms;
+ 
+ 		conn->local_key_plaintext_bytes = 0;
+ 		conn->key_update = 0;
