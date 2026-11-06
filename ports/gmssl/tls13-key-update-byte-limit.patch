@@ -1,0 +1,96 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -891,6 +891,7 @@
+ 	size_t key_update_seq_num_limit;
+ 	size_t key_update_data_size_limit;
+ 	size_t peer_key_update_limit; /* zero disables consecutive-update admission */
++	uint64_t key_update_byte_limit; /* zero disables local plaintext-byte budget */
+ 
+ 
+ 	// extensions
+@@ -1057,6 +1058,8 @@
+ int tls13_ctx_enable_key_update(TLS_CTX *ctx, int enable);
+ int tls13_ctx_set_key_update_seq_num_limit(TLS_CTX *ctx, size_t max_seq_num);
+ int tls13_ctx_set_peer_key_update_limit(TLS_CTX *ctx, size_t limit);
++#define TLS13_MAX_KEY_UPDATE_BYTE_LIMIT (UINT64_C(1) << 34)
++int tls13_ctx_set_key_update_byte_limit(TLS_CTX *ctx, uint64_t limit);
+ 
+ 
+ 
+@@ -1284,6 +1287,7 @@
+ 	int key_update; // 标志位，send之前看这个值，如果为1的话就先做keyUpdate
+ 	int key_update_sending; /* pending encrypted control record, not application data */
+ 	size_t consecutive_peer_key_updates;
++	uint64_t local_key_plaintext_bytes; /* charged once when a record is encrypted */
+ 	size_t client_data_size;
+ 	size_t server_data_size;
+ 
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -1324,9 +1324,14 @@
+ 			//format_print(stderr, 0, 0, "\n");
+ 		}
+ 
+-		// check if KeyUpdate
+-		if (conn->ctx->key_update
+-			&& GETU64(seq_num) >= conn->ctx->key_update_seq_num_limit) {
++		/* A prepared application record consumes its key budget once, even
++		 * while the same ciphertext is pending under external backpressure. */
++		if (conn->ctx->key_update_byte_limit
++			&& conn->local_key_plaintext_bytes > conn->ctx->key_update_byte_limit) return -1;
++		if ((conn->ctx->key_update
++			&& GETU64(seq_num) >= conn->ctx->key_update_seq_num_limit)
++			|| (conn->ctx->key_update_byte_limit
++				&& conn->local_key_plaintext_bytes == conn->ctx->key_update_byte_limit)) {
+ 			if (!conn->key_update) {
+ 				conn->key_update = 1;
+ 				request_update = 1;
+@@ -1349,6 +1354,10 @@
+ 		if (datalen > TLS_MAX_PLAINTEXT_SIZE) {
+ 			datalen = TLS_MAX_PLAINTEXT_SIZE;
+ 		}
++		if (conn->ctx->key_update_byte_limit) {
++			uint64_t remaining = conn->ctx->key_update_byte_limit - conn->local_key_plaintext_bytes;
++			if (datalen > remaining) datalen = (size_t)remaining;
++		}
+ 
+ 		if(conn->verbose) {
+ 			format_bytes(stderr, 0, 0, "send", data, datalen);
+@@ -1368,6 +1377,7 @@
+ 			return -1;
+ 		}
+ 		tls_seq_num_incr(seq_num);
++		if (conn->ctx->key_update_byte_limit) conn->local_key_plaintext_bytes += datalen;
+ 
+ 		ret = 1;
+ 
+@@ -3785,6 +3795,13 @@
+ 	return 1;
+ }
+ 
++int tls13_ctx_set_key_update_byte_limit(TLS_CTX *ctx, uint64_t limit)
++{
++	if (!ctx || ctx->protocol != TLS_protocol_tls13 || limit > TLS13_MAX_KEY_UPDATE_BYTE_LIMIT) return -1;
++	ctx->key_update_byte_limit = limit;
++	return 1;
++}
++
+ int tls13_ctx_set_peer_key_update_limit(TLS_CTX *ctx, size_t limit)
+ {
+ 	if (!ctx || ctx->protocol != TLS_protocol_tls13) {
+@@ -9101,6 +9118,7 @@
+ 		tls13_update_client_application_secret(conn);
+ 		tls13_generate_client_application_keys(conn);
+ 
++		conn->local_key_plaintext_bytes = 0;
+ 		conn->key_update = 0;
+ 		conn->key_update_sending = 1;
+ 
+@@ -9154,6 +9172,7 @@
+ 		tls13_update_server_application_secret(conn);
+ 		tls13_generate_server_application_keys(conn);
+ 
++		conn->local_key_plaintext_bytes = 0;
+ 		conn->key_update = 0;
+ 		conn->key_update_sending = 1;
+ 
