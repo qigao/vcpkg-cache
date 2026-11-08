@@ -25,8 +25,9 @@ and **Run workflow** on `master`:
 | `windows-arm64` | `windows-11-arm` | `qigao-arm64-windows-llvm-mingw` |
 
 Each dispatch builds one platform. Unix uses the shared native Clang setup;
-Windows uses the pinned llvm-mingw/UCRT setup. The producer uses an isolated,
-write-only local files cache to compile packages from source. There are no
+Windows uses the pinned llvm-mingw/UCRT setup. The producer restores and saves
+its downloads and native ABI archives with Actions cache. Its files provider
+is read/write: exact ABIs are reused and missing ABIs are built from source. There are no
 automatic scheduled or push-triggered cache builds.
 
 ## Publication settings
@@ -58,8 +59,10 @@ the same complete ABI. Match the infrastructure overlays and compiler inputs;
 publishing the reference manifest cannot guarantee coverage for a product's
 different dependency graph or feature selections.
 
-With `restore-packages: "true"`, every required remote ABI must exist.
-With `restore-packages: "false"`, the application's regular build installs its
-dependencies and writes locally built packages to its local files cache.
+The default `restore-packages: "true"` restores listed exact ABIs from the
+v0.1.1 binary release. Unlisted ABIs are normal cache misses: the application's
+regular build compiles them and saves its files cache. Authentication, TLS,
+hash, archive and published-asset failures remain fatal.
+`restore-packages: "false"` explicitly skips remote binary restoration.
 Product-specific dependency graphs and their cache producers remain owned by
 the product repository.

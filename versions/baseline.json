@@ -18,7 +18,7 @@
     },
     "libpq": {
       "baseline": "16.9",
-      "port-version": 3
+      "port-version": 4
     },
     "vcpkg-make": {
       "baseline": "2026-07-09",
@@ -27,6 +27,14 @@
     "miniaudio": {
       "baseline": "0.11.22",
       "port-version": 1
+    },
+    "tree-sitter-cli": {
+      "baseline": "0.25.3",
+      "port-version": 1
+    },
+    "zeromq": {
+      "baseline": "4.3.5",
+      "port-version": 3
     }
   }
 }

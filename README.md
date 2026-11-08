@@ -93,7 +93,9 @@ Bootstrap or identity failures stop setup before dependency restoration.
 
 - `aklomp-base64`
 - `c-ares`
-- `libpq`
+- `libpq` (native CMake/Ninja frontend backend for Windows MinGW)
+- `tree-sitter-cli` (native gzip extraction without MSYS2)
+- `zeromq` (explicit `<new>` include for current libc++)
 - `zstd`
 - `wabt`
 - [`tre`](ports/tre/README.md) (retired for new work; historical compatibility overlay only)

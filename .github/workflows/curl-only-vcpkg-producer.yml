@@ -46,6 +46,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VCPKG_BINARY_CACHE }}
+            ${{ env.VCPKG_DOWNLOADS }}
+          key: vcpkg-producer-v2-${{ inputs.platform }}-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-producer-v2-${{ inputs.platform }}-
       - name: Install Linux source-build tools
         if: runner.os == 'Linux'
         shell: bash
@@ -76,7 +84,7 @@ jobs:
             $env:CC = $env:LLVM_NATIVE_CC
             $env:CXX = $env:LLVM_NATIVE_CXX
           }
-          $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,write"
+          $env:VCPKG_BINARY_SOURCES = "clear;files,$env:VCPKG_BINARY_CACHE,readwrite"
           $exe = if ($IsWindows) { 'vcpkg.exe' } else { 'vcpkg' }
           $vcpkg = Join-Path $env:VCPKG_ROOT $exe
           $stage = Join-Path $env:GITHUB_WORKSPACE 'build/vcpkg-producer'
@@ -85,11 +93,9 @@ jobs:
           $arguments = @('install', "--x-manifest-root=$env:GITHUB_WORKSPACE",
             "--triplet=$env:ABI_TRIPLET",
             "--host-triplet=$env:ABI_TRIPLET")
-          & $vcpkg @arguments "--x-install-root=$install"
+          # Emit the plan from the same invocation that builds these ABIs.
+          & $vcpkg @arguments "--x-install-root=$install" "--x-write-nuget-packages-config=$plan"
           if ($LASTEXITCODE -ne 0) { throw 'Shared dependency source build failed' }
-          $planRoot = Join-Path $env:RUNNER_TEMP 'shared-vcpkg-abi-plan'
-          & $vcpkg @arguments "--x-install-root=$planRoot" --dry-run "--x-write-nuget-packages-config=$plan"
-          if ($LASTEXITCODE -ne 0) { throw 'Exact vcpkg ABI resolution failed' }
           @{
             source_sha = $env:GITHUB_SHA
             triplet = $env:ABI_TRIPLET

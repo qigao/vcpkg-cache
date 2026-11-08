@@ -62,10 +62,10 @@ LLVM-MinGW triplets track `QIGAO_PKGCONF_VERSION` in their package ABI without
 hashing the runner-specific executable path.
 
 This prevents the pinned vcpkg `PKGCONFIG` helper from downloading MSYS2 just
-to obtain pkg-config. A port that explicitly requires Bash, Autotools or other
-MSYS2 utilities still has its own build requirements. Linux and macOS continue
-using their native pkg-config. Existing action SHA pins or tags must be updated
-to `v0.1.002` to receive it; earlier published tags are unchanged.
+to obtain pkg-config. The reference manifest also uses native Windows libpq
+and tree-sitter CLI ports below. Linux and macOS continue using their native
+build tools. Existing Action and registry pins must move to `v0.1.1` to receive
+the complete setup; earlier published tags are unchanged.
 
 ## Exact re2c host package identity
 
@@ -184,3 +184,25 @@ x64 workaround stays selected for x64. See the
 Port versions advance to ugrep 7.8.5#3 and libpq 16.9#3. Native production
 checks compile/package these ports; it does not claim live database runtime
 or signal/cancellation qualification for libpq.
+
+Windows dependency builds must not acquire MSYS2. The libpq MinGW port uses
+the port-owned native CMake/Ninja frontend build in `ports/libpq/native`.
+It compiles PostgreSQL's original sources, detects target headers/functions
+with the selected compiler, configures the original public configuration
+headers, and keeps the external channel-binding patch and exports table.
+The installed library set includes libpq, pgcommon/pgport and ECPG libraries;
+the `client` feature builds the client tools from the release's generated C
+scanners/parsers. MSVC retains the existing native MSBuild backend; Unix
+retains its native Autotools backend. Meson was considered but the requested
+backend is plain CMake. No alternate compiler or crypto provider is selected.
+
+The tree-sitter CLI port selects the upstream Windows binary for the Windows
+host ABI, including MinGW, and decompresses its checksum-pinned gzip with
+native Python. Its former shell/gunzip acquisition required MSYS2 even though
+the executable itself did not. Upstream license and distribution hashes are
+retained. Neither backend creates a separate verification project.
+
+The producer writes `packages.config` in the actual install invocation so
+that the publication plan describes the ABIs that were built. A later dry-run
+with a different installed tool state cannot substitute its own ABI plan for
+the archives from the original build.
