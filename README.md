@@ -48,10 +48,13 @@ Accordingly, this repository must not contain a product `manifests/` tree, produ
 ## Versioned infrastructure releases
 
 The current shared **Action / registry source** release is
-[`v0.1.5`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.5).
+[`v0.1.7`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.7).
 Downstream workflows use a published version, not `@master`, for this cache
-repository's reusable Actions. `v0.1.5` adds the miniaudio 0.11.22#1 PulseAudio cleanup fix and retains shared native ccache installation
-to the curl-only transport, package/tool CLI, CMake entry points and Lemon tools.
+repository's reusable Actions. `v0.1.7` registers GmSSL 3.2.0#44, including
+bounded TLS 1.3 client/server session support, certificate signature/depth/anchor
+constraints, credential imports and PRF failure erasure. It retains miniaudio
+0.11.22#1 and the existing native compiler, ccache, curl-only transport,
+package/tool CLI, CMake entry points and Lemon tools.
 The `v0.1.0`, `v0.1.002` and `v0.1.003` tags stay immutable. Candidate PR validation can select an exact commit
 before a version is released.
 The Git registry's `reference` uses the selected release tag. Its `baseline` is a
@@ -63,7 +66,7 @@ The release tag versions infrastructure source and Action code; it is not a
 binary cache ABI and does not imply every platform's immutable NuGet ZIP is
 published. Native packages continue to be identified only by complete
 vcpkg ABI hashes and accepted through the existing strict cache gates.
-See [release v0.1.5](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.5) and the historical
+See [release v0.1.7](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.7) and the historical
 [release v0.1.0](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.0).
 
 ## Shared vcpkg baseline
