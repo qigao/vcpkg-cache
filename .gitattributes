@@ -2,3 +2,4 @@ ports/** text eol=lf
 ports/gmssl/p256-ecdsa-der-signature-parsing.patch whitespace=-blank-at-eol,-space-before-tab
 triplets/** text eol=lf
 cmake/** text eol=lf
+ports/zeromq/fix-arm.patch whitespace=-blank-at-eol,-space-before-tab
