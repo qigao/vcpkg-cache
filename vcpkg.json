@@ -21,7 +21,6 @@
       ],
       "platform": "linux | windows"
     },
-    "libusb",
     "libuv",
     "llhttp",
     "lua",
@@ -33,7 +32,8 @@
     "pcre2",
     {
       "name": "pkgconf",
-      "host": true
+      "host": true,
+      "platform": "!windows"
     },
     "quickjs-ng",
     "simde",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Restore exact vcpkg ABI packages over curl GitHub NuGet V3; no Mono/NuGet."""
+"""Restore published exact vcpkg Release ABIs; source-build only unlisted ABIs."""
 from __future__ import annotations
 import argparse
 import json
@@ -123,9 +123,9 @@ def main() -> int:
     print(f"Verified {count} canonical vcpkg package/ABI references", flush=True)
     subprocess.run([
         sys.executable, str(Path(__file__).with_name("github-packages.py")),
-        "cache", str(config), str(cache)
+        "cache", str(config), str(cache), "--release", "v0.1.1"
     ], check=True)
-    print(f"curl-only GitHub Packages cache populated: {cache}", flush=True)
+    print(f"Release cache prepared; unlisted ABIs belong to the product's normal build: {cache}", flush=True)
     return 0
 
 

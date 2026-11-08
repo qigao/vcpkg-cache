@@ -356,6 +356,92 @@ def restore_cache(feed, config, cache):
     return restored, misses
 
 
+def restore_release_cache(client, tag, config, cache):
+    """Only an ABI absent from the published index is a normal cache miss.
+
+    Published assets remain mandatory: authorization, transport, hash and native
+    archive failures propagate, instead of becoming permission to compile.
+    """
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        raise ValueError("binary cache requires an exact release tag")
+    release = client.json(f"https://api.github.com/repos/qigao/vcpkg-cache/releases/tags/{tag}")
+    if release.get("draft") is not False or release.get("tag_name") != tag or not release.get("published_at"):
+        raise ValueError("binary cache release is unpublished or mismatched")
+    assets = {}
+    for asset in release["assets"]:
+        if asset["name"] in assets:
+            raise ValueError("duplicate binary cache release asset")
+        assets[asset["name"]] = asset
+
+    def download(name, destination, expected=None):
+        item = assets[name]
+        client.download(item["url"], destination, "application/octet-stream")
+        digest = sha256(destination)
+        if (Path(destination).stat().st_size != item["size"] or
+                item.get("digest") != "sha256:" + digest or
+                expected is not None and digest != expected):
+            raise ValueError("binary cache release asset size/digest mismatch")
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "qigao_native_cache_publisher", Path(__file__).with_name("publish-vcpkg-curl-cache.py"))
+    native = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(native)
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+        index_path = temporary / "cache-index.json"
+        if assets["cache-index.json"]["size"] > 8 * 1024 * 1024:
+            raise ValueError("binary cache index exceeds its bound")
+        download("cache-index.json", index_path)
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        if (index["release"] != tag or not re.fullmatch(r"[0-9a-f]{40}", index["source_sha"]) or
+                release["target_commitish"] != index["source_sha"]):
+            raise ValueError("binary cache index source/release mismatch")
+        published = {}
+        for entry in index["packages"]:
+            key = entry["abi"]
+            match = re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-vcpkg([0-9a-f]{64})", entry["version"])
+            if (not match or entry["abi"] != match[1] or
+                    entry["asset"] != entry["abi"] + ".zip" or
+                    not re.fullmatch(r"[A-Za-z0-9_.+-]+", entry["id"]) or
+                    not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) or key in published):
+                raise ValueError("invalid or duplicate published ABI entry")
+            if assets[entry["asset"]]["size"] != entry["size"] or entry["size"] > native.MAX_SOURCE_ARCHIVE_BYTES:
+                raise ValueError("published ABI size mismatch")
+            published[key] = entry
+        root = ET.parse(config).getroot()
+        if root.tag != "packages":
+            raise ValueError("invalid vcpkg packages.config")
+        restored = local = misses = 0
+        for item in root:
+            if item.tag != "package" or set(item.attrib) != {"id", "version"}:
+                raise ValueError("invalid exact ABI request")
+            identity, version = item.attrib["id"], item.attrib["version"]
+            match = re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-vcpkg([0-9a-f]{64})", version)
+            if not match or not re.fullmatch(r"[A-Za-z0-9_.+-]+", identity):
+                raise ValueError("invalid canonical vcpkg ABI")
+            abi = match[1]
+            destination = Path(cache) / abi[:2] / (abi + ".zip")
+            if destination.exists():
+                native.identify_source(destination, identity, version)
+                local += 1
+                continue
+            entry = published.get(abi)
+            if entry is None:
+                misses += 1
+                print(f"cache_miss_unpublished={identity}/{version}", flush=True)
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=destination.parent) as staging:
+                candidate = Path(staging) / entry["asset"]
+                download(entry["asset"], candidate, entry["sha256"])
+                native.identify_source(candidate, identity, version)
+                candidate.replace(destination)
+            restored += 1
+        print(f"release_cache_summary local={local} restored={restored} misses={misses}", flush=True)
+        return restored, misses
+
+
 RE2C_HOSTS = {
     ("Linux", "X64"): "linux-x64", ("Linux", "ARM64"): "linux-arm64",
     ("macOS", "X64"): "macos-x64", ("macOS", "ARM64"): "macos-arm64",
@@ -509,6 +595,7 @@ def main():
     cache = commands.add_parser("cache")
     cache.add_argument("config")
     cache.add_argument("destination")
+    cache.add_argument("--release", help="Restore published Release ABIs; unlisted ABIs may build normally")
     package = commands.add_parser("package")
     package.add_argument("package_id")
     package.add_argument("version")
@@ -539,6 +626,9 @@ def main():
     if args.command == "release":
         release_asset(client, args.repository, args.tag, args.asset, args.destination)
     elif args.command == "cache":
+        if args.release:
+            restore_release_cache(client, args.release, args.config, args.destination)
+            return
         restored, misses = restore_cache(NugetFeed(client), args.config, args.destination)
         if misses:
             raise ValueError(f"{misses} exact GitHub Packages cache artifacts were unavailable; no NuGet/Mono or ABI fallback")

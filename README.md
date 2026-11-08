@@ -48,9 +48,9 @@ Accordingly, this repository must not contain a product `manifests/` tree, produ
 ## Versioned infrastructure releases
 
 The current shared **Action / registry source** release is
-[`v0.1.7`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.7).
+[`v0.1.1`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.1).
 Downstream workflows use a published version, not `@master`, for this cache
-repository's reusable Actions. `v0.1.7` registers GmSSL 3.2.0#44, including
+repository's reusable Actions. `v0.1.1` registers GmSSL 3.2.0#44, including
 bounded TLS 1.3 client/server session support, certificate signature/depth/anchor
 constraints, credential imports and PRF failure erasure. It retains miniaudio
 0.11.22#1 and the existing native compiler, ccache, curl-only transport,
@@ -66,7 +66,7 @@ The release tag versions infrastructure source and Action code; it is not a
 binary cache ABI and does not imply every platform's immutable NuGet ZIP is
 published. Native packages continue to be identified only by complete
 vcpkg ABI hashes and accepted through the existing strict cache gates.
-See [release v0.1.7](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.7) and the historical
+See [release v0.1.1](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.1) and the historical
 [release v0.1.0](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.0).
 
 ## Shared vcpkg baseline
@@ -129,7 +129,7 @@ The MIR port keeps its pinned upstream source and executable-memory budget
 patch on Windows x64. Windows x86 and ARM64 remain unsupported. Product
 JIT/runtime tests belong to the consuming product.
 
-Consumers configure vcpkg with `v0.1.5` and select the product's actual manifest
+Consumers configure vcpkg with `v0.1.1` and select the product's actual manifest
 and triplets:
 
 ```yaml
@@ -138,10 +138,9 @@ permissions:
   packages: read
 
 steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.5
+  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.1
     with:
       mode: read
-      restore-packages: "false"
       manifest-root: .
       triplet: x64-linux
       host-triplet: x64-linux
@@ -150,19 +149,18 @@ steps:
 The action provides the pinned vcpkg executable/scripts environment, overlay ports, and exact GitHub Packages downloads over authenticated curl. vcpkg receives only the local files binary-cache provider; no NuGet executable, .NET restore or Mono is invoked. The Microsoft vcpkg repository is materialized at the exact pinned scripts SHA with its complete reachable Git objects: the checkout is non-shallow and has no promisor remote or partial-clone filter. This is required because vcpkg versioning resolves historical port snapshots by `git-tree` SHA; consumers must never need repository-local `git fetch --unshallow` workarounds. The action does not provide a product manifest and must not build or publish a product SDK.
 
 
-For normal product builds, `restore-packages: "false"` prepares the canonical
-tools and local files cache, validates the real manifest/triplets/features, and
-leaves dependency installation to the product's existing CMake/vcpkg build.
-Source archives and native tools are downloaded through curl/libcurl with their
-pinned hashes. This mode does not contact the remote binary feed and does not
-catch or ignore a failed restore. It does not configure the product's CMake
-features; the product retains that responsibility.
+The default `restore-packages: "true"` restores native ABI ZIPs published in
+v0.1.1. The release's `cache-index.json` identifies each exact ABI, size and
+SHA-256. Matching local cache entries are validated and reused first. An ABI
+absent from that published index is a normal miss: the product's existing
+CMake/vcpkg build compiles it and writes its local files cache. Persist that
+cache using the consuming repository's normal Actions cache restore/save.
 
-The default `restore-packages: "true"` requires every exact remote ABI archive
-and keeps the strict cache-qualification behavior, including failure on missing,
-inaccessible or corrupt packages. Use it when binary restoration is an explicit
-requirement. A normal product build must not require a separate cache producer
-or permission change before it can compile its declared dependencies.
+Published assets are mandatory when listed: authorization, TLS, HTTP, digest,
+archive and native ABI errors fail rather than become permission to compile.
+`restore-packages: "false"` is an explicit remote-restore opt-out, not the
+recommended product default. Tool packages still use the existing authenticated
+NuGet transport; native dependency cache binaries use verified Release assets.
 
 vcpkg's ABI hash remains the compatibility authority. A cached binary is reused only when the port, triplet, features, toolchain, and build configuration are ABI-compatible.
 
@@ -189,7 +187,7 @@ Consumer L1 caches should include both the central cache revision and their own 
 
 ```yaml
 - id: shared-vcpkg
-  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.5
+  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.1
   with:
     mode: read
     restore-packages: "false"
