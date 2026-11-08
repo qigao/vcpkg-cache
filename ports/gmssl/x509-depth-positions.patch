@@ -1,0 +1,50 @@
+--- a/src/x509_cer.c
++++ b/src/x509_cer.c
+@@ -2122,6 +2122,11 @@
+ 		if (path_len > depth) {
+ 			error_print();
+ 			x509_verify_set_result(verify_result, X509_verify_err_depth);
++        /* Report the first presented issuer beyond the configured bound.
++         * A local-only anchor has no peer-chain position. cert_index starts
++         * after 1 leaf certificate(s), so this subtraction is bounded. */
++        if (verify_index && depth >= 0 && (size_t)depth < cert_index - 1u)
++            *verify_index = (size_t)depth + 1u;
+ 			return -1;
+ 		}
+ 
+@@ -2174,6 +2179,11 @@
+ 	if (path_len > depth) {
+ 		error_print();
+ 		x509_verify_set_result(verify_result, X509_verify_err_depth);
++        /* Report the first presented issuer beyond the configured bound.
++         * A local-only anchor has no peer-chain position. cert_index starts
++         * after 1 leaf certificate(s), so this subtraction is bounded. */
++        if (verify_index && depth >= 0 && (size_t)depth < cert_index - 1u)
++            *verify_index = (size_t)depth + 1u;
+ 		return -1;
+ 	}
+ 	if (path_len == 0) {
+@@ -2364,6 +2374,11 @@
+ 		if (path_len > depth) {
+ 			error_print();
+ 			x509_verify_set_result(verify_result, X509_verify_err_depth);
++        /* Report the first presented issuer beyond the configured bound.
++         * A local-only anchor has no peer-chain position. cert_index starts
++         * after 2 leaf certificate(s), so this subtraction is bounded. */
++        if (verify_index && depth >= 0 && (size_t)depth < cert_index - 2u)
++            *verify_index = (size_t)depth + 2u;
+ 			return -1;
+ 		}
+ 
+@@ -2426,6 +2441,11 @@
+ 	if (path_len > depth) {
+ 		error_print();
+ 		x509_verify_set_result(verify_result, X509_verify_err_depth);
++        /* Report the first presented issuer beyond the configured bound.
++         * A local-only anchor has no peer-chain position. cert_index starts
++         * after 2 leaf certificate(s), so this subtraction is bounded. */
++        if (verify_index && depth >= 0 && (size_t)depth < cert_index - 2u)
++            *verify_index = (size_t)depth + 2u;
+ 		return -1;
+ 	}
+ 

@@ -93,6 +93,12 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls13-peer-update-spacing.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls13-alert-direction.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls12-certificate-signatures.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tlcp-certificate-signatures.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/x509-depth-positions.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-client-session-cache.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls13-server-session-cache.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/x509-anchor-constraints.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/tls-prf-failfast-erasure.patch"
 )
 
 vcpkg_cmake_configure(

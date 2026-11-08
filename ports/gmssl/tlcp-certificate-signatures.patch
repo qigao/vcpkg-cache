@@ -1,0 +1,70 @@
+--- a/src/tls_vrf.c
++++ b/src/tls_vrf.c
+@@ -358,6 +358,35 @@
+     else return -1;
+     scheme = tls_signature_scheme_from_algorithm_and_group_oid(alg, group);
+     return scheme && tls_type_is_in_list(scheme, schemes, schemes_cnt) ? 1 : 0;
++}
++
++/* TLCP's first two certificates are siblings, not child/issuer. Resolve
++ * their common issuer from the verified chain or explicit anchors before
++ * mapping certificate algorithms. Never use the encryption leaf as an issuer. */
++static int tlcp_cert_chain_check_signatures(const uint8_t *certs, size_t certslen,
++    const uint8_t *anchors, size_t anchorslen, const int *schemes, size_t count)
++{
++    const uint8_t *leaf[2], *issuer, *rest;
++    size_t sizes[2], issuerlen, restlen;
++    X509_KEY key;
++    int group, alg, scheme;
++    if (x509_cert_from_der(&leaf[0], &sizes[0], &certs, &certslen) != 1
++        || x509_cert_from_der(&leaf[1], &sizes[1], &certs, &certslen) != 1) return -1;
++    rest = certs; restlen = certslen;
++    if (certslen) {
++        if (x509_cert_from_der(&issuer, &issuerlen, &certs, &certslen) != 1) return -1;
++    } else if (x509_cert_chain_find_root_ca_cert(leaf[0], sizes[0], anchors, anchorslen,
++        &issuer, &issuerlen, SM2_DEFAULT_ID, SM2_DEFAULT_ID_LENGTH) != 1) return -1;
++    if (x509_cert_get_subject_public_key(issuer, issuerlen, &key) != 1) return -1;
++    if (key.algor == OID_ec_public_key) group = key.algor_param;
++    else if (key.algor == OID_rsa_encryption) group = OID_undef;
++    else return -1;
++    for (size_t i = 0; i < 2; i++) {
++        if (x509_cert_get_signature_algor(leaf[i], sizes[i], &alg) != 1) return -1;
++        scheme = tls_signature_scheme_from_algorithm_and_group_oid(alg, group);
++        if (!scheme || !tls_type_is_in_list(scheme, schemes, count)) return 0;
++    }
++    return restlen ? tls_cert_chain_match_signature_algorithms_cert(rest, restlen, schemes, count) : 1;
+ }
+ 
+ int tls_cert_chain_verify(
+@@ -478,10 +507,18 @@
+ 		}
+ 	}
+ 
+-	if (verify_chain && protocol != TLS_protocol_tlcp) {
++	if (verify_chain) {
+ 		const int *schemes = signature_algorithms_cert ? signature_algorithms_cert : signature_algorithms;
+ 		size_t count = signature_algorithms_cert ? signature_algorithms_cert_cnt : signature_algorithms_cnt;
+ 		if (schemes && count) {
++            if (protocol == TLS_protocol_tlcp) {
++                ret = tlcp_cert_chain_check_signatures(cert_chain, cert_chain_len,
++                    cacerts, cacerts_len, schemes, count);
++                if (ret != 1) {
++                    tls_cert_verify_set_result(verify_result, X509_verify_err_tls_extensions);
++                    return ret;
++                }
++            }
+ 			ret = tls_cert_chain_check_anchor_signature(cert_chain, cert_chain_len,
+ 				cacerts, cacerts_len, schemes, count);
+ 			if (ret != 1) {
+--- a/src/tlcp.c
++++ b/src/tlcp.c
+@@ -846,7 +846,8 @@
+ 		conn->ctx->verify_depth,
+ 		NULL, 0,
+ 		conn->ctx->signature_algorithms, conn->ctx->signature_algorithms_cnt,
+-		NULL, 0,
++		conn->ctx->certificate_signature_algorithms_cnt ? conn->ctx->certificate_signature_algorithms : conn->ctx->signature_algorithms,
++		conn->ctx->certificate_signature_algorithms_cnt ? conn->ctx->certificate_signature_algorithms_cnt : conn->ctx->signature_algorithms_cnt,
+ 		NULL, 0,
+ 		NULL, 0,
+ 		conn->host_name, conn->host_name_len,
