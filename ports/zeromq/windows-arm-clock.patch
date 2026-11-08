@@ -1,0 +1,10 @@
+diff --git a/src/clock.cpp b/src/clock.cpp
+--- a/src/clock.cpp
++++ b/src/clock.cpp
+@@ -104,5 +104,5 @@
+ #ifndef ZMQ_HAVE_WINDOWS
+ const uint64_t usecs_per_msec = 1000;
+-const uint64_t nsecs_per_usec = 1000;
+ #endif
++const uint64_t nsecs_per_usec = 1000;
+ const uint64_t usecs_per_sec = 1000000;

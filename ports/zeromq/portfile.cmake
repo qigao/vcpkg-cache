@@ -6,6 +6,7 @@ vcpkg_from_github(
     PATCHES
         fix-arm.patch
         include-new.patch
+        windows-arm-clock.patch
 )
 
 string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" BUILD_STATIC)
