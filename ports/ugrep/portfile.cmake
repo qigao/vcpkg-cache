@@ -38,6 +38,15 @@ else()
             --without-zsh-completion-dir
     )
     vcpkg_make_install()
+    # The native cache excludes symlinks. Materialize upstream's one internal
+    # manual alias as the same regular file; keep the archive admission strict.
+    set(_ugrep_man "${CURRENT_PACKAGES_DIR}/share/ugrep/man1")
+    file(READ_SYMLINK "${_ugrep_man}/ug.1" _ugrep_alias)
+    if(NOT _ugrep_alias STREQUAL "ugrep.1")
+        message(FATAL_ERROR "Unexpected upstream ugrep manual alias: ${_ugrep_alias}")
+    endif()
+    file(REMOVE "${_ugrep_man}/ug.1")
+    configure_file("${_ugrep_man}/ugrep.1" "${_ugrep_man}/ug.1" COPYONLY)
 endif()
 
 vcpkg_copy_tools(TOOL_NAMES ugrep ugrep-indexer AUTO_CLEAN)

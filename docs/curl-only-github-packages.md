@@ -173,3 +173,14 @@ changed source-cache inputs fail. Lua's original source/license stay in the
 unmodified archive, also attached to the same infrastructure release. The
 producer and downstream setup keep read-only repository permissions; neither needs draft-release
 access or an additional credential to seed its source download cache.
+
+Initial production also found two port contracts requiring repair. Ugrep's
+Unix manual alias `ug.1 -> ugrep.1` is materialized as an identical regular
+file by the port; the cache's symlink rejection remains strict. The ARM64
+MinGW libpq port uses PostgreSQL's existing native Windows setjmp/longjmp
+branch instead of the x86-only compiler builtin workaround. The original
+x64 workaround stays selected for x64. See the
+[upstream ARM64 discussion](https://www.postgresql.org/message-id/amjMVEpTddzOvui5%40nathan).
+Port versions advance to ugrep 7.8.5#3 and libpq 16.9#3. Native production
+checks compile/package these ports; it does not claim live database runtime
+or signal/cancellation qualification for libpq.

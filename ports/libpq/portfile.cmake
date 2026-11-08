@@ -21,6 +21,7 @@ vcpkg_extract_source_archive(
         windows/spin_delay.patch
         windows/tcl-9.0-alpha.patch
         android/unversioned_so.patch
+        windows/arm64-native-setjmp.patch
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/external-channel-binding.cmake")
