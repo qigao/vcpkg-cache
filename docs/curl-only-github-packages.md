@@ -206,3 +206,17 @@ The producer writes `packages.config` in the actual install invocation so
 that the publication plan describes the ABIs that were built. A later dry-run
 with a different installed tool state cannot substitute its own ABI plan for
 the archives from the original build.
+
+The Windows ARM64 producer reached ZeroMQ after building libpq, then exposed
+an upstream `clock.cpp` conditional: its generic monotonic-clock path uses
+`nsecs_per_usec`, but Windows excluded that constant. The ZeroMQ 4.3.5#4 port
+moves the existing constant into the shared scope without selecting another
+clock or compiler. A complete Windows ARM64 cross-build of the reference
+manifest passed with the same LLVM-MinGW release; that is compile/package
+evidence, not native ARM64 runtime execution.
+
+The producer saves completed ABI ZIPs and source downloads even when a later
+package fails. Each port's successful archive is still committed by vcpkg;
+failed packages do not become valid cache entries. The job retains its original
+failure result. This preserves completed work without retrying or bypassing a
+failed build.

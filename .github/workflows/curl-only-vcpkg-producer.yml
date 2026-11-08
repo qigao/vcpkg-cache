@@ -46,7 +46,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: producer-cache
         with:
           path: |
             ${{ env.VCPKG_BINARY_CACHE }}
@@ -71,6 +72,7 @@ jobs:
           target: ${{ inputs.platform == 'windows-arm64' && 'arm64' || 'x64' }}
           build-type: toolchain-only
       - name: Bootstrap canonical vcpkg and isolated files cache
+        id: vcpkg-bootstrap
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -143,6 +145,14 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Save completed dependency ABIs and downloads
+        if: always() && steps.vcpkg-bootstrap.outcome == 'success' && steps.producer-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ env.VCPKG_BINARY_CACHE }}
+            ${{ env.VCPKG_DOWNLOADS }}
+          key: ${{ steps.producer-cache.outputs.cache-primary-key }}
 
   publish:
     name: Publish immutable ABI packages / ${{ inputs.platform }}
