@@ -161,7 +161,7 @@ not valid rollback targets. Source caches/SDK install trees are not migrated.
 No prewarming dependency or product-owned manifest is imported into this repo.
 
 The first macOS ARM64 producer failed at the official Lua 5.4.8 TLS download;
-the source build stayed failed. The release producer now seeds its ordinary
+the source build stayed failed. Shared toolchain setup now seeds its ordinary
 vcpkg download cache from the existing original source archive at
 `packaging/sources/lua-5.4.8.tar.gz`, locked by SHA-256
 `4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae`.
@@ -171,5 +171,5 @@ version and source contents. This is an explicit required cache input, not
 an automatic alternate download after a TLS failure. Missing/inaccessible or
 changed source-cache inputs fail. Lua's original source/license stay in the
 unmodified archive, also attached to the same infrastructure release. The
-producer keeps read-only repository permissions; it does not need draft-release
+producer and downstream setup keep read-only repository permissions; neither needs draft-release
 access or an additional credential to seed its source download cache.

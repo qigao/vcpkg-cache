@@ -68,14 +68,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python scripts/setup-vcpkg-curl-cache.py $env:GITHUB_WORKSPACE
           if ($LASTEXITCODE -ne 0) { throw 'Canonical vcpkg bootstrap failed' }
-      - name: Restore locked upstream Lua source into the download cache
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path $env:VCPKG_DOWNLOADS | Out-Null
-          $source = Join-Path $env:GITHUB_WORKSPACE 'packaging/sources/lua-5.4.8.tar.gz'
-          if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae') { throw 'Locked Lua source digest mismatch' }
-          Copy-Item -LiteralPath $source -Destination (Join-Path $env:VCPKG_DOWNLOADS 'lua-5.4.8.tar.gz')
       - name: Resolve exact ABIs and build dependencies from source
         shell: pwsh
         run: |
