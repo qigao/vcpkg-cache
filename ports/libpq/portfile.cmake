@@ -115,6 +115,10 @@ if(VCPKG_TARGET_IS_MINGW)
     vcpkg_check_features(OUT_FEATURE_OPTIONS native_options
         FEATURES client PG_CLIENT zstd PG_ZSTD zlib PG_ZLIB lz4 PG_LZ4
             icu PG_ICU nls PG_NLS xml PG_XML xslt PG_XSLT readline PG_READLINE)
+    if("nls" IN_LIST FEATURES)
+        list(APPEND native_options
+            "-DPG_MSGFMT=${CURRENT_HOST_INSTALLED_DIR}/tools/gettext/bin/msgfmt${VCPKG_HOST_EXECUTABLE_SUFFIX}")
+    endif()
     vcpkg_cmake_configure(
         SOURCE_PATH "${CMAKE_CURRENT_LIST_DIR}/native"
         OPTIONS "-DPOSTGRESQL_SOURCE_DIR=${SOURCE_PATH}" ${native_options})

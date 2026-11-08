@@ -241,6 +241,24 @@ function(pg_client_library target directory)
   endif()
   install(TARGETS ${target} RUNTIME DESTINATION bin ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
 endfunction()
+
+function(pg_install_catalogs directory domain)
+  file(GLOB translations CONFIGURE_DEPENDS "${src}/${directory}/po/*.po")
+  set(catalogs)
+  foreach(po IN LISTS translations)
+    get_filename_component(locale "${po}" NAME_WE)
+    set(destination "${CMAKE_CURRENT_BINARY_DIR}/locale/${locale}/LC_MESSAGES")
+    set(mo "${destination}/${domain}.mo")
+    add_custom_command(OUTPUT "${mo}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${destination}"
+      COMMAND "${PG_MSGFMT}" -o "${mo}" "${po}"
+      DEPENDS "${po}" VERBATIM)
+    list(APPEND catalogs "${mo}")
+    install(FILES "${mo}" DESTINATION "share/libpq/locale/${locale}/LC_MESSAGES")
+  endforeach()
+  add_custom_target(catalogs_${domain} ALL DEPENDS ${catalogs})
+endfunction()
+
 pg_client_library(pq interfaces/libpq fe-auth-scram fe-auth fe-connect fe-exec
   fe-lobj fe-misc fe-print fe-protocol3 fe-secure fe-trace legacy-pqsignal
   libpq-events pqexpbuffer pthread-win32 win32)
@@ -255,6 +273,11 @@ target_link_libraries(ecpg PRIVATE Threads::Threads)
 pg_client_library(ecpg_compat interfaces/ecpg/compatlib informix)
 target_compile_definitions(ecpg_compat PRIVATE SO_MAJOR_VERSION=3)
 target_link_libraries(ecpg_compat PRIVATE ecpg pgtypes pq Threads::Threads)
+if(PG_NLS)
+  pg_install_catalogs(interfaces/libpq libpq5-16)
+  pg_install_catalogs(interfaces/ecpg/ecpglib ecpglib6-16)
+  pg_install_catalogs(bin/pg_config pg_config-16)
+endif()
 install(TARGETS pgport pgcommon ARCHIVE DESTINATION lib)
 add_executable(pg_config "${src}/bin/pg_config/pg_config.c")
 target_link_libraries(pg_config PRIVATE pgcommon pgport pg_frontend)
