@@ -1,0 +1,110 @@
+--- a/src/x509_vrf.c
++++ b/src/x509_vrf.c
+@@ -1860,6 +1860,24 @@
+ 	return ret;
+ }
+ 
++/* The configured anchor's constraints apply to every subordinate, not only
++ * the nearest issuer. An identical presented anchor is not its own subordinate. */
++static int x509_certs_check_anchor_name_constraints(const uint8_t *chain, size_t chain_len,
++	const uint8_t *anchor, size_t anchor_len)
++{
++	const uint8_t *constraints, *last;
++	size_t constraints_len, last_len;
++	int ret;
++	if (!anchor) return 1;
++	ret = x509_cert_get_name_constraints(anchor, anchor_len, &constraints, &constraints_len);
++	if (ret < 0) return -1;
++	if (ret == 0) return 1;
++	if (x509_certs_get_last(chain, chain_len, &last, &last_len) != 1) return -1;
++	if (last_len == anchor_len && !memcmp(last, anchor, anchor_len)) chain_len -= last_len;
++	if (!chain_len) return 1;
++	return x509_certs_check_name_constraints_by_name_constraints(chain, chain_len, constraints, constraints_len);
++}
++
+ int x509_certs_check_name_constraints(const uint8_t *cert_chain, size_t cert_chain_len,
+ 	const uint8_t *rootcacert, size_t rootcacertlen)
+ {
+@@ -1879,31 +1897,8 @@
+ 		return -1;
+ 	}
+ 
+-	if (rootcacert) {
+-		if ((ret = x509_cert_get_name_constraints(rootcacert, rootcacertlen,
+-			&name_constraints, &name_constraints_len)) < 0) {
+-			error_print();
+-			return -1;
+-		}
+-		if (ret) {
+-			/*
+-			根 CA 不在 cert_chain 中。传入根 CA 时，它的 NameConstraints
+-			只在这里额外约束 cert_chain 中最靠近根的那张下级证书。
+-			*/
+-			if (x509_certs_get_last(cert_chain, cert_chain_len, &cert, &certlen) != 1) {
+-				error_print();
+-				return -1;
+-			}
+-			if ((ret = x509_cert_check_name_constraints(cert, certlen,
+-				name_constraints, name_constraints_len)) < 0) {
+-				error_print();
+-				return -1;
+-			}
+-			if (ret == 0) {
+-				return 0;
+-			}
+-		}
+-	}
++	ret = x509_certs_check_anchor_name_constraints(cert_chain, cert_chain_len, rootcacert, rootcacertlen);
++	if (ret != 1) return ret;
+ 
+ 	chain = cert_chain;
+ 	chain_len = cert_chain_len;
+@@ -2365,46 +2360,8 @@
+ 		return -1;
+ 	}
+ 
+-	if (rootcacert) {
+-		if ((ret = x509_cert_get_name_constraints(rootcacert, rootcacertlen,
+-			&name_constraints, &name_constraints_len)) < 0) {
+-			error_print();
+-			return -1;
+-		}
+-		if (ret) {
+-			if (chain_len) {
+-				if (x509_certs_get_last(chain, chain_len, &cert, &certlen) != 1) {
+-					error_print();
+-					return -1;
+-				}
+-				if ((ret = x509_cert_check_name_constraints(cert, certlen,
+-					name_constraints, name_constraints_len)) < 0) {
+-					error_print();
+-					return -1;
+-				}
+-				if (ret == 0) {
+-					return 0;
+-				}
+-			} else {
+-				if ((ret = x509_cert_check_name_constraints(sign_cert, sign_certlen,
+-					name_constraints, name_constraints_len)) < 0) {
+-					error_print();
+-					return -1;
+-				}
+-				if (ret == 0) {
+-					return 0;
+-				}
+-				if ((ret = x509_cert_check_name_constraints(kenc_cert, kenc_certlen,
+-					name_constraints, name_constraints_len)) < 0) {
+-					error_print();
+-					return -1;
+-				}
+-				if (ret == 0) {
+-					return 0;
+-				}
+-			}
+-		}
+-	}
++	ret = x509_certs_check_anchor_name_constraints(cert_chain, cert_chain_len, rootcacert, rootcacertlen);
++	if (ret != 1) return ret;
+ 
+ 	checked_certs_len = sign_certlen + kenc_certlen;
+ 	while (chain_len) {

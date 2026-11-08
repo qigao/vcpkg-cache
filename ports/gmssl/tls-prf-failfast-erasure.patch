@@ -1,0 +1,102 @@
+--- a/src/tls.c
++++ b/src/tls.c
+@@ -781,66 +781,43 @@
+ }
+ 
+ int tls_prf(const DIGEST *digest, const uint8_t *secret, size_t secretlen, const char *label,
+-	const uint8_t *seed, size_t seedlen,
+-	const uint8_t *more, size_t morelen,
++	const uint8_t *seed, size_t seedlen, const uint8_t *more, size_t morelen,
+ 	size_t outlen, uint8_t *out)
+ {
+-	HMAC_CTX inited_hmac_ctx;
+-	HMAC_CTX hmac_ctx;
+-	uint8_t A[DIGEST_MAX_SIZE];
+-	uint8_t hmac[DIGEST_MAX_SIZE];
+-	size_t len;
+-	size_t hmaclen;
+-
++	HMAC_CTX base = {0}, work = {0};
++	uint8_t a[DIGEST_MAX_SIZE] = {0}, block[DIGEST_MAX_SIZE] = {0};
++	uint8_t *begin = out;
++	size_t requested = outlen, n = 0;
++	int result = -1;
+ 	if (!digest || !secret || !secretlen || !label || !seed || !seedlen
+-		|| (!more && morelen) || !outlen || !out) {
+-		error_print();
+-		return -1;
+-	}
+-	if (digest->digest_size > sizeof(hmac) || !digest->digest_size) {
+-		error_print();
+-		return -1;
+-	}
+-	hmaclen = digest->digest_size;
+-
+-	hmac_init(&inited_hmac_ctx, digest, secret, secretlen);
+-
+-	memcpy(&hmac_ctx, &inited_hmac_ctx, sizeof(HMAC_CTX));
+-	hmac_update(&hmac_ctx, (uint8_t *)label, strlen(label));
+-	hmac_update(&hmac_ctx, seed, seedlen);
+-	hmac_update(&hmac_ctx, more, morelen);
+-	hmac_finish(&hmac_ctx, A, &len);
+-
+-	memcpy(&hmac_ctx, &inited_hmac_ctx, sizeof(HMAC_CTX));
+-	hmac_update(&hmac_ctx, A, hmaclen);
+-	hmac_update(&hmac_ctx, (uint8_t *)label, strlen(label));
+-	hmac_update(&hmac_ctx, seed, seedlen);
+-	hmac_update(&hmac_ctx, more, morelen);
+-	hmac_finish(&hmac_ctx, hmac, &len);
+-
+-	len = outlen < hmaclen ? outlen : hmaclen;
+-	memcpy(out, hmac, len);
+-	out += len;
+-	outlen -= len;
+-
++		|| (!more && morelen) || !outlen || !out
++		|| !digest->digest_size || digest->digest_size > sizeof(block)) return -1;
++	const size_t hash_size = digest->digest_size;
++	if (hmac_init(&base, digest, secret, secretlen) != 1) goto end;
++	work = base;
++	if (hmac_update(&work, (const uint8_t *)label, strlen(label)) != 1
++		|| hmac_update(&work, seed, seedlen) != 1 || hmac_update(&work, more, morelen) != 1
++		|| hmac_finish(&work, a, &n) != 1 || n != hash_size) goto end;
+ 	while (outlen) {
+-		memcpy(&hmac_ctx, &inited_hmac_ctx, sizeof(HMAC_CTX));
+-		hmac_update(&hmac_ctx, A, hmaclen);
+-		hmac_finish(&hmac_ctx, A, &len);
+-
+-		memcpy(&hmac_ctx, &inited_hmac_ctx, sizeof(HMAC_CTX));
+-		hmac_update(&hmac_ctx, A, hmaclen);
+-		hmac_update(&hmac_ctx, (uint8_t *)label, strlen(label));
+-		hmac_update(&hmac_ctx, seed, seedlen);
+-		hmac_update(&hmac_ctx, more, morelen);
+-		hmac_finish(&hmac_ctx, hmac, &len);
+-
+-		len = outlen < hmaclen ? outlen : hmaclen;
+-		memcpy(out, hmac, len);
+-		out += len;
+-		outlen -= len;
+-	}
+-	return 1;
++		work = base;
++		if (hmac_update(&work, a, hash_size) != 1
++			|| hmac_update(&work, (const uint8_t *)label, strlen(label)) != 1
++			|| hmac_update(&work, seed, seedlen) != 1 || hmac_update(&work, more, morelen) != 1
++			|| hmac_finish(&work, block, &n) != 1 || n != hash_size) goto end;
++		n = outlen < hash_size ? outlen : hash_size;
++		memcpy(out, block, n); out += n; outlen -= n;
++		if (outlen) {
++			work = base;
++			if (hmac_update(&work, a, hash_size) != 1
++				|| hmac_finish(&work, a, &n) != 1 || n != hash_size) goto end;
++		}
++	}
++	result = 1;
++end:
++	if (result != 1) gmssl_secure_clear(begin, requested);
++	gmssl_secure_clear(&base, sizeof(base)); gmssl_secure_clear(&work, sizeof(work));
++	gmssl_secure_clear(a, sizeof(a)); gmssl_secure_clear(block, sizeof(block));
++	return result;
+ }
+ 
+ int tls_update_transcript(TLS_CONNECT *conn, const uint8_t *record)

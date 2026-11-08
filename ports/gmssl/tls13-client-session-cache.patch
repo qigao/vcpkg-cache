@@ -1,0 +1,25 @@
+--- a/include/gmssl/tls.h
++++ b/include/gmssl/tls.h
+@@ -1300,6 +1300,11 @@
+ 	// NewSessionTicket
+ 	int new_session_ticket;
+ 	int new_session_ticket_cnt;
++	/* Synchronous authenticated NST delivery. Borrowed inputs expire on return;
++	 * failure is fatal and publishes no ticket count. No files or socket I/O. */
++	int (*session_received)(void *user, int cipher_suite, const uint8_t psk[32],
++		uint32_t lifetime, uint32_t age_add, const uint8_t *ticket, size_t ticketlen);
++	void *session_received_user;
+ 	const char *session_in;
+ 	const char *session_out;
+ 
+--- a/src/tls_psk.c
++++ b/src/tls_psk.c
+@@ -844,6 +844,8 @@
+ 		}
+ 		if (fclose(fp) != 0) goto end;
+ 	}
++	if (conn->session_received && conn->session_received(conn->session_received_user,
++		conn->cipher_suite, pre_shared_key, ticket_lifetime, ticket_age_add, ticket, ticketlen) != 1) goto end;
+ 	conn->new_session_ticket++;
+ 	result = 1;
+ end:
