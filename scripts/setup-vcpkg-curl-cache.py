@@ -92,6 +92,9 @@ def main() -> int:
     infrastructure = Path(sys.argv[1]).resolve()
     workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
     temporary = Path(os.environ["RUNNER_TEMP"]).resolve()
+    # Unix bootstrap consumes this configured path before any port is built.
+    source_downloads = Path(os.environ.get("VCPKG_DOWNLOADS") or (workspace / "build/vcpkg-downloads")).resolve()
+    source_downloads.mkdir(parents=True, exist_ok=True)
     require_native_curl_owner(infrastructure)
 
     scripts = (infrastructure / "vcpkg-scripts-revision.txt").read_text().strip()
@@ -219,8 +222,6 @@ def main() -> int:
 
     cache = Path(os.environ.get("VCPKG_BINARY_CACHE") or (workspace / "build/vcpkg-binary-cache")).resolve()
     cache.mkdir(parents=True, exist_ok=True)
-    source_downloads = Path(os.environ.get("VCPKG_DOWNLOADS") or (workspace / "build/vcpkg-downloads")).resolve()
-    source_downloads.mkdir(parents=True, exist_ok=True)
     # These are unchanged upstream distribution bytes, not an alternate port.
     # vcpkg independently checks its pinned SHA-512 before using this cache.
     lua_name = "lua-5.4.8.tar.gz"
