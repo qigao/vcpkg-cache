@@ -159,3 +159,15 @@ product's cache save/restore and normal source build graph. Rollback requires
 selecting a still-published source/binary release together; removed tags are
 not valid rollback targets. Source caches/SDK install trees are not migrated.
 No prewarming dependency or product-owned manifest is imported into this repo.
+
+The first macOS ARM64 producer failed at the official Lua 5.4.8 TLS download;
+the source build stayed failed. The release producer now seeds its ordinary
+vcpkg download cache from the existing original source archive, locked by
+Release asset ID 724821821 and SHA-256
+`4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae`.
+Those bytes match both the [official Lua checksum](https://www.lua.org/ftp/)
+and the pinned port's SHA-512. The port still verifies its original SHA-512,
+version and source contents. This is an explicit required cache input, not
+an automatic alternate download after a TLS failure. Missing/inaccessible or
+changed source-cache assets fail. Lua's original source/license stay in the
+unmodified archive, attached to the same infrastructure release.

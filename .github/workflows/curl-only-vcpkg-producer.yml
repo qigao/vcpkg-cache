@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 240
     env:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-producer/cache
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/build/vcpkg-producer/downloads
       ABI_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw"}')[inputs.platform] }}
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +68,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python scripts/setup-vcpkg-curl-cache.py $env:GITHUB_WORKSPACE
           if ($LASTEXITCODE -ne 0) { throw 'Canonical vcpkg bootstrap failed' }
+      - name: Restore locked upstream Lua source into the download cache
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DOWNLOADS | Out-Null
+          python scripts/github-packages.py asset qigao/vcpkg-cache 724821821 4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae "$env:VCPKG_DOWNLOADS/lua-5.4.8.tar.gz"
+          if ($LASTEXITCODE -ne 0) { throw 'Locked upstream Lua source cache restore failed' }
       - name: Resolve exact ABIs and build dependencies from source
         shell: pwsh
         run: |

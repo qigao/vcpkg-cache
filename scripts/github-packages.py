@@ -368,10 +368,16 @@ def restore_release_cache(client, tag, config, cache):
     if release.get("draft") is not False or release.get("tag_name") != tag or not release.get("published_at"):
         raise ValueError("binary cache release is unpublished or mismatched")
     assets = {}
-    for asset in release["assets"]:
-        if asset["name"] in assets:
-            raise ValueError("duplicate binary cache release asset")
-        assets[asset["name"]] = asset
+    page = 1
+    while True:
+        batch = client.json(f"https://api.github.com/repos/qigao/vcpkg-cache/releases/{release['id']}/assets?per_page=100&page={page}")
+        for asset in batch:
+            if asset["name"] in assets:
+                raise ValueError("duplicate binary cache release asset")
+            assets[asset["name"]] = asset
+        if len(batch) < 100:
+            break
+        page += 1
 
     def download(name, destination, expected=None):
         item = assets[name]
@@ -592,6 +598,9 @@ def main():
     release = commands.add_parser("release")
     for name in ("repository", "tag", "asset", "destination"):
         release.add_argument(name)
+    asset = commands.add_parser("asset", help="Restore one digest-locked Release asset, including producer draft inputs")
+    for name in ("repository", "asset_id", "sha256", "destination"):
+        asset.add_argument(name)
     cache = commands.add_parser("cache")
     cache.add_argument("config")
     cache.add_argument("destination")
@@ -625,6 +634,21 @@ def main():
     client = Curl()
     if args.command == "release":
         release_asset(client, args.repository, args.tag, args.asset, args.destination)
+    elif args.command == "asset":
+        if (not re.fullmatch(r"qigao/[A-Za-z0-9_.-]+", args.repository) or
+                not re.fullmatch(r"[1-9][0-9]*", args.asset_id) or
+                not re.fullmatch(r"[0-9a-f]{64}", args.sha256)):
+            raise ValueError("a pinned repository, asset ID and SHA-256 are required")
+        url = f"https://api.github.com/repos/{args.repository}/releases/assets/{args.asset_id}"
+        metadata = client.json(url)
+        if metadata["size"] > 2_000_000_000 or metadata["name"] != Path(args.destination).name:
+            raise ValueError("locked source asset name/size mismatch")
+        client.download(url, args.destination, "application/octet-stream")
+        if (sha256(args.destination) != args.sha256 or
+                Path(args.destination).stat().st_size != metadata["size"] or
+                metadata.get("digest") != "sha256:" + args.sha256):
+            Path(args.destination).unlink()
+            raise ValueError("locked source asset digest mismatch")
     elif args.command == "cache":
         if args.release:
             restore_release_cache(client, args.release, args.config, args.destination)
