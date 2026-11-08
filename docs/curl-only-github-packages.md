@@ -13,22 +13,25 @@ The former Mono/NuGet setup action has been removed.
   verification. Unix vcpkg bootstrap also uses curl.
 - A product supplies its OWN vcpkg.json, target triplet and host triplet; infrastructure does not select product dependencies.
 - The original vcpkg binary graph is resolved via --dry-run and --x-write-nuget-packages-config before HTTP download.
-- GitHub Packages NuGet V3 index and exact package version are read with authenticated curl; strict package ID, CONTROL ABI, BUILD_INFO and archive member checks precede materialization.
-- Strict restoration (the default) requires every exact remote ABI archive, then vcpkg installs from the local files cache. Missing, inaccessible or corrupted packages fail closed.
-- Normal product builds select `restore-packages: "false"`: validate the real manifest and triplets, prepare the same tools/local files cache, and let the existing product build install pinned dependencies. Source downloads use curl/libcurl and pinned hashes. This mode does not request remote binary archives or catch restore errors.
+- Native ABI ZIPs are restored from the immutable v0.1.1 Release index; tool
+  packages continue using the existing authenticated NuGet V3 transport.
+- Cache-first restoration is the default: validate/reuse local exact ABIs, then
+  restore listed Release assets with exact size/SHA-256/native metadata checks.
+- Only an ABI absent from the index is a normal miss. The product's existing
+  CMake/vcpkg build compiles it and writes the local files cache. Authentication,
+  TLS, HTTP, malformed index/archive and ABI errors propagate.
+- `restore-packages: "false"` explicitly skips remote binaries while preserving
+  manifest/toolchain validation; normal consumers should retain the default.
 - mode: read is supported; readwrite/write intentionally fail until a curl-only producer publisher is separately qualified.
 
 ## Usage
 
 Required workflow permissions: contents: read and packages: read.
-Add uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.002
-with mode: read, triplet: x64-linux, host-triplet: x64-linux; manifest-root defaults to the repository root.
-For a normal product CMake/vcpkg build, add `restore-packages: "false"`.
-Omit it (or select `"true"`) only when every exact binary-cache package is required.
-Both modes validate the actual manifest and requested features; the product's
-build remains responsible for selecting its own CMake/vcpkg features.
-`v0.1.002` includes this curl-only transport. Candidate PR validation can pin its
-exact commit; the original `v0.1.0` tag is not rewritten.
+Use `qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.1`
+with `mode: read`, the actual `triplet` and `host-triplet`; omit
+`restore-packages` to use the cache-first default. The product owns its manifest,
+features and install graph. Persist VCPKG_BINARY_CACHE with the repository's
+existing Actions cache so locally compiled misses can be reused.
 
 Setup exports VCPKG_ROOT, VCPKG_BINARY_SOURCES, VCPKG_BINARY_CACHE,
 VCPKG_CACHE_REPOSITORY_ROOT, QIGAO_VCPKG_TOOLCHAIN_FILE and canonical
@@ -38,7 +41,7 @@ The cache-contract revision includes the canonical curl action and its
 bootstrap, manifest resolver and package transport scripts. Their content
 changes produce a new revision, including this migration from the legacy
 action. Consumers must use that identity and its exact package ABIs; the
-strict restore must not substitute an older cache identity or fall back on a miss.
+restore must not substitute another ABI or hide an unavailable listed asset.
 Normal product builds do not require an existing remote package for each ABI.
 
 ## Windows pkg-config
@@ -129,3 +132,30 @@ with verified immutable package provenance. Source-only jobs can call
 `scripts/setup-vcpkg-curl-cache.py` to bootstrap the same canonical tools and
 local files cache, then build their own manifest with binary caches explicitly
 disabled. They must not manufacture an empty manifest to bypass restoration.
+
+## v0.1.1 binary release production and ownership
+
+The existing manual producer builds the reference dependency manifest once per
+native platform (Linux, macOS and Windows x64/ARM64), with the same selected
+compilers and triplets used by downstreams. It stages the actual native files
+cache ZIPs through the existing publisher's CONTROL/BUILD_INFO/member/ABI
+validation. Per-platform indexes retain source SHA, tool/scripts identity,
+cache revision and each archive's SHA-256 and size. The final Release combines
+indexes from successful runs of one source SHA and attaches those exact ZIPs.
+The immutable source tag and index must identify that same commit.
+
+This replaces strict all-or-nothing NuGet restoration for the default native
+cache path. Treating an archive 404 as a miss was rejected: it cannot reliably
+distinguish absence from denied package access. A published index makes an
+unlisted ABI an explicit, authorized source-build case while retaining fatal
+errors for listed assets. A second package resolver or compiler fallback is
+not introduced. Existing explicit NuGet publication/strict CLI remain available;
+Lemon/re2c tool packages and their digest locks are unchanged.
+
+Upgrade both the setup Action and Git registry reference to v0.1.1, with the
+exact release commit as the registry baseline. Remove downstream explicit
+`restore-packages: "false"` overrides to use shared binaries. Preserve each
+product's cache save/restore and normal source build graph. Rollback requires
+selecting a still-published source/binary release together; removed tags are
+not valid rollback targets. Source caches/SDK install trees are not migrated.
+No prewarming dependency or product-owned manifest is imported into this repo.

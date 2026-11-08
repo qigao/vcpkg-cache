@@ -7,7 +7,7 @@ inputs:
     required: false
     default: read
   restore-packages:
-    description: Require every exact remote ABI package. Set false for normal product builds using the local files cache and pinned source downloads.
+    description: Restore published exact ABI binaries by default; unlisted ABIs compile and populate the local files cache. False explicitly skips remote restore.
     required: false
     default: "true"
   token:

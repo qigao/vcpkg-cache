@@ -234,6 +234,8 @@ def main() -> int:
         "VCPKG_BINARY_SOURCES": f"clear;files,{cache.as_posix()},readwrite",
         "VCPKG_NUGET_REPOSITORY": "https://github.com/qigao/vcpkg-cache",
     }
+    if "LLVM_NATIVE_CC" in os.environ:
+        values.update(CC=os.environ["LLVM_NATIVE_CC"], CXX=os.environ["LLVM_NATIVE_CXX"])
     if os.name == "nt":
         from windows_pkgconf import prepare_pkgconf
         values.update(prepare_pkgconf(temporary))

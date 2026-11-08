@@ -98,6 +98,7 @@ jobs:
             tool_revision = $env:VCPKG_TOOL_REVISION
           } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'source.json') -Encoding utf8
       - name: Package exact ABI archives without uploading
+        if: inputs.publish == true
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,6 +118,21 @@ jobs:
         with:
           name: vcpkg-cache-${{ inputs.platform }}-${{ github.run_id }}
           path: build/vcpkg-producer/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Stage native ABI binaries for the infrastructure release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'build/vcpkg-producer'
+          python scripts/publish-vcpkg-curl-cache.py --packages-config "$stage/packages.config" --cache $env:VCPKG_BINARY_CACHE --release-output "$stage/release"
+          if ($LASTEXITCODE -ne 0) { throw 'Release ABI staging failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-release-${{ inputs.platform }}-${{ github.run_id }}
+          path: build/vcpkg-producer/release/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

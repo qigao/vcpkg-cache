@@ -11,6 +11,7 @@ import argparse
 import base64
 import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
@@ -313,6 +314,8 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--publish", action="store_true",
                         help="explicitly authorize upload; otherwise verify/dry-run")
+    parser.add_argument("--release-output", type=Path,
+                        help="Stage validated native ABI ZIP assets and a platform index for a source release")
     args = parser.parse_args()
     if args.publish:
         if (os.environ.get("GITHUB_REPOSITORY") != "qigao/vcpkg-cache"
@@ -343,6 +346,25 @@ def main() -> None:
         todo.append((name, version, archive))
     if not todo:
         raise ValueError("publisher requires a nonempty exact ABI package plan")
+    if args.release_output:
+        if args.publish:
+            raise ValueError("Release staging and NuGet publication are separate operations")
+        source = json.loads(args.packages_config.with_name("source.json").read_text(encoding="utf-8-sig"))
+        output = args.release_output
+        output.mkdir(parents=True)
+        entries = []
+        for name, version, archive in todo:
+            abi = identify_source(archive, name, version)
+            destination = output / (abi + ".zip")
+            shutil.copyfile(archive, destination)
+            entries.append({"id":name, "version":version, "abi":abi,
+                            "asset":destination.name, "sha256":packages.sha256(destination),
+                            "size":destination.stat().st_size})
+        index = {**source, "packages":entries}
+        (output / ("cache-" + source["triplet"] + ".json")).write_text(
+            json.dumps(index, indent=2) + "\n", encoding="utf-8")
+        print(f"release_cache_staged triplet={source['triplet']} packages={len(entries)}", flush=True)
+        return
     feed = packages.NugetFeed(packages.Curl())
     counters = {"verified-existing": 0, "dry-run": 0, "published": 0}
     for name, version, archive in todo:
