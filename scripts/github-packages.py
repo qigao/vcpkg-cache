@@ -368,10 +368,16 @@ def restore_release_cache(client, tag, config, cache):
     if release.get("draft") is not False or release.get("tag_name") != tag or not release.get("published_at"):
         raise ValueError("binary cache release is unpublished or mismatched")
     assets = {}
-    for asset in release["assets"]:
-        if asset["name"] in assets:
-            raise ValueError("duplicate binary cache release asset")
-        assets[asset["name"]] = asset
+    page = 1
+    while True:
+        batch = client.json(f"https://api.github.com/repos/qigao/vcpkg-cache/releases/{release['id']}/assets?per_page=100&page={page}")
+        for asset in batch:
+            if asset["name"] in assets:
+                raise ValueError("duplicate binary cache release asset")
+            assets[asset["name"]] = asset
+        if len(batch) < 100:
+            break
+        page += 1
 
     def download(name, destination, expected=None):
         item = assets[name]

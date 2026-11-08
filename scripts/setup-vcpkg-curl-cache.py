@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -218,6 +219,21 @@ def main() -> int:
 
     cache = Path(os.environ.get("VCPKG_BINARY_CACHE") or (workspace / "build/vcpkg-binary-cache")).resolve()
     cache.mkdir(parents=True, exist_ok=True)
+    source_downloads = Path(os.environ.get("VCPKG_DOWNLOADS") or (workspace / "build/vcpkg-downloads")).resolve()
+    source_downloads.mkdir(parents=True, exist_ok=True)
+    # These are unchanged upstream distribution bytes, not an alternate port.
+    # vcpkg independently checks its pinned SHA-512 before using this cache.
+    lua_name = "lua-5.4.8.tar.gz"
+    lua_sha256 = "4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae"
+    lua_source = infrastructure / "packaging/sources" / lua_name
+    if hashlib.sha256(lua_source.read_bytes()).hexdigest() != lua_sha256:
+        raise ValueError("pinned upstream Lua source cache digest mismatch")
+    lua_cached = source_downloads / lua_name
+    if lua_cached.exists():
+        if hashlib.sha256(lua_cached.read_bytes()).hexdigest() != lua_sha256:
+            raise ValueError("existing Lua download cache has a different digest")
+    else:
+        shutil.copyfile(lua_source, lua_cached)
     values = {
         "VCPKG_ROOT": root.as_posix(),
         "VCPKG_TOOL_REVISION": expected_tool_version,
@@ -231,6 +247,7 @@ def main() -> int:
         "QIGAO_VCPKG_WINDOWS_TRIPLET": "qigao-x64-windows-llvm-mingw",
         "QIGAO_VCPKG_WINDOWS_HOST_TRIPLET": "qigao-x64-windows-llvm-mingw",
         "VCPKG_BINARY_CACHE": cache.as_posix(),
+        "VCPKG_DOWNLOADS": source_downloads.as_posix(),
         "VCPKG_BINARY_SOURCES": f"clear;files,{cache.as_posix()},readwrite",
         "VCPKG_NUGET_REPOSITORY": "https://github.com/qigao/vcpkg-cache",
     }

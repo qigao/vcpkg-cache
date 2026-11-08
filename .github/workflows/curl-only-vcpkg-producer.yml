@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 240
     env:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-producer/cache
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/build/vcpkg-producer/downloads
       ABI_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw"}')[inputs.platform] }}
     steps:
       - uses: actions/checkout@v4
