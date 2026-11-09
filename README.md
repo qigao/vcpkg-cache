@@ -48,7 +48,9 @@ Accordingly, this repository must not contain a product `manifests/` tree, produ
 ## Versioned infrastructure releases
 
 The current shared **Action / registry source** release is
-[`v0.1.1`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.1).
+[`v0.1.2`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.2).
+This release adds libyuv/libjpeg-turbo, explicit MSVC and Android production,
+and complete preinstalled reference archives with SHA-256 provenance.
 Downstream workflows use a published version, not `@master`, for this cache
 repository's reusable Actions. `v0.1.1` registers GmSSL 3.2.0#44, including
 bounded TLS 1.3 client/server session support, certificate signature/depth/anchor
@@ -66,7 +68,7 @@ The release tag versions infrastructure source and Action code; it is not a
 binary cache ABI and does not imply every platform's immutable NuGet ZIP is
 published. Native packages continue to be identified only by complete
 vcpkg ABI hashes and accepted through the existing strict cache gates.
-See [release v0.1.1](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.1) and the historical
+See [release v0.1.2](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.2) and the historical
 [release v0.1.0](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.0).
 
 ## Shared vcpkg baseline
@@ -136,7 +138,7 @@ The MIR port keeps its pinned upstream source and executable-memory budget
 patch on Windows x64. Windows x86 and ARM64 remain unsupported. Product
 JIT/runtime tests belong to the consuming product.
 
-Consumers configure vcpkg with `v0.1.1` and select the product's actual manifest
+Consumers configure vcpkg with `v0.1.2` and select the product's actual manifest
 and triplets:
 
 ```yaml
@@ -145,7 +147,7 @@ permissions:
   packages: read
 
 steps:
-  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.1
+  - uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.2
     with:
       mode: read
       manifest-root: .
@@ -157,7 +159,7 @@ The action provides the pinned vcpkg executable/scripts environment, overlay por
 
 
 The default `restore-packages: "true"` restores native ABI ZIPs published in
-v0.1.1. The release's `cache-index.json` identifies each exact ABI, size and
+v0.1.2. The release's `cache-index.json` identifies each exact ABI, size and
 SHA-256. Matching local cache entries are validated and reused first. An ABI
 absent from that published index is a normal miss: the product's existing
 CMake/vcpkg build compiles it and writes its local files cache. Persist that
@@ -194,7 +196,7 @@ Consumer L1 caches should include both the central cache revision and their own 
 
 ```yaml
 - id: shared-vcpkg
-  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.1
+  uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.2
   with:
     mode: read
     restore-packages: "false"

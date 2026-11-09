@@ -123,7 +123,7 @@ def main() -> int:
     print(f"Verified {count} canonical vcpkg package/ABI references", flush=True)
     subprocess.run([
         sys.executable, str(Path(__file__).with_name("github-packages.py")),
-        "cache", str(config), str(cache), "--release", "v0.1.1"
+        "cache", str(config), str(cache), "--release", "v0.1.2"
     ], check=True)
     print(f"Release cache prepared; unlisted ABIs belong to the product's normal build: {cache}", flush=True)
     return 0

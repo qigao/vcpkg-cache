@@ -75,7 +75,7 @@ publishing the reference manifest cannot guarantee coverage for a product's
 different dependency graph or feature selections.
 
 The default `restore-packages: "true"` restores listed exact ABIs from the
-v0.1.1 binary release. Unlisted ABIs are normal cache misses: the application's
+v0.1.2 binary release. Unlisted ABIs are normal cache misses: the application's
 regular build compiles them and saves its files cache. Authentication, TLS,
 hash, archive and published-asset failures remain fatal.
 `restore-packages: "false"` explicitly skips remote binary restoration.

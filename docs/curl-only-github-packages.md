@@ -13,7 +13,7 @@ The former Mono/NuGet setup action has been removed.
   verification. Unix vcpkg bootstrap also uses curl.
 - A product supplies its OWN vcpkg.json, target triplet and host triplet; infrastructure does not select product dependencies.
 - The original vcpkg binary graph is resolved via --dry-run and --x-write-nuget-packages-config before HTTP download.
-- Native ABI ZIPs are restored from the immutable v0.1.1 Release index; tool
+- Native ABI ZIPs are restored from the immutable v0.1.2 Release index; tool
   packages continue using the existing authenticated NuGet V3 transport.
 - Cache-first restoration is the default: validate/reuse local exact ABIs, then
   restore listed Release assets with exact size/SHA-256/native metadata checks.
@@ -27,7 +27,7 @@ The former Mono/NuGet setup action has been removed.
 ## Usage
 
 Required workflow permissions: contents: read and packages: read.
-Use `qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.1`
+Use `qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@v0.1.2`
 with `mode: read`, the actual `triplet` and `host-triplet`; omit
 `restore-packages` to use the cache-first default. The product owns its manifest,
 features and install graph. Persist VCPKG_BINARY_CACHE with the repository's
@@ -64,7 +64,7 @@ hashing the runner-specific executable path.
 This prevents the pinned vcpkg `PKGCONFIG` helper from downloading MSYS2 just
 to obtain pkg-config. The reference manifest also uses native Windows libpq
 and tree-sitter CLI ports below. Linux and macOS continue using their native
-build tools. Existing Action and registry pins must move to `v0.1.1` to receive
+build tools. Existing Action and registry pins must move to `v0.1.2` to receive
 the complete setup; earlier published tags are unchanged.
 
 ## Exact re2c host package identity
@@ -133,10 +133,11 @@ with verified immutable package provenance. Source-only jobs can call
 local files cache, then build their own manifest with binary caches explicitly
 disabled. They must not manufacture an empty manifest to bypass restoration.
 
-## v0.1.1 binary release production and ownership
+## Binary release production and ownership
 
 The existing manual producer builds the reference dependency manifest once per
-native platform (Linux, macOS and Windows x64/ARM64), with the same selected
+native platform (Linux, macOS and Windows x64/ARM64), or Android target,
+with the same selected
 compilers and triplets used by downstreams. It stages the actual native files
 cache ZIPs through the existing publisher's CONTROL/BUILD_INFO/member/ABI
 validation. Per-platform indexes retain source SHA, tool/scripts identity,
@@ -152,7 +153,7 @@ errors for listed assets. A second package resolver or compiler fallback is
 not introduced. Existing explicit NuGet publication/strict CLI remain available;
 Lemon/re2c tool packages and their digest locks are unchanged.
 
-Upgrade both the setup Action and Git registry reference to v0.1.1, with the
+Upgrade both the setup Action and Git registry reference to v0.1.2, with the
 exact release commit as the registry baseline. Remove downstream explicit
 `restore-packages: "false"` overrides to use shared binaries. Preserve each
 product's cache save/restore and normal source build graph. Rollback requires
