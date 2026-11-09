@@ -141,13 +141,15 @@ def main():
                       ports / filename.replace("${program_version}", version),
                       digest.lower(), "sha512", hosts=("www.python.org",))
         # FLEX intentionally shares this same upstream WinFlexBison archive.
-        bison = (vcpkg / "scripts/cmake/vcpkg_find_acquire_program(BISON).cmake").read_text()
-        version = re.search(r"set\(program_version ([^)]+)\)", bison).group(1)
-        url = re.search(r'set\(download_urls "([^"]+)"\)', bison).group(1)
-        filename = re.search(r'set\(download_filename "([^"]+)"\)', bison).group(1)
-        digest = re.search(r"set\(download_sha512 ([0-9a-f]{128})\)", bison).group(1)
-        fetch(url.replace("${program_version}", version),
-              ports / filename.replace("${program_version}", version), digest, "sha512")
+        # PostgreSQL's Windows generators also require portable Perl.
+        for program in ("BISON", "PERL"):
+            recipe = (vcpkg / f"scripts/cmake/vcpkg_find_acquire_program({program}).cmake").read_text()
+            version = re.search(r"set\(program_version ([^)]+)\)", recipe).group(1)
+            url = re.search(r'set\(download_urls\s+"([^"]+)"', recipe).group(1)
+            filename = re.search(r'set\(download_filename "([^"]+)"\)', recipe).group(1)
+            digest = re.search(r"set\(download_sha512 ([0-9a-f]{128})\)", recipe).group(1)
+            fetch(url.replace("${program_version}", version),
+                  ports / filename.replace("${program_version}", version), digest, "sha512")
 
     # Use vcpkg's existing reference manifest, not a second dependency graph.
     # --only-downloads never compiles ports; architecture-specific builds remain
