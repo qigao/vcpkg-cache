@@ -14,6 +14,10 @@
     "gmssl",
     "kcp",
     {
+      "name": "libjpeg-turbo",
+      "platform": "windows | linux | android"
+    },
+    {
       "name": "libpq",
       "default-features": false,
       "features": [
@@ -22,6 +26,10 @@
       "platform": "linux | windows"
     },
     "libuv",
+    {
+      "name": "libyuv",
+      "platform": "windows | linux | android"
+    },
     "llhttp",
     "lua",
     "miniaudio",

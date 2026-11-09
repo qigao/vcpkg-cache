@@ -15,6 +15,9 @@ on:
           - macos-arm64
           - windows-x64
           - windows-arm64
+          - windows-msvc-x64
+          - android-arm64
+          - android-x64
       publish:
         description: Upload exact ABI packages to GitHub Packages after building
         required: true
@@ -33,12 +36,13 @@ jobs:
   build:
     name: Build shared dependencies / ${{ inputs.platform }}
     if: github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master'
-    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-x64":"macos-15-intel","macos-arm64":"macos-15","windows-x64":"windows-2025","windows-arm64":"windows-11-arm"}')[inputs.platform] }}
+    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-x64":"macos-15-intel","macos-arm64":"macos-15","windows-x64":"windows-2025","windows-arm64":"windows-11-arm","windows-msvc-x64":"windows-2025","android-arm64":"ubuntu-24.04","android-x64":"ubuntu-24.04"}')[inputs.platform] }}
     timeout-minutes: 240
     env:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-producer/cache
       VCPKG_DOWNLOADS: ${{ github.workspace }}/build/vcpkg-producer/downloads
-      ABI_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw"}')[inputs.platform] }}
+      ABI_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw","windows-msvc-x64":"x64-windows","android-arm64":"arm64-android","android-x64":"x64-android"}')[inputs.platform] }}
+      ABI_HOST_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw","windows-msvc-x64":"x64-windows","android-arm64":"x64-linux","android-x64":"x64-linux"}')[inputs.platform] }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,7 +71,7 @@ jobs:
       - uses: ./.github/actions/setup-llvm-native
         if: runner.os != 'Windows'
       - uses: ./.github/actions/setup-llvm-mingw
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && inputs.platform != 'windows-msvc-x64'
         with:
           target: ${{ inputs.platform == 'windows-arm64' && 'arm64' || 'x64' }}
           build-type: toolchain-only
@@ -94,14 +98,14 @@ jobs:
           $install = Join-Path $env:RUNNER_TEMP 'shared-vcpkg-installed'
           $arguments = @('install', "--x-manifest-root=$env:GITHUB_WORKSPACE",
             "--triplet=$env:ABI_TRIPLET",
-            "--host-triplet=$env:ABI_TRIPLET")
+            "--host-triplet=$env:ABI_HOST_TRIPLET")
           # Emit the plan from the same invocation that builds these ABIs.
           & $vcpkg @arguments "--x-install-root=$install" "--x-write-nuget-packages-config=$plan"
           if ($LASTEXITCODE -ne 0) { throw 'Shared dependency source build failed' }
           @{
             source_sha = $env:GITHUB_SHA
             triplet = $env:ABI_TRIPLET
-            host_triplet = $env:ABI_TRIPLET
+            host_triplet = $env:ABI_HOST_TRIPLET
             cache_revision = $env:VCPKG_CACHE_REVISION
             scripts_revision = $env:VCPKG_SCRIPTS_REVISION
             tool_revision = $env:VCPKG_TOOL_REVISION
@@ -136,7 +140,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:GITHUB_WORKSPACE 'build/vcpkg-producer'
-          python scripts/publish-vcpkg-curl-cache.py --packages-config "$stage/packages.config" --cache $env:VCPKG_BINARY_CACHE --release-output "$stage/release"
+          $install = Join-Path $env:RUNNER_TEMP 'shared-vcpkg-installed'
+          python scripts/publish-vcpkg-curl-cache.py --packages-config "$stage/packages.config" --cache $env:VCPKG_BINARY_CACHE --release-output "$stage/release" --installed-root $install
           if ($LASTEXITCODE -ne 0) { throw 'Release ABI staging failed' }
       - uses: actions/upload-artifact@v4
         with:

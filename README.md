@@ -103,6 +103,11 @@ Bootstrap or identity failures stop setup before dependency restoration.
 - `bfs` 4.1.5 (POSIX find CLI; native Linux/macOS)
 - `mir-jit` (static MIR core/generator; Linux, macOS, Android and Windows x64)
 
+The shared reference manifest includes libyuv and libjpeg-turbo for
+Windows/Linux/Android. The manual producer supports MSVC x64 and Android
+arm64/x64 in addition to the existing native profiles and stages complete
+preinstalled dependency archives for resolver-free consumers.
+
 A product may depend on these ports, but the product still owns its manifest and version-selection policy.
 
 The reference manifest includes builtin `pcre2` (10.46 at the pinned baseline,

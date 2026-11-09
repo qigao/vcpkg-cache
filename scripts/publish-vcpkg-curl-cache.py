@@ -19,6 +19,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
@@ -316,7 +317,11 @@ def main() -> None:
                         help="explicitly authorize upload; otherwise verify/dry-run")
     parser.add_argument("--release-output", type=Path,
                         help="Stage validated native ABI ZIP assets and a platform index for a source release")
+    parser.add_argument("--installed-root", type=Path,
+                        help="Also archive the complete installed reference dependency tree for resolver-free consumers")
     args = parser.parse_args()
+    if args.installed_root and not args.release_output:
+        raise ValueError("--installed-root requires --release-output")
     if args.publish:
         if (os.environ.get("GITHUB_REPOSITORY") != "qigao/vcpkg-cache"
                 or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
@@ -361,6 +366,21 @@ def main() -> None:
                             "asset":destination.name, "sha256":packages.sha256(destination),
                             "size":destination.stat().st_size})
         index = {**source, "packages":entries}
+        if args.installed_root:
+            installed = args.installed_root
+            if not installed.is_dir() or installed.is_symlink():
+                raise ValueError("installed dependency root must be a directory")
+            if not (installed / source["triplet"]).is_dir():
+                raise ValueError("installed dependency root lacks the selected target triplet")
+            sdk = output / ("installed-" + source["triplet"] + ".tar.xz")
+            # Preserve the installed tree, including relative library symlinks,
+            # configs and licenses. Consumers need no vcpkg/ABI resolution.
+            with tarfile.open(sdk, "w:xz") as archive:
+                archive.add(installed, arcname="vcpkg_installed")
+            index["installed"] = {
+                "asset": sdk.name, "sha256": packages.sha256(sdk),
+                "size": sdk.stat().st_size, "payload": "vcpkg_installed",
+            }
         (output / ("cache-" + source["triplet"] + ".json")).write_text(
             json.dumps(index, indent=2) + "\n", encoding="utf-8")
         print(f"release_cache_staged triplet={source['triplet']} packages={len(entries)}", flush=True)

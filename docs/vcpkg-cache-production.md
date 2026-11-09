@@ -10,7 +10,7 @@ checks or consumer projects.
 In GitHub Actions, select **Build and publish shared vcpkg cache (curl-only)**
 and **Run workflow** on `master`:
 
-- `platform`: one of the native platforms below.
+- `platform`: one of the native or Android cross-build platforms below.
 - `publish`: defaults to `false`. The build saves native ABI ZIPs and their exact
   package plan as an artifact. Set `true` to publish the same archives to GitHub
   Packages after the build succeeds.
@@ -23,9 +23,15 @@ and **Run workflow** on `master`:
 | `macos-arm64` | `macos-15` | `arm64-osx` |
 | `windows-x64` | `windows-2025` | `qigao-x64-windows-llvm-mingw` |
 | `windows-arm64` | `windows-11-arm` | `qigao-arm64-windows-llvm-mingw` |
+| `windows-msvc-x64` | `windows-2025` | `x64-windows` |
+| `android-arm64` | `ubuntu-24.04` | target `arm64-android`, host `x64-linux` |
+| `android-x64` | `ubuntu-24.04` | target `x64-android`, host `x64-linux` |
 
 Each dispatch builds one platform. Unix uses the shared native Clang setup;
-Windows uses the pinned llvm-mingw/UCRT setup. The producer restores and saves
+Windows uses the pinned llvm-mingw/UCRT setup, except the explicit MSVC profile,
+which uses the image's Visual Studio. Android uses the image's installed NDK.
+The reference manifest also includes libyuv and libjpeg-turbo on Windows,
+Linux and Android. The producer restores and saves
 its downloads and native ABI archives with Actions cache. Its files provider
 is read/write: exact ABIs are reused and missing ABIs are built from source. There are no
 automatic scheduled or push-triggered cache builds.
@@ -50,6 +56,15 @@ Artifacts are named `vcpkg-cache-<platform>-<run-id>` and retained for 14 days.
 They contain the native `cache/` ZIPs, vcpkg-generated `packages.config`,
 `source.json` with the infrastructure revision and triplets, and `SHA256SUMS`.
 Source builds do not receive a package write token.
+
+The release artifact also contains `installed-<triplet>.tar.xz`: the complete
+preinstalled reference dependency tree rooted at `vcpkg_installed/`. Its hash,
+size and payload root are recorded in `cache-<triplet>.json`, alongside the
+exact ABI packages and source provenance. This generic dependency archive is
+not a product SDK. Consumers that prohibit vcpkg/toolchain execution can
+download a qualified archive with the shared SHA-256 restore helper and point
+their presets at its installed tree. They retain their own manifests, compiler
+selection and runtime qualification; extraction does not resolve new ABIs.
 
 ## Downstream reuse
 
