@@ -1,14 +1,16 @@
 name: Build and publish shared vcpkg cache (curl-only)
+run-name: Shared vcpkg cache / ${{ inputs.platform }} / ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Native platform for the shared reference manifest
+        description: Dependency platform, or all profiles in one workflow run
         required: true
         type: choice
-        default: linux-x64
+        default: all
         options:
+          - all
           - linux-x64
           - linux-arm64
           - macos-x64
@@ -28,21 +30,54 @@ permissions:
   contents: read
   packages: read
 
-concurrency:
-  group: shared-vcpkg-producer-${{ inputs.platform }}
-  cancel-in-progress: false
-
 jobs:
-  build:
-    name: Build shared dependencies / ${{ inputs.platform }}
+  platforms:
+    name: Select dependency platforms
     if: github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master'
-    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-x64":"macos-15-intel","macos-arm64":"macos-15","windows-x64":"windows-2025","windows-arm64":"windows-11-arm","windows-msvc-x64":"windows-2025","android-arm64":"ubuntu-24.04","android-x64":"ubuntu-24.04"}')[inputs.platform] }}
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Select the complete matrix or one platform
+        id: select
+        shell: pwsh
+        env:
+          SELECTED_PLATFORM: ${{ inputs.platform }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $platforms = @(
+            @{platform='linux-x64'; runner='ubuntu-24.04'; triplet='x64-linux'; host_triplet='x64-linux'}
+            @{platform='linux-arm64'; runner='ubuntu-24.04-arm'; triplet='arm64-linux'; host_triplet='arm64-linux'}
+            @{platform='macos-x64'; runner='macos-15-intel'; triplet='x64-osx'; host_triplet='x64-osx'}
+            @{platform='macos-arm64'; runner='macos-15'; triplet='arm64-osx'; host_triplet='arm64-osx'}
+            @{platform='windows-x64'; runner='windows-2025'; triplet='qigao-x64-windows-llvm-mingw'; host_triplet='qigao-x64-windows-llvm-mingw'}
+            @{platform='windows-arm64'; runner='windows-11-arm'; triplet='qigao-arm64-windows-llvm-mingw'; host_triplet='qigao-arm64-windows-llvm-mingw'}
+            @{platform='windows-msvc-x64'; runner='windows-2025'; triplet='x64-windows'; host_triplet='x64-windows'}
+            @{platform='android-arm64'; runner='ubuntu-24.04'; triplet='arm64-android'; host_triplet='x64-linux'}
+            @{platform='android-x64'; runner='ubuntu-24.04'; triplet='x64-android'; host_triplet='x64-linux'}
+          )
+          $selected = @($platforms | Where-Object { $env:SELECTED_PLATFORM -eq 'all' -or $_.platform -eq $env:SELECTED_PLATFORM })
+          if ($selected.Count -eq 0) { throw 'Unknown dependency platform.' }
+          $matrix = @{include=$selected} | ConvertTo-Json -Depth 4 -Compress
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+
+  build:
+    name: Build shared dependencies / ${{ matrix.platform }}
+    needs: platforms
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
+    concurrency:
+      group: shared-vcpkg-producer-${{ matrix.platform }}
+      cancel-in-progress: false
+    if: github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master'
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     env:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-producer/cache
       VCPKG_DOWNLOADS: ${{ github.workspace }}/build/vcpkg-producer/downloads
-      ABI_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw","windows-msvc-x64":"x64-windows","android-arm64":"arm64-android","android-x64":"x64-android"}')[inputs.platform] }}
-      ABI_HOST_TRIPLET: ${{ fromJSON('{"linux-x64":"x64-linux","linux-arm64":"arm64-linux","macos-x64":"x64-osx","macos-arm64":"arm64-osx","windows-x64":"qigao-x64-windows-llvm-mingw","windows-arm64":"qigao-arm64-windows-llvm-mingw","windows-msvc-x64":"x64-windows","android-arm64":"x64-linux","android-x64":"x64-linux"}')[inputs.platform] }}
+      ABI_TRIPLET: ${{ matrix.triplet }}
+      ABI_HOST_TRIPLET: ${{ matrix.host_triplet }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,9 +91,9 @@ jobs:
           path: |
             ${{ env.VCPKG_BINARY_CACHE }}
             ${{ env.VCPKG_DOWNLOADS }}
-          key: vcpkg-producer-v2-${{ inputs.platform }}-${{ github.run_id }}
+          key: vcpkg-producer-v2-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            vcpkg-producer-v2-${{ inputs.platform }}-
+            vcpkg-producer-v2-${{ matrix.platform }}-
       - name: Install Linux source-build tools
         if: runner.os == 'Linux'
         shell: bash
@@ -71,9 +106,9 @@ jobs:
       - uses: ./.github/actions/setup-llvm-native
         if: runner.os != 'Windows'
       - uses: ./.github/actions/setup-llvm-mingw
-        if: runner.os == 'Windows' && inputs.platform != 'windows-msvc-x64'
+        if: runner.os == 'Windows' && matrix.platform != 'windows-msvc-x64'
         with:
-          target: ${{ inputs.platform == 'windows-arm64' && 'arm64' || 'x64' }}
+          target: ${{ matrix.platform == 'windows-arm64' && 'arm64' || 'x64' }}
           build-type: toolchain-only
       - name: Bootstrap canonical vcpkg and isolated files cache
         id: vcpkg-bootstrap
@@ -129,7 +164,8 @@ jobs:
             (($checksums -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
       - uses: actions/upload-artifact@v4
         with:
-          name: vcpkg-cache-${{ inputs.platform }}-${{ github.run_id }}
+          name: vcpkg-cache-${{ matrix.platform }}-${{ github.run_id }}
+          overwrite: true
           path: build/vcpkg-producer/
           if-no-files-found: error
           compression-level: 0
@@ -145,7 +181,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Release ABI staging failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: vcpkg-release-${{ inputs.platform }}-${{ github.run_id }}
+          name: vcpkg-release-${{ matrix.platform }}-${{ github.run_id }}
+          overwrite: true
           path: build/vcpkg-producer/release/
           if-no-files-found: error
           compression-level: 0
@@ -160,8 +197,11 @@ jobs:
           key: ${{ steps.producer-cache.outputs.cache-primary-key }}
 
   publish:
-    name: Publish immutable ABI packages / ${{ inputs.platform }}
-    needs: build
+    name: Publish immutable ABI packages / ${{ matrix.platform }}
+    needs: [platforms, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
     if: inputs.publish == true && github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -188,7 +228,7 @@ jobs:
           fi
       - uses: actions/download-artifact@v4
         with:
-          name: vcpkg-cache-${{ inputs.platform }}-${{ github.run_id }}
+          name: vcpkg-cache-${{ matrix.platform }}-${{ github.run_id }}
           path: build/vcpkg-producer
       - name: Publish the same source-built ABI archives through curl
         shell: bash

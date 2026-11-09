@@ -10,7 +10,8 @@ checks or consumer projects.
 In GitHub Actions, select **Build and publish shared vcpkg cache (curl-only)**
 and **Run workflow** on `master`:
 
-- `platform`: one of the native or Android cross-build platforms below.
+- `platform`: defaults to `all`, building all profiles in one workflow run
+  with parallel matrix jobs. Select one platform for an isolated build.
 - `publish`: defaults to `false`. The build saves native ABI ZIPs and their exact
   package plan as an artifact. Set `true` to publish the same archives to GitHub
   Packages after the build succeeds.
@@ -27,7 +28,9 @@ and **Run workflow** on `master`:
 | `android-arm64` | `ubuntu-24.04` | target `arm64-android`, host `x64-linux` |
 | `android-x64` | `ubuntu-24.04` | target `x64-android`, host `x64-linux` |
 
-Each dispatch builds one platform. Unix uses the shared native Clang setup;
+The matrix runs inside one Actions run, with per-platform concurrency and
+independent cache/artifact names. Failed jobs can be retried without rerunning
+successful jobs. Unix uses the shared native Clang setup;
 Windows uses the pinned llvm-mingw/UCRT setup, except the explicit MSVC profile,
 which uses the image's Visual Studio. Android uses the image's installed NDK.
 The reference manifest also includes libyuv and libjpeg-turbo on Windows,
