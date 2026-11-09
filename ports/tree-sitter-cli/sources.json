@@ -1,0 +1,40 @@
+{
+  "version": "0.25.3",
+  "license": {
+    "url": "https://raw.githubusercontent.com/tree-sitter/tree-sitter/refs/tags/v0.25.3/LICENSE",
+    "filename": "tree-sitter-v0.25.3-LICENSE",
+    "sha512": "50781942281117c409cd4fe79b18314bf26560107e13539bfd8f1e5ded538ab7e00b8e7e665dbc6acb69a6ca524d1a3a5ef2fb3d0156aa0984f68c178d6aeb6e"
+  },
+  "binaries": {
+    "Linux-arm64": {
+      "url": "https://github.com/tree-sitter/tree-sitter/releases/download/v0.25.3/tree-sitter-linux-arm64.gz",
+      "filename": "tree-sitter-0.25.3-linux-arm64.gz",
+      "sha512": "749578d0d9928ae0da5b030df67e76bd548623cda1317316ac6c2a9025ae1c0d5ca2843e88b10b9b900dc39419099a4234ad67fd93b422a4f9a280f80523a47e"
+    },
+    "Linux-x64": {
+      "url": "https://github.com/tree-sitter/tree-sitter/releases/download/v0.25.3/tree-sitter-linux-x64.gz",
+      "filename": "tree-sitter-0.25.3-linux-x64.gz",
+      "sha512": "29f9b5890338d9b37adaa2112daabe66dca999a5bbc1e47853481fcd388c0676b38d6134dab614e683c0b9c793f1b8036f09999abbc744a9ccecdbdf4943873b"
+    },
+    "Darwin-arm64": {
+      "url": "https://github.com/tree-sitter/tree-sitter/releases/download/v0.25.3/tree-sitter-macos-arm64.gz",
+      "filename": "tree-sitter-0.25.3-macos-arm64.gz",
+      "sha512": "393580273793c8d376aea46ea2f73f224e442729b89985541371986123f1dc396e70310ab3eb213ae8eb1432633c3605d228296aac2545bd269583ef103949f2"
+    },
+    "Darwin-x64": {
+      "url": "https://github.com/tree-sitter/tree-sitter/releases/download/v0.25.3/tree-sitter-macos-x64.gz",
+      "filename": "tree-sitter-0.25.3-macos-x64.gz",
+      "sha512": "5d9267b02b254377a508685ee3b522c5f186cc65aae4ae2d0099effeb3a8296a208e97fbf0fec77cd75b0c6427bc3d27beafd83bfe4776ec3345b87cd088c687"
+    },
+    "Windows-arm64": {
+      "url": "https://github.com/tree-sitter/tree-sitter/releases/download/v0.25.3/tree-sitter-windows-arm64.gz",
+      "filename": "tree-sitter-0.25.3-windows-arm64.gz",
+      "sha512": "07a2b8e0f2325b83e543e76a2ff4f248c230bad51486f870b1c0e856bca9aa4ac04d70b66535ef517bfa184b55081b3b5a78b07532a3ae750195579f45621d6d"
+    },
+    "Windows-x64": {
+      "url": "https://github.com/tree-sitter/tree-sitter/releases/download/v0.25.3/tree-sitter-windows-x64.gz",
+      "filename": "tree-sitter-0.25.3-windows-x64.gz",
+      "sha512": "dd51eef2b0ca9d372ed0b66acb9b079a46a623adccffd1af40bbad9330b8caac71716f6163a98f6972ca26be1254978dc22b843b9b827a7420e074b8789d7f7e"
+    }
+  }
+}

@@ -25,6 +25,7 @@ def contract_files(root: pathlib.Path) -> list[pathlib.Path]:
         "scripts/vcpkg-required-commits.py",
         "scripts/windows_pkgconf.py",
         "scripts/setup-compiler-toolchain.py",
+        "scripts/prepare-producer-inputs.py",
         "vcpkg.json",
         "vcpkg-tool-version.txt",
         "vcpkg-scripts-revision.txt",

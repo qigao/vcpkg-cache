@@ -7,71 +7,39 @@ elseif(VCPKG_CMAKE_SYSTEM_NAME)
     set(key "${VCPKG_CMAKE_SYSTEM_NAME}-${VCPKG_TARGET_ARCHITECTURE}")
 endif()
 
+# The producer prefetch and this port consume the same immutable source catalog.
+file(READ "${CMAKE_CURRENT_LIST_DIR}/sources.json" sources)
+string(JSON source_version GET "${sources}" version)
+if(NOT source_version STREQUAL VERSION)
+    message(FATAL_ERROR "Tree-sitter CLI source catalog differs from the selected version")
+endif()
+foreach(field IN ITEMS url filename sha512)
+    string(JSON license_${field} GET "${sources}" license ${field})
+endforeach()
 vcpkg_download_distfile(license
-	URLS "https://raw.githubusercontent.com/tree-sitter/tree-sitter/refs/tags/v${VERSION}/LICENSE"
-	FILENAME "tree-sitter-v${VERSION}-LICENSE"
-	SHA512 50781942281117c409cd4fe79b18314bf26560107e13539bfd8f1e5ded538ab7e00b8e7e665dbc6acb69a6ca524d1a3a5ef2fb3d0156aa0984f68c178d6aeb6e
-)
+    URLS "${license_url}" FILENAME "${license_filename}" SHA512 "${license_sha512}")
 
-set(archive_path NOTFOUND)
-# For convenient updates, use
-# vcpkg install tree-sitter-cli --cmake-args=-DVCPKG_TREE_SITTER_UPDATE=1
-if(key STREQUAL "Linux-arm64" OR VCPKG_TREE_SITTER_UPDATE)
-    set(filename "tree-sitter-${VERSION}-linux-arm64.gz")
+set(keys "${key}")
+if(VCPKG_TREE_SITTER_UPDATE)
+    string(JSON count LENGTH "${sources}" binaries)
+    math(EXPR last "${count} - 1")
+    set(keys)
+    foreach(index RANGE 0 ${last})
+        string(JSON entry MEMBER "${sources}" binaries ${index})
+        list(APPEND keys "${entry}")
+    endforeach()
+endif()
+foreach(entry IN LISTS keys)
+    string(JSON selected ERROR_VARIABLE error GET "${sources}" binaries "${entry}")
+    if(error)
+        message(FATAL_ERROR "Unsupported platform '${entry}'")
+    endif()
+    foreach(field IN ITEMS url filename sha512)
+        string(JSON asset_${field} GET "${selected}" ${field})
+    endforeach()
     vcpkg_download_distfile(archive_path
-        URLS "https://github.com/tree-sitter/tree-sitter/releases/download/v${VERSION}/tree-sitter-linux-arm64.gz"
-        FILENAME "${filename}"
-        SHA512 749578d0d9928ae0da5b030df67e76bd548623cda1317316ac6c2a9025ae1c0d5ca2843e88b10b9b900dc39419099a4234ad67fd93b422a4f9a280f80523a47e
-    )
-endif()
-if(key STREQUAL "Linux-x64" OR VCPKG_TREE_SITTER_UPDATE)
-    set(filename "tree-sitter-${VERSION}-linux-x64.gz")
-    vcpkg_download_distfile(archive_path
-        URLS "https://github.com/tree-sitter/tree-sitter/releases/download/v${VERSION}/tree-sitter-linux-x64.gz"
-        FILENAME "${filename}"
-        SHA512 29f9b5890338d9b37adaa2112daabe66dca999a5bbc1e47853481fcd388c0676b38d6134dab614e683c0b9c793f1b8036f09999abbc744a9ccecdbdf4943873b
-    )
-endif()
-if(key STREQUAL "Darwin-arm64" OR VCPKG_TREE_SITTER_UPDATE)
-    set(filename "tree-sitter-${VERSION}-macos-arm64.gz")
-    vcpkg_download_distfile(archive_path
-        URLS "https://github.com/tree-sitter/tree-sitter/releases/download/v${VERSION}/tree-sitter-macos-arm64.gz"
-        FILENAME "${filename}"
-        SHA512 393580273793c8d376aea46ea2f73f224e442729b89985541371986123f1dc396e70310ab3eb213ae8eb1432633c3605d228296aac2545bd269583ef103949f2
-    )
-    # Avoid breaking the code signature.
-    set(VCPKG_FIXUP_MACHO_RPATH OFF)
-endif()
-if(key STREQUAL "Darwin-x64" OR VCPKG_TREE_SITTER_UPDATE)
-    set(filename "tree-sitter-${VERSION}-macos-x64.gz")
-    vcpkg_download_distfile(archive_path
-        URLS "https://github.com/tree-sitter/tree-sitter/releases/download/v${VERSION}/tree-sitter-macos-x64.gz"
-        FILENAME "${filename}"
-        SHA512 5d9267b02b254377a508685ee3b522c5f186cc65aae4ae2d0099effeb3a8296a208e97fbf0fec77cd75b0c6427bc3d27beafd83bfe4776ec3345b87cd088c687
-    )
-    # Avoid breaking the code signature.
-    set(VCPKG_FIXUP_MACHO_RPATH OFF)
-endif()
-if(key STREQUAL "Windows-arm64" OR VCPKG_TREE_SITTER_UPDATE)
-    set(filename "tree-sitter-${VERSION}-windows-arm64.gz")
-    vcpkg_download_distfile(archive_path
-        URLS "https://github.com/tree-sitter/tree-sitter/releases/download/v${VERSION}/tree-sitter-windows-arm64.gz"
-        FILENAME "${filename}"
-        SHA512 07a2b8e0f2325b83e543e76a2ff4f248c230bad51486f870b1c0e856bca9aa4ac04d70b66535ef517bfa184b55081b3b5a78b07532a3ae750195579f45621d6d
-    )
-endif()
-if(key STREQUAL "Windows-x64" OR VCPKG_TREE_SITTER_UPDATE)
-    set(filename "tree-sitter-${VERSION}-windows-x64.gz")
-    vcpkg_download_distfile(archive_path
-        URLS "https://github.com/tree-sitter/tree-sitter/releases/download/v${VERSION}/tree-sitter-windows-x64.gz"
-        FILENAME "${filename}"
-        SHA512 dd51eef2b0ca9d372ed0b66acb9b079a46a623adccffd1af40bbad9330b8caac71716f6163a98f6972ca26be1254978dc22b843b9b827a7420e074b8789d7f7e
-    )
-endif()
-if(NOT archive_path)
-    message(FATAL_ERROR "Unsupported platform '${key}'. Please implement me!")
-endif()
-
+        URLS "${asset_url}" FILENAME "${asset_filename}" SHA512 "${asset_sha512}")
+endforeach()
 if(VCPKG_TREE_SITTER_UPDATE)
     message(STATUS "All downloads are up-to-date.")
     message(FATAL_ERROR "Stopping due to VCPKG_TREE_SITTER_UPDATE being enabled.")

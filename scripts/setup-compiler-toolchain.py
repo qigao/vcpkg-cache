@@ -103,16 +103,29 @@ def _curl_response(url: str, destination: Path, limit: int,
 
 
 def verified_download(url: str, destination: Path, expected_sha256: str, limit: int, *,
+                      hash_algorithm: str = "sha256",
                       initial_hosts: tuple[str, ...] = ("github.com", "raw.githubusercontent.com"),
                       redirect_hosts: tuple[str, ...] = (
                           "github.com", "raw.githubusercontent.com",
                           "release-assets.githubusercontent.com", "objects.githubusercontent.com",
                           "github-releases.githubusercontent.com")) -> None:
-    ensure(bool(re.fullmatch(r"[0-9a-f]{64}", expected_sha256)), "missing source SHA256")
+    ensure(hash_algorithm in ("sha256", "sha512"), "unsupported source digest")
+    width = 64 if hash_algorithm == "sha256" else 128
+    ensure(bool(re.fullmatch(rf"[0-9a-f]{{{width}}}", expected_sha256)), "missing source digest")
     ensure(limit > 0, "invalid compiler download size bound")
     ensure(_download_url_allowed(url, initial_hosts),
            "untrusted initial compiler download URL")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    prepared = os.environ.get("QIGAO_PREPARED_INPUTS")
+    if prepared:
+        cached = Path(prepared) / "blobs" / expected_sha256
+        ensure(cached.is_file() and 0 < cached.stat().st_size <= limit,
+               "required input was not downloaded by the preparation job")
+        with cached.open("rb") as stream:
+            actual = hashlib.file_digest(stream, hash_algorithm).hexdigest()
+        ensure(actual == expected_sha256, "prepared input digest mismatch")
+        shutil.copyfile(cached, destination)
+        return
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
@@ -135,8 +148,11 @@ def verified_download(url: str, destination: Path, expected_sha256: str, limit: 
                         continue
                     ensure(200 <= status < 300, "unexpected compiler download HTTP status")
                     ensure(length > 0, "empty compiler download")
+                    if hash_algorithm == "sha512":
+                        with staged.open("rb") as stream:
+                            digest = hashlib.file_digest(stream, "sha512").hexdigest()
                     ensure(digest == expected_sha256,
-                           "compiler download SHA256 mismatch: no fallback allowed")
+                           "source download digest mismatch: no fallback allowed")
                     staged.replace(destination)
                     return
         except (OSError, ValueError, subprocess.TimeoutExpired) as exc:

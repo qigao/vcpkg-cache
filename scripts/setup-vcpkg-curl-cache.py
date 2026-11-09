@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -46,6 +47,23 @@ def bootstrap_windows_tool(root: Path, expected_version: str, host_arch: str) ->
     (root / "vcpkg.disable-metrics").touch()
 
 
+def unix_tool_asset(root: Path, runner_os: str, runner_arch: str):
+    variants = {
+        ("Linux", "X64"): ("vcpkg-glibc", "VCPKG_GLIBC_SHA"),
+        ("Linux", "ARM64"): ("vcpkg-glibc-arm64", "VCPKG_GLIBC_ARM64_SHA"),
+        ("macOS", "X64"): ("vcpkg-macos", "VCPKG_MACOS_SHA"),
+        ("macOS", "ARM64"): ("vcpkg-macos", "VCPKG_MACOS_SHA"),
+    }
+    asset, key = variants[(runner_os, runner_arch)]
+    metadata = dict(re.findall(r"^(VCPKG_[A-Z0-9_]+)=([^\r\n]+)$",
+                              (root / "scripts/vcpkg-tool-metadata.txt").read_text(), re.MULTILINE))
+    digest = metadata[key]
+    if not re.fullmatch(r"[0-9a-f]{128}", digest):
+        raise ValueError("missing pinned Unix vcpkg SHA-512")
+    url = f"https://github.com/microsoft/vcpkg-tool/releases/download/{metadata['VCPKG_TOOL_RELEASE_TAG']}/{asset}"
+    return url, digest
+
+
 def run(*args: str, cwd: Path | None = None) -> str:
     return subprocess.check_output(args, text=True, cwd=cwd).strip()
 
@@ -86,8 +104,9 @@ def require_native_curl_owner(infrastructure: Path) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: setup-vcpkg-curl-cache.py <shared-cache-checkout>")
+    source_only = len(sys.argv) == 3 and sys.argv[2] == "--source-only"
+    if len(sys.argv) != 2 and not source_only:
+        raise SystemExit("usage: setup-vcpkg-curl-cache.py <shared-cache-checkout> [--source-only]")
 
     infrastructure = Path(sys.argv[1]).resolve()
     workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
@@ -119,8 +138,21 @@ def main() -> int:
     run("git", "-C", str(root), "remote", "add", "origin",
         "https://github.com/microsoft/vcpkg.git")
 
+    prepared = os.environ.get("QIGAO_PREPARED_INPUTS")
     fetched = False
-    for attempt in range(1, 4):
+    if prepared:
+        inputs = Path(prepared)
+        receipt = json.loads((inputs / "manifest.json").read_text(encoding="utf-8"))
+        bundle = inputs / "vcpkg.bundle"
+        if (receipt["scripts_revision"] != scripts or receipt["cache_revision"] != revision
+                or receipt["source_sha"] != run("git", "-C", str(infrastructure), "rev-parse", "HEAD")
+                or downloads.sha256(bundle) != receipt["bundle_sha256"]):
+            raise ValueError("prepared vcpkg source differs from the selected infrastructure")
+        run("git", "-C", str(root), "fetch", "--no-tags", str(bundle),
+            "+refs/heads/*:refs/remotes/prepared/*")
+        run("git", "-C", str(root), "checkout", "--detach", scripts)
+        fetched = True
+    for attempt in (() if prepared else range(1, 4)):
         result = subprocess.run(
             ["git", "-c", "protocol.version=2", "-C", str(root),
              "fetch", "--no-tags", "origin", scripts],
@@ -153,6 +185,8 @@ def main() -> int:
             capture_output=True,
         )
         if exists.returncode:
+            if prepared:
+                raise ValueError(f"prepared vcpkg history lacks required baseline {baseline}")
             fetched_baseline = False
             for attempt in range(1, 4):
                 result = subprocess.run(
@@ -186,6 +220,11 @@ def main() -> int:
     if partial_filter.returncode == 0 and partial_filter.stdout.strip():
         raise ValueError("canonical vcpkg checkout must not use a partial-clone filter")
 
+    if source_only:
+        print(json.dumps({"root": root.as_posix(), "scripts_revision": scripts,
+                          "baselines": baselines.splitlines(), "cache_revision": revision}))
+        return 0
+
     if os.name == "nt":
         bootstrap_windows_tool(root, expected_tool_version, os.environ.get("RUNNER_ARCH", ""))
     else:
@@ -199,8 +238,15 @@ def main() -> int:
                 "VCPKG_FORCE_SYSTEM_BINARIES": "1",
                 "VCPKG_FORCE_DOWNLOADED_BINARIES": "1",
             })
-        bootstrap = ["sh", str(root / "bootstrap-vcpkg.sh"), "-disableMetrics"]
-        subprocess.run(bootstrap, cwd=root, check=True)
+        if prepared:
+            url, digest = unix_tool_asset(root, os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"])
+            downloads.verified_download(url, root / "vcpkg", digest, 16 * 1024 * 1024,
+                                        hash_algorithm="sha512")
+            (root / "vcpkg").chmod(0o755)
+            (root / "vcpkg.disable-metrics").touch()
+        else:
+            bootstrap = ["sh", str(root / "bootstrap-vcpkg.sh"), "-disableMetrics"]
+            subprocess.run(bootstrap, cwd=root, check=True)
 
     exe = root / ("vcpkg.exe" if os.name == "nt" else "vcpkg")
     version = run(str(exe), "version").splitlines()[0]
@@ -252,6 +298,9 @@ def main() -> int:
         "VCPKG_BINARY_SOURCES": f"clear;files,{cache.as_posix()},readwrite",
         "VCPKG_NUGET_REPOSITORY": "https://github.com/qigao/vcpkg-cache",
     }
+    if prepared:
+        asset_root = (Path(prepared) / "blobs").resolve().as_uri() + "/"
+        values["X_VCPKG_ASSET_SOURCES"] = f"clear;x-azurl,{asset_root},,read;x-block-origin"
     if "LLVM_NATIVE_CC" in os.environ:
         values.update(CC=os.environ["LLVM_NATIVE_CC"], CXX=os.environ["LLVM_NATIVE_CXX"])
     if os.name == "nt":

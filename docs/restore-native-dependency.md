@@ -211,6 +211,24 @@ cmake -DQIGAO_LOCK_FILE=/path/to/re2c.lock.json \
   -P /path/to/vcpkg-cache/cmake/QigaoNativeDependency.cmake
 ```
 
+## Download once before a platform matrix
+
+The existing lock can be downloaded without installing a host-specific payload:
+
+```sh
+python scripts/restore-native-dependency.py download cmake/re2c.lock.json \
+  --destination build/native-inputs/blobs
+```
+
+This writes a SHA-256-named archive, verifies the lock and package identity, and
+reuses an existing archive only when its digest matches. Upload the common
+`native-inputs` directory as an Actions artifact before starting the matrix.
+After each runner receives it, set `QIGAO_PREPARED_INPUTS` to that directory and
+use the normal `locked` or `url` restore command. The reader verifies the blob
+again and extracts only that runner's requested payload. Missing or corrupt
+prepared blobs fail without an external download fallback. Distribution of the
+artifact to each independent runner is still necessary.
+
 ## vcpkg caches use exact ABI identities
 
 There is no global "latest cache package" that is compatible with every build.

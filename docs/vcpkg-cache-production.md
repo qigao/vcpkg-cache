@@ -30,7 +30,18 @@ and **Run workflow** on `master`:
 
 The matrix runs inside one Actions run, with per-platform concurrency and
 independent cache/artifact names. Failed jobs can be retried without rerunning
-successful jobs. Unix uses the shared native Clang setup;
+successful jobs. A preceding preparation job downloads the pinned vcpkg Git
+history, vcpkg executables, compiler archives, host tools and reference port
+sources once, verifies their hashes and uploads one shared input artifact.
+Preparation uses the existing reference manifest with `--only-downloads`;
+it does not compile dependencies. Matrix jobs consume that artifact through a
+read-only local asset cache with origin downloads blocked. A missing or corrupt
+input fails the job instead of downloading it again. Actions still distributes
+the artifact to each runner because hosted runners have independent disks.
+Verified preparation downloads are cached for retries; compiler installations
+and platform build trees remain local to their owning matrix job.
+
+Unix uses the shared native Clang setup;
 Windows uses the pinned llvm-mingw/UCRT setup, except the explicit MSVC profile,
 which uses the image's Visual Studio. Android uses the image's installed NDK.
 The reference manifest also includes libyuv and libjpeg-turbo on Windows,

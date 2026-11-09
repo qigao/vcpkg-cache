@@ -139,6 +139,51 @@ def reuse_installation(destination, args):
     return receipt
 
 
+def acquire_archive(args, archive, *, feed=None, download=None):
+    if args.kind == "package":
+        offline = args.archive
+        if not offline and os.environ.get("QIGAO_PREPARED_INPUTS"):
+            offline = str(Path(os.environ["QIGAO_PREPARED_INPUTS"]) / "blobs" / args.sha256)
+        if offline:
+            shutil.copyfile(offline, archive)
+            if packages.sha256(archive) != args.sha256:
+                raise ValueError("offline archive SHA-256 mismatch")
+            with packages.zipfile.ZipFile(archive) as zipped:
+                list(packages.archive_members(zipped))
+                packages.package_metadata(zipped, args.package_id, args.version)
+        else:
+            feed = feed or packages.NugetFeed(packages.Curl())
+            with redirect_stdout(sys.stderr):
+                feed.package(args.package_id, args.version, archive, expected_sha256=args.sha256)
+    else:
+        (download or archives.verified_download)(args.url, archive, args.sha256,
+                                                 limit=archives.MAX_ARCHIVE)
+    if packages.sha256(archive) != args.sha256:
+        raise ValueError("dependency SHA-256 mismatch")
+
+
+def download_locked(args):
+    validate_request(args)
+    if (args.payload != "." or args.require or args.executable or args.add_path
+            or args.env_prefix or args.github_output):
+        raise ValueError("payload and installation exports do not apply to archive downloads")
+    destination = Path(args.destination).resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    archive = destination / args.sha256
+    if archive.exists():
+        if packages.sha256(archive) != args.sha256:
+            raise ValueError("cached input SHA-256 mismatch")
+        if args.kind == "package":
+            with packages.zipfile.ZipFile(archive) as zipped:
+                packages.package_metadata(zipped, args.package_id, args.version)
+    else:
+        with tempfile.TemporaryDirectory(dir=destination) as temporary:
+            staged = Path(temporary) / ("input.nupkg" if args.kind == "package" else "input.zip")
+            acquire_archive(args, staged)
+            staged.replace(archive)
+    return {"source": source_descriptor(args), "sha256": args.sha256, "archive": normalized(archive)}
+
+
 def restore(args, *, feed=None, download=None):
     validate_request(args)
     # Refuse the caller's symlink before resolve(), including dangling symlinks.
@@ -154,29 +199,10 @@ def restore(args, *, feed=None, download=None):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".native-dependency-", dir=destination.parent) as temporary:
         stage = Path(temporary)
-        if args.kind == "package":
-            archive = stage / "source.nupkg"
-            if args.archive:
-                shutil.copyfile(args.archive, archive)
-                if packages.sha256(archive) != args.sha256:
-                    raise ValueError("offline archive SHA-256 mismatch")
-                with packages.zipfile.ZipFile(archive) as zipped:
-                    list(packages.archive_members(zipped))
-                    packages.package_metadata(zipped, args.package_id, args.version)
-            else:
-                if feed is None:
-                    feed = packages.NugetFeed(packages.Curl())
-                # Hash verification happens BEFORE opening the ZIP.
-                with redirect_stdout(sys.stderr):
-                    feed.package(args.package_id, args.version, archive, expected_sha256=args.sha256)
-        else:
-            suffix = ".tar.xz" if urlsplit(args.url).path.lower().endswith(".tar.xz") else ".zip"
-            archive = stage / ("source" + suffix)
-            (download or archives.verified_download)(args.url, archive, args.sha256,
-                                                    limit=archives.MAX_ARCHIVE)
-        # Independently enforce the lock even for a substituted transport.
-        if packages.sha256(archive) != args.sha256:
-            raise ValueError("dependency SHA-256 mismatch")
+        suffix = ".nupkg" if args.kind == "package" else (
+            ".tar.xz" if urlsplit(args.url).path.lower().endswith(".tar.xz") else ".zip")
+        archive = stage / ("source" + suffix)
+        acquire_archive(args, archive, feed=feed, download=download)
         tree = stage / "installed"
         payload = tree / "payload"
         archives.safe_extract(archive, payload)
@@ -263,6 +289,10 @@ def parser():
     url.add_argument("url")
     locked = sub.add_parser("locked", parents=[common], help="restore an exact source/version/hash from a JSON lock")
     locked.add_argument("lock_file")
+    download = sub.add_parser("download", parents=[common],
+                              help="download a locked archive once into a SHA-256 blob directory; do not install")
+    download.add_argument("lock_file")
+    download.set_defaults(kind="locked", download_only=True)
     resolve = sub.add_parser("resolve", help="explicitly resolve an SDK/tool package version and write a lock; not a vcpkg ABI resolver")
     resolve.add_argument("package_id")
     resolve.add_argument("--version", required=True, help="exact package version or explicit latest stable selection")
@@ -273,7 +303,9 @@ def parser():
 def main():
     try:
         args = parser().parse_args()
-        print(json.dumps(resolve_package(args) if args.kind == "resolve" else restore(args), indent=2))
+        operation = (download_locked if getattr(args, "download_only", False) else
+                     resolve_package if args.kind == "resolve" else restore)
+        print(json.dumps(operation(args), indent=2))
         return 0
     except (ValueError, OSError) as exc:
         print(f"native dependency restore failed: {exc}", file=sys.stderr)

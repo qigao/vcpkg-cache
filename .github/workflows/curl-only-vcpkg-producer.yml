@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   platforms:
-    name: Select dependency platforms
+    name: Prepare shared downloads and platform matrix
     if: github.repository == 'qigao/vcpkg-cache' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     outputs:
@@ -60,6 +60,50 @@ jobs:
           if ($selected.Count -eq 0) { throw 'Unknown dependency platform.' }
           $matrix = @{include=$selected} | ConvertTo-Json -Depth 4 -Compress
           "matrix=$matrix" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache/restore@v4
+        id: shared-downloads
+        with:
+          path: |
+            build/producer-inputs/blobs
+            build/producer-inputs/port-downloads
+          key: vcpkg-shared-inputs-v1-${{ inputs.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-shared-inputs-v1-${{ inputs.platform }}-
+      - name: Install source-download prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends autoconf automake libtool ninja-build pkg-config nasm bison flex libudev-dev curl zip unzip
+      - name: Download and verify shared inputs once
+        id: download
+        shell: pwsh
+        env:
+          PRODUCER_MATRIX: ${{ steps.select.outputs.matrix }}
+        run: |
+          python scripts/prepare-producer-inputs.py build/producer-inputs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: producer-inputs-${{ github.run_id }}
+          path: build/producer-inputs/artifact/
+          overwrite: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Save verified downloads for preparation retries
+        if: always() && steps.shared-downloads.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/producer-inputs/blobs
+            build/producer-inputs/port-downloads
+          key: ${{ steps.shared-downloads.outputs.cache-primary-key }}
 
   build:
     name: Build shared dependencies / ${{ matrix.platform }}
@@ -78,6 +122,7 @@ jobs:
       VCPKG_DOWNLOADS: ${{ github.workspace }}/build/vcpkg-producer/downloads
       ABI_TRIPLET: ${{ matrix.triplet }}
       ABI_HOST_TRIPLET: ${{ matrix.host_triplet }}
+      QIGAO_PREPARED_INPUTS: ${{ github.workspace }}/build/producer-inputs
     steps:
       - uses: actions/checkout@v4
         with:
@@ -94,6 +139,10 @@ jobs:
           key: vcpkg-producer-v2-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             vcpkg-producer-v2-${{ matrix.platform }}-
+      - uses: actions/download-artifact@v4
+        with:
+          name: producer-inputs-${{ github.run_id }}
+          path: build/producer-inputs
       - name: Install Linux source-build tools
         if: runner.os == 'Linux'
         shell: bash
