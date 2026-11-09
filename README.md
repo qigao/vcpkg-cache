@@ -51,6 +51,8 @@ The current shared **Action / registry source** release is
 [`v0.1.2`](https://github.com/qigao/vcpkg-cache/releases/tag/v0.1.2).
 This release adds libyuv/libjpeg-turbo, explicit MSVC and Android production,
 and complete preinstalled reference archives with SHA-256 provenance.
+The tree-sitter CLI license download uses its canonical upstream raw URL,
+retaining the same SHA-512 and CLI release bytes.
 Downstream workflows use a published version, not `@master`, for this cache
 repository's reusable Actions. `v0.1.1` registers GmSSL 3.2.0#44, including
 bounded TLS 1.3 client/server session support, certificate signature/depth/anchor

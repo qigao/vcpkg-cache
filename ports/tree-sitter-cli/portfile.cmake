@@ -8,7 +8,7 @@ elseif(VCPKG_CMAKE_SYSTEM_NAME)
 endif()
 
 vcpkg_download_distfile(license
-	URLS "https://github.com/tree-sitter/tree-sitter/raw/refs/tags/v${VERSION}/LICENSE"
+	URLS "https://raw.githubusercontent.com/tree-sitter/tree-sitter/refs/tags/v${VERSION}/LICENSE"
 	FILENAME "tree-sitter-v${VERSION}-LICENSE"
 	SHA512 50781942281117c409cd4fe79b18314bf26560107e13539bfd8f1e5ded538ab7e00b8e7e665dbc6acb69a6ca524d1a3a5ef2fb3d0156aa0984f68c178d6aeb6e
 )
