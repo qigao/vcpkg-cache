@@ -124,6 +124,30 @@ def main():
         filename = filename.replace("${program_version}", version)
         url = url.replace("${program_version}", version)
         fetch(url, ports / filename, digest, "sha512", hosts=("vcpkg.github.io", "vcpkg.io"))
+        # CMake's acquire-program recipes have their own pins, independent of
+        # vcpkg-tools.json. Meson uses this embedded Python on Windows.
+        python = (vcpkg / "scripts/cmake/vcpkg_find_acquire_program(PYTHON3).cmake").read_text()
+        version = re.search(r"set\(program_version ([^)]+)\)", python).group(1)
+        records = re.findall(
+            r'set\(download_urls "([^"]+)"\)\s*'
+            r'set\(download_filename "([^"]+)"\)\s*'
+            r'set\(download_sha512 ([0-9a-fA-F]{128})\)', python)
+        if len(records) != 3:
+            raise ValueError("pinned Windows Python acquire-program recipe is incomplete")
+        suffixes = {"arm64" if arch == "ARM64" else "amd64" for arch in windows_hosts}
+        for url, filename, digest in records:
+            if any(filename.endswith(f"-embed-{suffix}.zip") for suffix in suffixes):
+                fetch(url.replace("${program_version}", version),
+                      ports / filename.replace("${program_version}", version),
+                      digest.lower(), "sha512", hosts=("www.python.org",))
+        # FLEX intentionally shares this same upstream WinFlexBison archive.
+        bison = (vcpkg / "scripts/cmake/vcpkg_find_acquire_program(BISON).cmake").read_text()
+        version = re.search(r"set\(program_version ([^)]+)\)", bison).group(1)
+        url = re.search(r'set\(download_urls "([^"]+)"\)', bison).group(1)
+        filename = re.search(r'set\(download_filename "([^"]+)"\)', bison).group(1)
+        digest = re.search(r"set\(download_sha512 ([0-9a-f]{128})\)", bison).group(1)
+        fetch(url.replace("${program_version}", version),
+              ports / filename.replace("${program_version}", version), digest, "sha512")
 
     # Use vcpkg's existing reference manifest, not a second dependency graph.
     # --only-downloads never compiles ports; architecture-specific builds remain
