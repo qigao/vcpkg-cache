@@ -123,7 +123,7 @@ def main():
         digest = re.search(r"set\(download_sha512 ([0-9a-f]{128})\)", nasm).group(1)
         filename = filename.replace("${program_version}", version)
         url = url.replace("${program_version}", version)
-        fetch(url, ports / filename, digest, "sha512", hosts=("vcpkg.github.io",))
+        fetch(url, ports / filename, digest, "sha512", hosts=("vcpkg.github.io", "vcpkg.io"))
 
     # Use vcpkg's existing reference manifest, not a second dependency graph.
     # --only-downloads never compiles ports; architecture-specific builds remain
