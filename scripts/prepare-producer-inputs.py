@@ -134,6 +134,7 @@ def main():
     (vcpkg / "vcpkg.disable-metrics").touch()
     environment = dict(os.environ, VCPKG_DOWNLOADS=ports.as_posix(),
                        VCPKG_BINARY_SOURCES="clear",
+                       X_VCPKG_ASSET_SOURCES=f"clear;x-azurl,{blobs.as_uri()}/,,read",
                        VCPKG_OVERLAY_PORTS=(ROOT / "ports").as_posix(),
                        VCPKG_OVERLAY_TRIPLETS=(ROOT / "triplets").as_posix())
     bootstrap.seed_lua_source(ROOT, ports)
