@@ -5,5 +5,5 @@
   "homepage": "https://github.com/tree-sitter/tree-sitter",
   "license": null,
   "supports": "native",
-  "port-version": 3
+  "port-version": 4
 }

@@ -30,6 +30,8 @@ pkgconf = module("producer_pkgconf", "windows_pkgconf.py")
 
 
 def fetch(url, destination, digest, algorithm="sha256", *, hosts=None):
+    source = urlsplit(url)
+    print(f"Prepare {source.hostname}{source.path}", flush=True)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         with destination.open("rb") as stream:
@@ -134,6 +136,7 @@ def main():
                        VCPKG_BINARY_SOURCES="clear",
                        VCPKG_OVERLAY_PORTS=(ROOT / "ports").as_posix(),
                        VCPKG_OVERLAY_TRIPLETS=(ROOT / "triplets").as_posix())
+    bootstrap.seed_lua_source(ROOT, ports)
     subprocess.run([str(vcpkg / "vcpkg"), "install", "--only-downloads",
                     "--triplet=x64-linux", "--host-triplet=x64-linux",
                     f"--x-manifest-root={ROOT}",

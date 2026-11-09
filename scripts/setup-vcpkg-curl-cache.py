@@ -103,6 +103,21 @@ def require_native_curl_owner(infrastructure: Path) -> None:
             raise ValueError(f"incomplete canonical curl-only cache checkout: {name}")
 
 
+def seed_lua_source(infrastructure: Path, source_downloads: Path) -> None:
+    # Unchanged upstream bytes; vcpkg independently verifies its SHA-512.
+    lua_name = "lua-5.4.8.tar.gz"
+    lua_sha256 = "4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae"
+    lua_source = infrastructure / "packaging/sources" / lua_name
+    if hashlib.sha256(lua_source.read_bytes()).hexdigest() != lua_sha256:
+        raise ValueError("pinned upstream Lua source cache digest mismatch")
+    lua_cached = source_downloads / lua_name
+    if lua_cached.exists():
+        if hashlib.sha256(lua_cached.read_bytes()).hexdigest() != lua_sha256:
+            raise ValueError("existing Lua download cache has a different digest")
+    else:
+        shutil.copyfile(lua_source, lua_cached)
+
+
 def main() -> int:
     source_only = len(sys.argv) == 3 and sys.argv[2] == "--source-only"
     if len(sys.argv) != 2 and not source_only:
@@ -268,19 +283,7 @@ def main() -> int:
 
     cache = Path(os.environ.get("VCPKG_BINARY_CACHE") or (workspace / "build/vcpkg-binary-cache")).resolve()
     cache.mkdir(parents=True, exist_ok=True)
-    # These are unchanged upstream distribution bytes, not an alternate port.
-    # vcpkg independently checks its pinned SHA-512 before using this cache.
-    lua_name = "lua-5.4.8.tar.gz"
-    lua_sha256 = "4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae"
-    lua_source = infrastructure / "packaging/sources" / lua_name
-    if hashlib.sha256(lua_source.read_bytes()).hexdigest() != lua_sha256:
-        raise ValueError("pinned upstream Lua source cache digest mismatch")
-    lua_cached = source_downloads / lua_name
-    if lua_cached.exists():
-        if hashlib.sha256(lua_cached.read_bytes()).hexdigest() != lua_sha256:
-            raise ValueError("existing Lua download cache has a different digest")
-    else:
-        shutil.copyfile(lua_source, lua_cached)
+    seed_lua_source(infrastructure, source_downloads)
     values = {
         "VCPKG_ROOT": root.as_posix(),
         "VCPKG_TOOL_REVISION": expected_tool_version,
