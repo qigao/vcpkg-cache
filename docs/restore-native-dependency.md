@@ -213,6 +213,64 @@ cmake -DQIGAO_LOCK_FILE=/path/to/re2c.lock.json \
 
 ## Download once before a platform matrix
 
+### Environment-selected upstream releases
+
+SDK consumers can select an exact upstream version through the parent
+environment instead of editing a URL and digest for every platform. Keep a
+release descriptor in source control, for example `cmake/dependencies/vcpkg-cache.json`:
+
+```json
+{
+  "schema": 1,
+  "source": {
+    "kind": "github-release",
+    "repository": "qigao/vcpkg-cache",
+    "version_env": "VCPKG_CACHE_VERSION",
+    "asset": "installed-${VCPKG_TARGET_TRIPLET}.tar.xz"
+  }
+}
+```
+
+Set `VCPKG_CACHE_VERSION=0.1.3` (without `v`) and the target triplet in
+the shell, or load them from an untracked `.env` through the existing launcher.
+CMake and this CLI do not load `.env` implicitly. CI supplies the same named
+variables, such as repository Actions variables. A missing or non-exact version
+fails; there is no `latest` selection or default version.
+
+```sh
+python scripts/restore-native-dependency.py resolve-release \
+  cmake/dependencies/vcpkg-cache.json \
+  --output-lock build/native-inputs/locks/vcpkg-cache.lock.json
+python scripts/restore-native-dependency.py download \
+  build/native-inputs/locks/vcpkg-cache.lock.json \
+  --destination build/native-inputs/blobs
+```
+
+`resolve-release` queries the selected published tag once and requires one
+matching asset, its canonical URL, positive size and upstream SHA-256 digest.
+It atomically writes the existing literal URL/hash lock format. Failed
+resolution preserves the previous output but exits unsuccessfully; callers
+must stop. The descriptor cannot be its own output. Asset names support strict
+`${ENV_NAME}` substitution; version variables must contain the version alone.
+
+Distribute these generated locks together with the blobs to matrix runners.
+Workers use `locked` with the generated lock; they do not resolve the descriptor
+again. Product-specific SDK manifests, producer qualification and ABI checks
+remain the product's responsibility. For CMake-owned restoration, call
+`qigao_resolve_native_release(DESCRIPTOR ... LOCK_FILE "${CMAKE_BINARY_DIR}/...json")`
+before `qigao_restore_native_dependency`. Resolve before calculating the default
+installation directory, so changing the selected release changes the restore
+identity rather than replacing an installed SDK.
+
+This separates version policy (consumer environment), published bytes (upstream
+asset digest), and restoration (the existing locked reader). Committed
+per-version hash tables require repeated consumer edits; resolving `latest`
+inside each worker can select different releases within one run. Neither is
+needed with the shared prepare step. Existing literal tool locks remain valid;
+roll back a selection by setting the previous exact version and using its
+generated lock, without overwriting an installation. Python regression tests
+for this contract run with `python -m unittest discover -s scripts/tests -v`.
+
 The existing lock can be downloaded without installing a host-specific payload:
 
 ```sh
