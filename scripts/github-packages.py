@@ -88,8 +88,8 @@ def sha256(path):
         return digest.hexdigest()
 
 
-def release_asset(client, repository, tag, asset, destination):
-    if not re.fullmatch(r"(?:qigao/[A-Za-z0-9_.-]+|PowerShell/PowerShell)", repository):
+def release_asset_metadata(client, repository, tag, asset):
+    if not isinstance(repository, str) or not re.fullmatch(r"(?:qigao/[A-Za-z0-9_.-]+|PowerShell/PowerShell)", repository):
         raise ValueError("invalid release repository")
     if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", tag):
         raise ValueError("an exact release tag is required")
@@ -99,7 +99,11 @@ def release_asset(client, repository, tag, asset, destination):
     matches = [item for item in release.get("assets", []) if item.get("name") == asset]
     if len(matches) != 1:
         raise ValueError(f"missing or ambiguous release asset: {repository}@{tag}/{asset}")
-    item = matches[0]
+    return matches[0]
+
+
+def release_asset(client, repository, tag, asset, destination):
+    item = release_asset_metadata(client, repository, tag, asset)
     client.download(item["url"], destination, "application/octet-stream")
     digest = item.get("digest")
     if digest and digest != "sha256:" + sha256(destination):

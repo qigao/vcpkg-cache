@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+from string import Template
 import sys
 import tempfile
 from urllib.parse import urlsplit
@@ -263,6 +264,55 @@ def resolve_package(args, *, feed=None):
     return lock
 
 
+def resolve_release(args, *, client=None, environment=None):
+    """Bind an environment-selected release to its publisher's asset digest.
+
+    The descriptor stays in source control; the generated exact lock belongs
+    to the build inputs. Restore never resolves a descriptor implicitly.
+    """
+    descriptor = json.loads(Path(args.descriptor).read_text(encoding="utf-8-sig"))
+    if (not isinstance(descriptor, dict) or descriptor.get("schema") != 1
+            or not isinstance(descriptor.get("source"), dict)
+            or descriptor["source"].get("kind") != "github-release"):
+        raise ValueError("expected a schema 1 github-release descriptor")
+    source = descriptor["source"]
+    variable = source.get("version_env", "")
+    if not isinstance(variable, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", variable):
+        raise ValueError("version_env must name an uppercase environment variable")
+    environment = os.environ if environment is None else environment
+    version = environment.get(variable, "")
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", version):
+        raise ValueError(f"{variable} must select an exact release version without the v prefix")
+    asset = source.get("asset", "")
+    if not isinstance(asset, str):
+        raise ValueError("release asset must be a filename or environment template")
+    try:
+        asset = Template(asset).substitute(environment)
+    except KeyError as exc:
+        raise ValueError(f"missing release asset environment variable: {exc.args[0]}") from exc
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.(?:zip|tar\.xz)", asset):
+        raise ValueError("release asset must select one .zip or .tar.xz filename")
+    repository = source.get("repository", "")
+    tag = "v" + version
+    item = packages.release_asset_metadata(client or packages.Curl(), repository, tag, asset)
+    url = f"https://github.com/{repository}/releases/download/{tag}/{asset}"
+    digest = item.get("digest", "")
+    if (item.get("browser_download_url") != url
+            or not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+            or type(item.get("size")) is not int or item["size"] <= 0):
+        raise ValueError("release asset must provide its canonical URL, size and SHA-256 digest")
+    lock = {"schema": 1, "source": {"kind": "url", "url": url}, "sha256": digest[7:]}
+    output = Path(args.output_lock).resolve()
+    if output == Path(args.descriptor).resolve():
+        raise ValueError("generated lock must not overwrite its release descriptor")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".native-lock-", dir=output.parent) as temporary:
+        staged = Path(temporary) / "lock.json"
+        staged.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+        staged.replace(output)
+    return lock
+
+
 def append_lines(key, lines):
     with Path(os.environ[key]).open("a", encoding="utf-8", newline="\n") as output:
         output.write("\n".join(lines) + "\n")
@@ -297,6 +347,9 @@ def parser():
     resolve.add_argument("package_id")
     resolve.add_argument("--version", required=True, help="exact package version or explicit latest stable selection")
     resolve.add_argument("--output-lock", required=True)
+    release = sub.add_parser("resolve-release", help="bind an environment-selected GitHub release asset to an exact build-input lock")
+    release.add_argument("descriptor")
+    release.add_argument("--output-lock", required=True)
     return result
 
 
@@ -304,7 +357,8 @@ def main():
     try:
         args = parser().parse_args()
         operation = (download_locked if getattr(args, "download_only", False) else
-                     resolve_package if args.kind == "resolve" else restore)
+                     resolve_package if args.kind == "resolve" else
+                     resolve_release if args.kind == "resolve-release" else restore)
         print(json.dumps(operation(args), indent=2))
         return 0
     except (ValueError, OSError) as exc:

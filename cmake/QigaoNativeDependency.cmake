@@ -15,6 +15,16 @@ function(_qigao_native_run out_json)
   set("${out_json}" "${_json}" PARENT_SCOPE)
 endfunction()
 
+function(qigao_resolve_native_release)
+  cmake_parse_arguments(PARSE_ARGV 0 DEP "" "DESCRIPTOR;LOCK_FILE" "")
+  if(DEP_UNPARSED_ARGUMENTS OR NOT DEP_DESCRIPTOR OR NOT DEP_LOCK_FILE)
+    message(FATAL_ERROR "qigao_resolve_native_release requires DESCRIPTOR and generated LOCK_FILE")
+  endif()
+  get_filename_component(_descriptor "${DEP_DESCRIPTOR}" ABSOLUTE)
+  get_filename_component(_lock "${DEP_LOCK_FILE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+  _qigao_native_run(_result resolve-release "${_descriptor}" --output-lock "${_lock}")
+endfunction()
+
 # Explicit lock update; call from an update script, not on every configure.
 function(qigao_resolve_native_package)
   cmake_parse_arguments(PARSE_ARGV 0 DEP "" "PACKAGE_ID;VERSION;LOCK_FILE" "")

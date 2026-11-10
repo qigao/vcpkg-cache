@@ -19,6 +19,11 @@ validation. An explicit latest-package resolver writes an exact version/hash
 lock; the Action and CMake module both restore that lock. These entry points are
 available in the `v0.1.002` infrastructure release.
 
+For environment-selected SDK releases, `resolve-release` binds an exact
+`VCPKG_CACHE_VERSION` (or another consumer-owned version variable) to the
+published asset's SHA-256. Generated locks stay in build inputs and are shared
+across the platform matrix. See the [release descriptor contract](docs/restore-native-dependency.md#environment-selected-upstream-releases).
+
 The [paired Lemon executable/template package](packaging/lemon/README.md)
 `Qigao.Lemon.Binary` 1.0.0 and `Lemon::Lemon` CMake helper are available with
 `v0.1.003`. Earlier infrastructure tags remain unchanged.
