@@ -1,5 +1,26 @@
 # GmSSL vcpkg source assembly
 
+## Certificate validity diagnostics, port revision 45
+
+`x509-validity-thread-safe-print.patch` removes the shared `ctime` storage from
+`x509_validity_print`. The two dates use caller-owned stack text through POSIX
+`ctime_r` or the Windows CRT `ctime_s`, retaining the local time zone, English
+ctime layout, labels, indentation and trailing newline. Conversion failures
+propagate through the existing error return; unsupported Windows CRT dates are
+rejected before its invalid-parameter handler. No public interface, trust/time
+validation policy, logging suppression, serialization or allocator change.
+
+The reproducer is salts-core's existing concurrent TLS1.2/TLS1.3 M6 CTest:
+[failed TSan job 129546092266](https://github.com/qigao/salts-core/actions/runs/42730173176/job/129546092266).
+Focused format/concurrency regression belongs to the consumer's formal Crypto
+test suite. Other upstream diagnostic `ctime` callers in OCSP, CRLs and TLS trace
+are outside this bounded fix and are not claimed thread-safe.
+
+API contracts: [POSIX ctime](https://pubs.opengroup.org/onlinepubs/9699919799/functions/ctime.html)
+and [Windows ctime_s](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/ctime-s-ctime32-s-ctime64-s-wctime-s-wctime32-s-wctime64-s).
+
+## Historical source ownership
+
 The `gmssl 3.2.0#16` candidate keeps the GmSSL **package owner** and
 source-adaptation pipeline in qigao/vcpkg-cache, but owns **no added
 implementation `.c` or `.h` files**. The original upstream GmSSL source

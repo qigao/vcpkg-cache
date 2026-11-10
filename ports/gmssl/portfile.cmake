@@ -99,6 +99,7 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/tls13-server-session-cache.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-anchor-constraints.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls-prf-failfast-erasure.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/x509-validity-thread-safe-print.patch"
 )
 
 vcpkg_cmake_configure(
