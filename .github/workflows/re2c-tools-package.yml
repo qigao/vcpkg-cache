@@ -102,7 +102,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {runner: macos-15-intel, arch: x86_64, rid: macos-x64}
           - {runner: macos-15, arch: arm64, rid: macos-arm64}
     runs-on: ${{ matrix.runner }}
     steps:
@@ -210,7 +209,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for rid in linux-x64 linux-arm64 macos-x64 macos-arm64 windows-x64 windows-arm64; do
+          for rid in linux-x64 linux-arm64 macos-arm64 windows-x64 windows-arm64; do
             exe=re2c
             if [[ "$rid" == windows-* ]]; then exe=re2c.exe; fi
             test -f "package/tools/$rid/bin/$exe"

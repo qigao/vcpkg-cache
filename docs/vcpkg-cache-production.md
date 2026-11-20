@@ -20,11 +20,11 @@ and **Run workflow** on `master`:
 | --- | --- | --- |
 | `linux-x64` | `ubuntu-24.04` | `x64-linux` |
 | `linux-arm64` | `ubuntu-24.04-arm` | `arm64-linux` |
-| `macos-x64` | `macos-15-intel` | `x64-osx` |
 | `macos-arm64` | `macos-15` | `arm64-osx` |
 | `windows-x64` | `windows-2025` | `qigao-x64-windows-llvm-mingw` |
 | `windows-arm64` | `windows-11-arm` | `qigao-arm64-windows-llvm-mingw` |
 | `windows-msvc-x64` | `windows-2025` | `x64-windows` |
+| `windows-msvc-arm64` | `windows-11-arm` | `arm64-windows` |
 | `android-arm64` | `ubuntu-24.04` | target `arm64-android`, host `x64-linux` |
 | `android-x64` | `ubuntu-24.04` | target `x64-android`, host `x64-linux` |
 
@@ -42,8 +42,8 @@ Verified preparation downloads are cached for retries; compiler installations
 and platform build trees remain local to their owning matrix job.
 
 Unix uses the shared native Clang setup;
-Windows uses the pinned llvm-mingw/UCRT setup, except the explicit MSVC profile,
-which uses the image's Visual Studio. Android uses the image's installed NDK.
+Windows LLVM-MinGW profiles use the pinned UCRT toolchain. Both MSVC profiles
+use the image's Visual Studio. Android uses the image's installed NDK.
 The reference manifest also includes libyuv and libjpeg-turbo on Windows,
 Linux and Android. The producer restores and saves
 its downloads and native ABI archives with Actions cache. Its files provider

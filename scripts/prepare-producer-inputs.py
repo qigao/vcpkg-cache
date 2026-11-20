@@ -69,7 +69,7 @@ def main():
             arch = "ARM64" if platform == "windows-arm64" else "X64"
             windows_hosts.add(arch)
             cli_keys.add("Windows-arm64" if arch == "ARM64" else "Windows-x64")
-            if platform != "windows-msvc-x64":
+            if not platform.startswith("windows-msvc-"):
                 mingw_hosts.add("windows-arm64" if arch == "ARM64" else "windows-x64")
         elif platform.startswith("macos-"):
             arch = "ARM64" if platform == "macos-arm64" else "X64"
