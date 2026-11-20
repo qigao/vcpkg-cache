@@ -66,7 +66,7 @@ def main():
     for row in selected:
         platform = row["platform"]
         if platform.startswith("windows-"):
-            arch = "ARM64" if platform == "windows-arm64" else "X64"
+            arch = "ARM64" if platform.endswith("-arm64") else "X64"
             windows_hosts.add(arch)
             cli_keys.add("Windows-arm64" if arch == "ARM64" else "Windows-x64")
             if not platform.startswith("windows-msvc-"):
