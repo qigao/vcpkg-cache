@@ -1,4 +1,5 @@
 #include <gmssl/hex.h>
+#include <gmssl/x509_alg.h>
 #include <gmssl/x509_cer.h>
 #include <gmssl/x509_key.h>
 #include <gmssl/tls.h>
@@ -49,6 +50,36 @@ static int decode(const char *hex, uint8_t *out, size_t capacity, size_t *outlen
 	*outlen = 0;
 	if (hex_to_bytes(hex, strlen(hex), out, outlen) != 1) return -1;
 	return *outlen <= capacity ? 1 : -1;
+}
+
+static int check_pss_parameters(void)
+{
+	/* SHA-256 with NULL parameters, MGF1 with SHA-256 and a 32-byte salt. */
+	static const char pss_hex[] =
+		"304106092a864886f70d01010a3034a00f300d06096086480165030402010500"
+		"a11c301a06092a864886f70d010108300d06096086480165030402010500a203020120";
+	uint8_t der[80];
+	uint8_t *out = der;
+	const uint8_t *p;
+	size_t len = 0, remaining;
+	int scheme;
+
+	if (x509_signature_algor_to_der(OID_rsassa_pss_sha256, &out, &len) != 1) return 0;
+	p = der;
+	remaining = len;
+	if (x509_signature_algor_from_der(&scheme, &p, &remaining) != 1
+		|| scheme != OID_rsassa_pss_sha256 || remaining) return 0;
+
+	if (decode(pss_hex, der, sizeof(der), &len) != 1) return 0;
+	p = der;
+	remaining = len;
+	if (x509_signature_algor_from_der(&scheme, &p, &remaining) != 1
+		|| scheme != OID_rsassa_pss_sha256 || remaining) return 0;
+
+	der[len - 1] = 20;
+	p = der;
+	remaining = len;
+	return x509_signature_algor_from_der(&scheme, &p, &remaining) < 0;
 }
 
 int main(void)
@@ -131,6 +162,7 @@ int main(void)
 		|| trust_ctx.ca_names_len != 0
 		|| trust_ctx.trusted_authorities_len != 0) return 17;
 	tls_ctx_cleanup(&trust_ctx);
+	if (!check_pss_parameters()) return 18;
 
 	x509_key_cleanup(&cert_key);
 	x509_key_cleanup(&key2);

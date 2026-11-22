@@ -1,5 +1,22 @@
 # GmSSL vcpkg source assembly
 
+## RSA-PSS certificate verification, port revision 46
+
+`x509-rsa-pss-sha256.patch` adds X.509 signature verification with
+rsaEncryption issuer keys, SHA-256, MGF1-SHA256 and a 32-byte salt. The
+AlgorithmIdentifier parser checks each parameter before selecting the existing
+RSA-PSS verifier. TLS certificate policy recognizes the verified profile as
+`rsa_pss_rsae_sha256`. See [RFC 4055 §3](https://www.rfc-editor.org/rfc/rfc4055.html#section-3)
+and [RFC 8446 §4.2.3](https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.3).
+
+## TLS 1.2 certificates signed by P-384 issuers using SHA-512
+
+`x509-p384-sha512.patch` uses the existing P-384 verifier and the leftmost
+384 bits of the SHA-512 digest. TLS 1.2 interprets `0x0603` as an ECDSA/SHA-512
+hash/signature pair in the certificate allowlist. The protocol-aware check
+uses the actual issuer for both presented intermediates and the selected
+trust anchor. TLS 1.3 binds `0x0603` to P-521. [RFC 8446 §4.2.3](https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.3)
+
 ## Certificate validity diagnostics, port revision 45
 
 `x509-validity-thread-safe-print.patch` removes the shared `ctime` storage from

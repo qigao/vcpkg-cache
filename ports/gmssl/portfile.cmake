@@ -100,6 +100,8 @@ vcpkg_apply_patches(
         "${CMAKE_CURRENT_LIST_DIR}/x509-anchor-constraints.patch"
         "${CMAKE_CURRENT_LIST_DIR}/tls-prf-failfast-erasure.patch"
         "${CMAKE_CURRENT_LIST_DIR}/x509-validity-thread-safe-print.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/x509-rsa-pss-sha256.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/x509-p384-sha512.patch"
 )
 
 vcpkg_cmake_configure(
