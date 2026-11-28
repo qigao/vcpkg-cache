@@ -1,0 +1,190 @@
+name: Build TurboMedia media ABI cache
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/media-abi-cache.yml'
+      - 'docs/media-abi-cache.md'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Produce one native media ABI closure or all seven
+        type: choice
+        default: all
+        options: [all, linux-x64, linux-arm64, macos-arm64, windows-x64, windows-arm64, android-x64, android-arm64]
+      product_ref:
+        description: Exact TurboMedia source commit containing its media port recipes
+        type: string
+        required: true
+        default: 'ba2bb226a36cb6218de2b7747ccf212b92ce56da'
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  INFRA_REF: 'ec58174a83d92c8423feeb9d4aac05219bb03424'
+  BASE_CACHE_VERSION: '0.1.9'
+  PRODUCT_REF: ${{ inputs.product_ref || 'ba2bb226a36cb6218de2b7747ccf212b92ce56da' }}
+
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - name: Select native media package profiles
+        id: matrix
+        shell: python
+        env:
+          SELECTED: ${{ inputs.platform || 'linux-x64' }}
+        run: |
+          import json, os, re
+          if not re.fullmatch("[0-9a-f]{40}", os.environ["PRODUCT_REF"]):
+              raise ValueError("Media producer requires an exact product commit")
+          rows = [
+              ("linux-x64", "ubuntu-24.04", "x64-linux", "x64-linux", ""),
+              ("linux-arm64", "ubuntu-24.04-arm", "arm64-linux", "arm64-linux", ""),
+              ("macos-arm64", "macos-15", "arm64-osx", "arm64-osx", ""),
+              ("windows-x64", "windows-2025", "qigao-x64-windows-llvm-mingw", "qigao-x64-windows-llvm-mingw", "x64"),
+              ("windows-arm64", "windows-11-arm", "qigao-arm64-windows-llvm-mingw", "qigao-arm64-windows-llvm-mingw", "arm64"),
+              ("android-x64", "ubuntu-24.04", "x64-android", "x64-linux", ""),
+              ("android-arm64", "ubuntu-24.04", "arm64-android", "x64-linux", ""),
+          ]
+          chosen = [dict(zip(("profile","runner","triplet","host","target"), row))
+                    for row in rows if os.environ["SELECTED"] in ("all", row[0])]
+          if not chosen:
+              raise ValueError("Unknown media platform")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print("value=" + json.dumps({"include": chosen}), file=f)
+
+  media:
+    name: Media ports / ${{ matrix.profile }}
+    needs: select
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    env:
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/media-producer/cache
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/build/media-producer/downloads
+      VCPKG_TARGET_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_HOST_TRIPLET: ${{ matrix.host }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/vcpkg-cache
+          ref: ${{ env.INFRA_REF }}
+          path: build/infrastructure
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: qigao/turbomedia
+          ref: ${{ env.PRODUCT_REF }}
+          path: build/media-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Linux media port build tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config nasm autoconf automake libtool bison flex
+      - name: Install macOS media port build tools
+        if: runner.os == 'macOS'
+        shell: bash
+        run: brew install nasm autoconf automake libtool pkg-config
+      - uses: ./build/infrastructure/.github/actions/setup-llvm-mingw
+        if: runner.os == 'Windows'
+        with:
+          target: ${{ matrix.target }}
+      - name: Select native Clang and Android NDK
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          echo 'CC=clang' >> "$GITHUB_ENV"
+          echo 'CXX=clang++' >> "$GITHUB_ENV"
+          if [[ "$VCPKG_TARGET_TRIPLET" == *-android ]]; then
+            echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: |
+            build/media-producer/cache
+            build/media-producer/downloads
+          key: media-native-${{ env.INFRA_REF }}-${{ env.PRODUCT_REF }}-${{ matrix.profile }}-${{ github.run_id }}
+          restore-keys: media-native-${{ env.INFRA_REF }}-${{ env.PRODUCT_REF }}-${{ matrix.profile }}-
+      - name: Restore canonical vcpkg tool and recipe infrastructure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python build/infrastructure/scripts/setup-vcpkg-curl-cache.py build/infrastructure
+      - name: Resolve exact product ABIs and restore published cache hits
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $source = Join-Path $env:GITHUB_WORKSPACE 'build/media-source'
+          if ((git -C $source rev-parse HEAD).Trim() -ne $env:PRODUCT_REF) { throw 'Incorrect product recipe commit' }
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'build/media-producer'
+          $install = Join-Path $stage 'installed'
+          $plan = Join-Path $stage 'packages.config'
+          $exe = if ($IsWindows) { 'vcpkg.exe' } else { 'vcpkg' }
+          $vcpkg = Join-Path $env:VCPKG_ROOT $exe
+          $args = @('install', "--x-manifest-root=$source", "--x-install-root=$install",
+            "--triplet=$env:VCPKG_TARGET_TRIPLET", "--host-triplet=$env:VCPKG_HOST_TRIPLET")
+          Push-Location $source
+          try {
+            & $vcpkg @args --dry-run "--x-write-nuget-packages-config=$plan"
+          } finally { Pop-Location }
+          python build/infrastructure/scripts/github-packages.py cache $plan $env:VCPKG_BINARY_CACHE --release "v$env:BASE_CACHE_VERSION"
+      - name: Build missing media ABI packages (producer only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $source = Join-Path $env:GITHUB_WORKSPACE 'build/media-source'
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'build/media-producer'
+          $install = Join-Path $stage 'installed'
+          $plan = Join-Path $stage 'packages.config'
+          $exe = if ($IsWindows) { 'vcpkg.exe' } else { 'vcpkg' }
+          $vcpkg = Join-Path $env:VCPKG_ROOT $exe
+          Push-Location $source
+          try {
+            & $vcpkg install "--x-manifest-root=$source" "--x-install-root=$install" `
+              "--triplet=$env:VCPKG_TARGET_TRIPLET" "--host-triplet=$env:VCPKG_HOST_TRIPLET" `
+              "--x-write-nuget-packages-config=$plan"
+          } finally { Pop-Location }
+          @{
+            source_sha = $env:GITHUB_SHA
+            product_source = $env:PRODUCT_REF
+            infrastructure_source = $env:INFRA_REF
+            foundation_cache_version = $env:BASE_CACHE_VERSION
+            triplet = $env:VCPKG_TARGET_TRIPLET
+            host_triplet = $env:VCPKG_HOST_TRIPLET
+            cache_revision = $env:VCPKG_CACHE_REVISION
+            scripts_revision = $env:VCPKG_SCRIPTS_REVISION
+            tool_revision = $env:VCPKG_TOOL_REVISION
+          } | ConvertTo-Json | Set-Content "$stage/source.json" -Encoding utf8
+          python build/infrastructure/scripts/publish-vcpkg-curl-cache.py `
+            --packages-config $plan --cache $env:VCPKG_BINARY_CACHE --release-output "$stage/release"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: media-abi-${{ matrix.profile }}-${{ github.run_id }}
+          path: build/media-producer/release/
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/cache/save@v4
+        if: success() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            build/media-producer/cache
+            build/media-producer/downloads
+          key: ${{ steps.cache.outputs.cache-primary-key }}
