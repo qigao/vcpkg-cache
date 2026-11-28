@@ -22,3 +22,7 @@ Do not replace the existing foundation cache release or claim the full media
 graph is qualified from one profile.
 
 No remote package or release publication is triggered by this workflow.
+
+First producer CI #1 stopped before compilation: the foundation baseline has no
+`ffmpeg-bin2c` entry. The updated product pin includes its matching FFmpeg
+8.1.2 host-only overlay. No other foundation versions were changed.

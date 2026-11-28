@@ -16,7 +16,7 @@ on:
         description: Exact TurboMedia source commit containing its media port recipes
         type: string
         required: true
-        default: 'ba2bb226a36cb6218de2b7747ccf212b92ce56da'
+        default: 'dfb4541dceb758b84699ce3df47a111dfe9ad4ec'
 
 permissions:
   contents: read
@@ -25,7 +25,7 @@ permissions:
 env:
   INFRA_REF: 'ec58174a83d92c8423feeb9d4aac05219bb03424'
   BASE_CACHE_VERSION: '0.1.9'
-  PRODUCT_REF: ${{ inputs.product_ref || 'ba2bb226a36cb6218de2b7747ccf212b92ce56da' }}
+  PRODUCT_REF: ${{ inputs.product_ref || 'dfb4541dceb758b84699ce3df47a111dfe9ad4ec' }}
 
 jobs:
   select:
