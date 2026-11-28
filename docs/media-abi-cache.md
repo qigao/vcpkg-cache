@@ -1,28 +1,27 @@
 # Media-specific ABI producer
 
-Tracks #319 and qigao/turbomedia#280. The normal foundation SDK remains separate.
-The workflow consumes TurboMedia's exact manifest and its own overlays directly
-from an immutable product commit. It does not add FFmpeg to the default shared
-manifest, copy the product recipes, or silently replace an existing SDK.
+Tracks #319 and qigao/turbomedia#280. The foundation release stays separate.
+The workflow uses TurboMedia's exact manifest and product overlays directly
+from an immutable product commit, currently `dfb4541dceb758b84699ce3df47a111dfe9ad4ec`, with the
+published v0.1.9 infrastructure. No recipes are copied into the default
+foundation manifest. PR CI qualifies all seven native target/host profiles;
+manual dispatch can select one profile for investigation.
 
-The compiler/tool/cache source is the published v0.1.9 infrastructure commit
-`ec58174a83d92c8423feeb9d4aac05219bb03424`. The producer restores existing exact ABI archives from v0.1.9,
-builds missing media ports only in this dedicated source producer, and stages
-the shared publisher's ABI ZIPs and per-triplet digest index. Native Linux/macOS
-use the runner's Clang, Windows uses LLVM-MinGW, and Android uses NDK.
-The initial PR qualifies the complete Linux x64 media closure; manual workflow
-dispatch can build all seven architecture profiles with the same product pin.
+Producer CI #2 completed Linux x64: 10 existing ABI hits and 13 missing
+packages built, 23 staged ABI archives. The new matrix must qualify the
+other six profiles as well. Each job stages canonical ABI ZIPs and the
+preinstalled target/host closure. The assembly job verifies every ZIP,
+installed archive, recipe Git object identity and shared infrastructure
+contract; it publishes only a seven-profile installed-closure supplement,
+per-profile ABI digest indexes and the manifest. Individual ABI ZIPs
+remain in the producing workflow artifacts. No new release is created
+by pull-request CI.
 
-A successful producer run stages artifacts, not a new GitHub Release. Review
-actual port results, verify all required profiles and combine only matching
-ABI identities before publishing a separate immutable media supplement.
-The downstream build must resolve the explicit media release and require
-`--only-binarycaching`. It must never rebuild media ports on a cache miss.
-Do not replace the existing foundation cache release or claim the full media
-graph is qualified from one profile.
-
-No remote package or release publication is triggered by this workflow.
-
-First producer CI #1 stopped before compilation: the foundation baseline has no
-`ffmpeg-bin2c` entry. The updated product pin includes its matching FFmpeg
-8.1.2 host-only overlay. No other foundation versions were changed.
+Once all seven profiles pass and the PR is merged, explicitly dispatch
+the workflow on master with `platform=all`, the exact product recipe commit
+and `publish_release=true` to publish `turbomedia-media-v0.1.9-1`.
+That supplement is not the ordinary foundation release or a new Salts SDK
+version. Do not replace its tag/assets; new recipe bytes require a new
+supplement identity. Normal TurboMedia builds restore the checksum-qualified
+installed closure, never compile third-party ports. Source builds belong
+only to this producer. Native product CI remains a separate required gate.
