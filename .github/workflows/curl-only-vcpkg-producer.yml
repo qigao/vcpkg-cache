@@ -1,7 +1,12 @@
 name: Build and publish shared vcpkg cache (curl-only)
-run-name: Shared vcpkg cache / ${{ inputs.platform }} / ${{ github.ref_name }}
+run-name: Shared vcpkg cache / ${{ inputs.platform || 'macos-x64' }} / ${{ github.ref_name }}
 
 on:
+  # Qualify the restored Intel profile using the existing source-build producer.
+  # Release-candidate PRs never publish; the manual all-profile path is unchanged.
+  pull_request:
+    branches: [codex/release-vcpkg-cache-0.1.9]
+    paths: ['.github/workflows/curl-only-vcpkg-producer.yml']
   workflow_dispatch:
     inputs:
       platform:
@@ -13,6 +18,7 @@ on:
           - all
           - linux-x64
           - linux-arm64
+          - macos-x64
           - macos-arm64
           - windows-x64
           - windows-arm64
@@ -42,12 +48,13 @@ jobs:
         id: select
         shell: pwsh
         env:
-          SELECTED_PLATFORM: ${{ inputs.platform }}
+          SELECTED_PLATFORM: ${{ inputs.platform || 'macos-x64' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $platforms = @(
             @{platform='linux-x64'; runner='ubuntu-24.04'; triplet='x64-linux'; host_triplet='x64-linux'}
             @{platform='linux-arm64'; runner='ubuntu-24.04-arm'; triplet='arm64-linux'; host_triplet='arm64-linux'}
+            @{platform='macos-x64'; runner='macos-15-intel'; triplet='x64-osx'; host_triplet='x64-osx'}
             @{platform='macos-arm64'; runner='macos-15'; triplet='arm64-osx'; host_triplet='arm64-osx'}
             @{platform='windows-x64'; runner='windows-2025'; triplet='qigao-x64-windows-llvm-mingw'; host_triplet='qigao-x64-windows-llvm-mingw'}
             @{platform='windows-arm64'; runner='windows-11-arm'; triplet='qigao-arm64-windows-llvm-mingw'; host_triplet='qigao-arm64-windows-llvm-mingw'}
@@ -72,9 +79,9 @@ jobs:
           path: |
             build/producer-inputs/blobs
             build/producer-inputs/port-downloads
-          key: vcpkg-shared-inputs-v1-${{ inputs.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-shared-inputs-v1-${{ inputs.platform || 'macos-x64' }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            vcpkg-shared-inputs-v1-${{ inputs.platform }}-
+            vcpkg-shared-inputs-v1-${{ inputs.platform || 'macos-x64' }}-
       - name: Install source-download prerequisites
         shell: bash
         run: |
